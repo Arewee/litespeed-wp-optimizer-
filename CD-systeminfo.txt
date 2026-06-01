@@ -1,0 +1,173 @@
+Campingdrömmar - systeminfo
+
+`
+### wp-core ###
+
+version: 6.9.4
+site_language: sv_SE
+user_language: sv_SE
+timezone: Europe/Stockholm
+permalink: /%postname%/
+https_status: true
+multisite: false
+user_registration: 0
+blog_public: 1
+default_comment_status: open
+environment_type: production
+user_count: 4
+dotorg_communication: true
+
+### wp-paths-sizes ###
+
+wordpress_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html
+wordpress_size: loading...
+uploads_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/uploads
+uploads_size: loading...
+themes_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/themes
+themes_size: loading...
+plugins_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/plugins
+plugins_size: loading...
+fonts_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/uploads/fonts
+fonts_size: loading...
+database_size: loading...
+total_size: loading...
+
+### wp-dropins (1) ###
+
+object-cache.php: true
+
+### wp-active-theme ###
+
+name: Astra (astra)
+version: 4.13.3
+author: Brainstorm Force
+author_website: https://wpastra.com/about/?utm_source=theme_preview&utm_medium=author_link&utm_campaign=astra_theme
+parent_theme: none
+theme_features: core-block-patterns, astra_hooks, widgets-block-editor, align-wide, automatic-feed-links, title-tag, post-thumbnails, starter-content, html5, post-formats, custom-logo, customize-selective-refresh-widgets, editor-style, responsive-embeds, woocommerce, rank-math-breadcrumbs, amp, wc-product-gallery-zoom, wc-product-gallery-lightbox, wc-product-gallery-slider, widgets, menus
+theme_path: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/themes/astra
+
+### wp-themes-inactive (1) ###
+
+Twenty Twenty-Four: version: 1.5, author: WordPress-teamet
+
+### wp-mu-plugins (2) ###
+
+ManageWP - Worker Loader: version: 1.0.0, author: GoDaddy
+WordPress automation by Installatron: author: (undefined), version: (undefined)
+
+### wp-plugins-active (18) ###
+
+Advanced Product Fields Extended for WooCommerce: version: 3.1.6, author: StudioWombat
+Catch Infinite Scroll: version: 2.2, author: Catch Plugins
+Code Snippets: version: 3.9.6, author: Code Snippets Pro
+Consent & Tracking Manager: version: 1.7.5, author: AreWee
+Elementor: version: 4.1.1, author: Elementor.com
+Elementor Pro: version: 4.1.0, author: Elementor.com
+FluentSMTP: version: 2.2.95, author: FluentSMTP & WPManageNinja Team
+GTM4WP - A Google Tag Manager (GTM) plugin for WordPress: version: 1.22.3, author: Thomas Geiger
+Kustom Checkout for WooCommerce: version: 2.20.3, author: Kustom
+LiteSpeed Cache: version: 7.8.1, author: LiteSpeed Technologies
+Loco Translate: version: 2.8.5, author: Tim Whitlock
+ManageWP - Worker: version: 4.9.34, author: GoDaddy
+Shipmondo for WooCommerce: version: 1.0.5, author: Shipmondo
+SureRank SEO: version: 1.7.4, author: SureRank
+SureRank SEO Pro: version: 1.7.1, author: SureRank
+Weight Based Shipping for WooCommerce: version: 6.15.3, author: weightbasedshipping.com
+WooCommerce: version: 10.6.2, author: Automattic (latest version: 10.8.1)
+Wordfence Security: version: 8.2.2, author: Wordfence
+
+### wp-plugins-inactive (3) ###
+
+Complianz Privacy Suite (GDPR/CCPA) premium: version: 7.5.7.1, author: Complianz
+Flexible Checkout Fields: version: 4.1.37, author: WP Desk
+PixelYourSite: version: 11.2.0.6, author: PixelYourSite
+
+### code-snippets (8) ###
+
+snippet-7: name: Ta bort "produkt x" har lagts till din varukorg meddelande , scope: front-end, modified: 2026-05-07 16:33:08
+snippet-11: name: Ta bort förstoring av produktbild vid hover, scope: front-end, modified: 2024-03-14 15:07:04
+snippet-18: name: Visa Order Key i WooCommerce order admin, scope: admin, modified: 2025-02-20 09:32:13
+snippet-26: name: Ge Shop Manager utökad behörighet, scope: admin, modified: 2025-10-14 12:54:49
+snippet-27: name: Dölj fältet "meddelande till butiken" i kassan, scope: front-end, modified: 2026-03-17 12:59:04
+snippet-28: name: Ändra namn på fraktsätt i kassan, scope: front-end, modified: 2026-03-17 15:04:34
+snippet-29: name: Visa size och dimensions på media, scope: admin, modified: 2026-05-07 16:31:09
+snippet-30: name: USERS LOGGED IN?, scope: admin, modified: 2026-05-07 16:31:53
+
+### wp-media ###
+
+image_editor: WP_Image_Editor_GD
+imagick_module_version: Inte tillgänglig
+imagemagick_version: Inte tillgänglig
+imagick_version: Inte tillgänglig
+file_uploads: 1
+post_max_size: 2G
+upload_max_filesize: 1G
+max_effective_size: 1 GB
+max_file_uploads: 20
+image_format_transforms: image/heic → image/jpeg, image/heif → image/jpeg, image/heic-sequence → image/jpeg, image/heif-sequence → image/jpeg
+gd_version: 2.3.3
+gd_formats: GIF, JPEG, PNG, WebP, BMP, AVIF, XPM
+ghostscript_version: unknown
+
+### wp-server ###
+
+server_architecture: Linux 4.18.0-553.111.1.lve.el8.x86_64 x86_64
+httpd_software: LiteSpeed
+php_version: 8.3.31 64bit
+php_sapi: litespeed
+max_input_variables: 8000
+time_limit: 300
+memory_limit: 8G
+max_input_time: 600
+upload_max_filesize: 1G
+php_post_max_size: 2G
+curl_version: 8.20.0 OpenSSL/1.1.1w
+suhosin: false
+imagick_availability: false
+pretty_permalinks: true
+htaccess_extra_rules: true
+static_robotstxt_file: false
+current: 2026-06-01T17:31:29+00:00
+utc-time: Monday, 01-Jun-26 17:31:29 UTC
+server-time: 2026-06-01T19:31:27+02:00
+
+### wp-database ###
+
+extension: mysqli
+server_version: 10.6.26-MariaDB
+client_version: mysqlnd 8.3.31
+max_allowed_packet: 134217728
+max_connections: 1000
+
+### wp-constants ###
+
+WP_HOME: undefined
+WP_SITEURL: undefined
+WP_CONTENT_DIR: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content
+WP_PLUGIN_DIR: /home/sweetmini/domains/xn--campingdrmmar-qmb.se/public_html/wp-content/plugins
+WP_MEMORY_LIMIT: 768M
+WP_MAX_MEMORY_LIMIT: 8G
+WP_DEBUG: false
+WP_DEBUG_DISPLAY: true
+WP_DEBUG_LOG: false
+SCRIPT_DEBUG: false
+WP_CACHE: true
+CONCATENATE_SCRIPTS: undefined
+COMPRESS_SCRIPTS: undefined
+COMPRESS_CSS: undefined
+WP_ENVIRONMENT_TYPE: undefined
+WP_DEVELOPMENT_MODE: undefined
+DB_CHARSET: utf8
+DB_COLLATE: undefined
+
+### wp-filesystem ###
+
+wordpress: writable
+wp-content: writable
+uploads: writable
+plugins: writable
+themes: writable
+fonts: does not exist
+mu-plugins: writable
+
+`

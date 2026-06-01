@@ -1,0 +1,141 @@
+/* --- Produktkategori: Döljer räknesiffror --- */
+.count {
+	visibility: hidden;
+}
+
+/* --- Produktkategori: Titel stil --- */
+.woocommerce-loop-category__title {
+	opacity: 0.9;
+	height: 2.6em;
+}
+
+/* --- Produktgrid: Döljer sista element på desktop --- */
+@media (min-width: 1025px) {
+	.elementor-grid li:last-child {
+	visibility: hidden;
+}
+
+}
+
+/* --- Populärt just nu: Sista element synligt - osäker på om detta behövs!--- */
+/*
+.selector:last-child {
+	visibility: visible;
+}
+*/
+
+/* --- Startsida produkter: Sista populär-produkt synlig på desktop --- */
+@media (min-width: 1025px) {
+	.popular-products li:last-child {
+		visibility: visible;
+}
+}
+
+/* --- Sidhuvud: WordPress meny pil --- */
+.sub-arrow {
+	fill: white;
+}
+
+/* FLuid font size produktArkiv-produktRubrik */
+.woocommerce-loop-product__title {
+  font-size: clamp(16px, 4vw, 20px)!important;
+}
+
+/* Fluid price */
+.woocommerce-Price-amount bdi{
+    font-size: clamp(14px, 4vw, 18px)!important;
+}
+
+/* NÄSTA KODSTYCKE UNDER DETTA! */
+
+/* --- Kassa: Ordersummering - matchar Kustoms design --- */
+table.woocommerce-checkout-review-order-table,
+table.woocommerce-checkout-review-order-table * {
+    font-family: inherit !important;
+    font-weight: 400 !important;
+    color: #444 !important;
+    font-size: 15px !important;
+    box-shadow: none !important;
+}
+
+table.woocommerce-checkout-review-order-table {
+    border: 1px solid #e8e8e8 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    background: #ffffff !important;
+}
+
+table.woocommerce-checkout-review-order-table thead tr th {
+    padding: 16px 20px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: #444 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    border-bottom: 1px solid #e8e8e8 !important;
+}
+
+table.woocommerce-checkout-review-order-table tbody tr td,
+table.woocommerce-checkout-review-order-table tbody tr th {
+    padding: 18px 20px !important;
+    border: none !important;
+    border-bottom: 1px solid #f2f2f2 !important;
+    background: #ffffff !important;
+    vertical-align: middle !important;
+}
+
+table.woocommerce-checkout-review-order-table tbody .shipping td {
+    text-align: left !important;
+    vertical-align: top !important;
+}
+
+table.woocommerce-checkout-review-order-table tbody .shipping td ul,
+table.woocommerce-checkout-review-order-table tbody .shipping td ul li {
+    margin: 0 !important;
+    padding: 0 !important;
+    list-style: none !important;
+    text-align: left !important;
+}
+
+table.woocommerce-checkout-review-order-table tfoot tr td,
+table.woocommerce-checkout-review-order-table tfoot tr th {
+    padding: 20px !important;
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    color: #444 !important;
+    border: none !important;
+    background: #ffffff !important;
+    vertical-align: middle !important;
+}
+
+/* Undantag: Totalt-raden */
+table.woocommerce-checkout-review-order-table tfoot .order-total th,
+table.woocommerce-checkout-review-order-table tfoot .order-total td,
+table.woocommerce-checkout-review-order-table tfoot .order-total th strong,
+table.woocommerce-checkout-review-order-table tfoot .order-total td strong,
+table.woocommerce-checkout-review-order-table tfoot .order-total bdi {
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    color: #444 !important;
+}
+
+table.woocommerce-checkout-review-order-table tfoot .order-total td small,
+table.woocommerce-checkout-review-order-table tfoot .order-total td small.includes_tax {
+    display: block !important;
+    font-size: 12px !important;
+    color: #444 !important;
+    font-weight: 400 !important;
+    margin-top: 4px !important;
+}
+
+table.woocommerce-checkout-review-order-table .variation dt,
+table.woocommerce-checkout-review-order-table .variation dd {
+    font-size: 13px !important;
+    color: #444 !important;
+    font-weight: 400 !important;
+}
+
+/* DÖLJ ANTAL OCH SORTERINGSALTERNATIV I SÖRRESULTAT  */
+.woocommerce-ordering { display: none !important; }
+.woocommerce-result-count { display: none !important; }
+
