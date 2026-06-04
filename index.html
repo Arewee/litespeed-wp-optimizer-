@@ -3,14 +3,20 @@
 <head>
   <script>
     window.onerror = function(message, source, lineno, colno, error) {
+      if (!message || 
+          message.includes("ResizeObserver") || 
+          (message.includes("Script error") && (lineno === 0 || !source))) {
+        console.warn("Ignorerat globalt fel:", message, source, lineno);
+        return true;
+      }
       alert("GLOBAL ERROR DETECTED:\n" + message + "\nFile: " + source + "\nLine: " + lineno);
       return false;
     };
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LiteSpeed-Helper - WordPress prestanda & stabilitetsoptimerare</title>
-  <meta name="description" content="LiteSpeed-Helper analyserar din WordPress-systemfil och rekommenderar säkra, stabila prestandainställningar för LiteSpeed Cache, anpassat för WooCommerce och Elementor.">
+  <title>AreWee WP-Optimizer - WordPress prestanda & stabilitetsoptimerare (v2.1.0)</title>
+  <meta name="description" content="AreWee WP-Optimizer analyserar din WordPress-systemfil och rekommenderar säkra, stabila prestandainställningar för LiteSpeed Cache, WooCommerce, Elementor och Wordfence.">
   <link rel="stylesheet" href="css/styles.css?v=1.9">
   <style>
     .btn-pulse {
@@ -155,30 +161,60 @@
     <header class="app-header" style="margin-bottom: 1.5rem;">
       <div class="logo-container">
         <span class="logo-icon">⚡</span>
-        <h1 class="logo-text">LiteSpeed-Helper</h1>
-        <span class="logo-tag">Stabilitet Först</span>
+        <h1 class="logo-text">AreWee WP-Optimizer</h1>
+        <span class="logo-tag">Stabilitet Först (v2.1.0)</span>
       </div>
-      <div class="version-badge">
-        <span class="version-dot"></span>
-        <span>Referens: LiteSpeed Cache v6.2.x</span>
+      <!-- Active Site Dropdown (Header bar widget) -->
+      <div class="active-site-dropdown-wrapper" style="position: relative; display: flex; align-items: center; gap: 0.75rem;">
+        <div class="version-badge" style="margin-right: 0; display: none;">
+          <span class="version-dot"></span>
+          <span id="lscwp-ref-badge">Referens: LiteSpeed Cache v7.8.1</span>
+        </div>
+        
+        <div id="header-active-site-widget" class="glass-card" style="padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; border: 1px solid rgba(99, 102, 241, 0.2); background: rgba(99, 102, 241, 0.05); border-radius: 8px; font-size: 0.8rem; user-select: none; transition: all 0.2s;">
+          <span style="font-size: 1rem;">🌐</span>
+          <div style="display: flex; flex-direction: column; line-height: 1.2;">
+            <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: 500;">Aktiv sajt</span>
+            <strong id="status-bar-site-name" style="color: #fff; font-weight: 600;">Ingen sajt inläst</strong>
+          </div>
+          <span id="header-active-site-summary" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.4rem; padding-left: 0.4rem; border-left: 1px solid rgba(255,255,255,0.1);">0 av 6 filer (idag)</span>
+          <span id="header-active-site-arrow" style="font-size: 0.65rem; color: var(--text-muted); margin-left: 0.25rem;">▼</span>
+        </div>
+
+        <!-- Dropdown panel (Hidden by default) -->
+        <div id="header-active-site-dropdown-panel" class="glass-card" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 0.5rem; width: max-content; min-width: 340px; max-width: 90vw; z-index: 1000; padding: 1rem; border: 1px solid rgba(99, 102, 241, 0.25); background: rgba(15, 23, 42, 0.95); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5); border-radius: 12px;">
+          <h4 style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.4rem;">
+            Inlästa datakällor
+          </h4>
+          <div id="status-bar-files-list" style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.72rem;">
+            <!-- Dynamically populated in app.js -->
+          </div>
+        </div>
       </div>
     </header>
 
     <!-- Master View Navigation -->
     <nav class="master-navigation">
       <button class="master-tab-btn active" id="master-tab-inputs">
-        <span>📂</span> Datakällor & CSS
+        <span>📂</span> Datakällor & Kod
       </button>
       <button class="master-tab-btn" id="master-tab-overview">
-        <span>📊</span> Översikt
+        <span>📊</span> Översikt & Karta
       </button>
       <button class="master-tab-btn" id="master-tab-risks">
-        <span>🛡️</span> Risker & Kompatibilitet
+        <span>🛡️</span> Konfliktdetektor
       </button>
       <button class="master-tab-btn" id="master-tab-settings">
-        <span>⚙️</span> LSCWP Inställningar
+        <span>⚙️</span> Verktygsoptimering
+      </button>
+      <button class="master-tab-btn" id="master-tab-history">
+        <span>💾</span> Sparad historik
+      </button>
+      <button class="master-tab-btn" id="master-tab-sources">
+        <span>📚</span> Referenser
       </button>
     </nav>
+
 
     <!-- VIEW 1: Datakällor & CSS (Startsida / Inmatning) -->
     <div id="view-inputs" class="view-section active">
@@ -273,6 +309,36 @@
           <textarea id="app-custom-css-pastebox" class="glass-card" placeholder="/* Klistra in din anpassade CSS-kod direkt här för prestandaanalys (t.ex. från child-theme eller Elementor) */" style="width: 100%; min-height: 100px; font-family: monospace; font-size: 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); color: var(--text-main); padding: 0.75rem; border-radius: 8px; resize: vertical; outline: none; transition: border-color var(--transition-fast);"></textarea>
           <div id="app-custom-css-audit-results" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem;">
             <div style="color: var(--text-muted); font-size: 0.75rem;">Skriv eller klistra in CSS ovan för att starta prestanda- och stabilitetsgranskning.</div>
+          </div>
+        </div>
+
+        <!-- REST API SYNC CONNECTOR SECTION -->
+        <div style="margin-top: 1.25rem; background: rgba(99, 102, 241, 0.03); border: 1px solid rgba(99, 102, 241, 0.12); padding: 1.25rem; border-radius: 12px; display: flex; flex-direction: column; gap: 0.85rem;">
+          <h4 style="font-family: var(--font-heading); color: #c7d2fe; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.1rem; margin-top: 0;">
+            <span>⚡</span> Anslut live via WordPress Sync-plugin
+          </h4>
+          <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin: 0;">
+            Undvik manuell filuppladdning! Ladda ner vårt sync-plugin, installera på din WordPress-sajt och ange din token nedan för att hämta all diagnostic- och miljödata live med ett klick.
+          </p>
+          
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <input type="text" id="api-site-url" class="glass-card" placeholder="Sajt-URL (t.ex. https://min-butik.se)" style="flex: 2; min-width: 220px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); color:#fff; border-radius: 8px; outline:none; height: 38px;">
+            <input type="text" id="api-sync-token" class="glass-card" placeholder="Anslutnings-token" style="flex: 1; min-width: 150px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); color:#fff; border-radius: 8px; outline:none; height: 38px;">
+            
+            <button id="btn-api-fetch" class="btn-primary" style="font-size: 0.8rem; padding: 0.55rem 1.25rem; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo)); height: 38px; border-radius: 8px; box-shadow: none;">
+              🔄 Hämta data live
+            </button>
+            <button id="btn-api-push" class="btn-primary" disabled style="font-size: 0.8rem; padding: 0.55rem 1.25rem; background: rgba(255,255,255,0.05); color: var(--text-muted); height: 38px; border-radius: 8px; box-shadow: none;">
+              🚀 Skicka inställningar live
+            </button>
+          </div>
+          
+          <div style="display: flex; gap: 1rem; align-items: center; border-top: 1px solid rgba(255,255,255,0.04); padding-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap;">
+            <span>Ladda ner pluginet och installera:</span>
+            <button id="btn-download-sync-plugin" class="btn-primary" style="font-size: 0.72rem; padding: 0.35rem 0.85rem; background: rgba(255, 255, 255, 0.03); color: #cbd5e1; box-shadow: none; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; cursor: pointer;">
+              📥 Ladda ner wp-optimizer-sync.php
+            </button>
+            <span id="api-sync-status-text" style="color: var(--text-muted); margin-left: auto; font-weight: 500;">Status: Inte ansluten</span>
           </div>
         </div>
 
@@ -400,6 +466,25 @@
               <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.5;">
                 Vi har skannat din WordPress-miljö. Här är en sammanfattning av de mest affärskritiska resultaten för din prestanda och stabilitet.
               </p>
+
+              <!-- Conflict Topology Map Container -->
+              <div class="topology-map-card glass-card" style="margin-bottom: 1.5rem; padding: 1.5rem; position: relative;">
+                <h4 style="font-family: var(--font-heading); color: #fff; font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <span>🌐</span> WordPress Miljökarta (Conflict Topology)
+                </h4>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+                  Visar relationer och krockar mellan dina WordPress-komponenter i realtid. Röda linjer visar aktiva konflikter. Klicka på en nod för att visa mer info.
+                </p>
+                <div class="topology-wrapper" style="position: relative; width: 100%; height: 260px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03); overflow: hidden;">
+                  <!-- SVG for Connection Lines -->
+                  <svg id="topology-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;">
+                  </svg>
+                  
+                  <!-- Topology Nodes Container -->
+                  <div id="topology-nodes" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2;">
+                  </div>
+                </div>
+              </div>
 
               <!-- Findings Status Badge Grid -->
               <div class="findings-grid" style="margin-bottom: 1.5rem;">
@@ -579,14 +664,177 @@
           </div>
 
           <!-- Exporter Action Bar -->
-          <div class="action-bar">
-            <div class="summary-stats" id="stats-changes-count">
+          <div class="action-bar" style="flex-wrap: wrap; gap: 1rem; align-items: center;">
+            <div class="summary-stats" id="stats-changes-count" style="flex: 1 1 100%; margin-bottom: 0.5rem;">
               Väntar på optimeringsprofil...
             </div>
-            <button class="btn-primary" id="btn-export" disabled>
-              <span>📥</span> Generera & Ladda ner .data-fil
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; width: 100%; justify-content: flex-end;">
+              <button class="btn-primary" id="btn-export" disabled style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo));">
+                <span>📥</span> 1. LiteSpeed .data-fil
+              </button>
+              <button class="btn-primary" id="btn-export-php" disabled style="background: linear-gradient(135deg, #ec4899, #8b5cf6);">
+                <span>🔌</span> 2. PHP Auto-Optimizer
+              </button>
+              <button class="btn-primary" id="btn-export-json" disabled style="background: linear-gradient(135deg, #10b981, #059669);">
+                <span>📄</span> 3. Code Snippets JSON
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW 4.5: Sparad historik & Jämförelse -->
+    <div id="view-history" class="view-section">
+      <div class="glass-card" style="padding: 1.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+          <div>
+            <h2 class="section-title" style="font-size: 1.5rem; margin-bottom: 0.25rem; color: #fff;">💾 Sparad historik & Jämförelse</h2>
+            <p class="section-desc" style="margin-bottom: 0;">
+              Hantera och jämför analyserade sajtprofiler lokalt. All data sparas i din webbläsares lokala lagring.
+            </p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn-primary" id="btn-save-current-profile" style="font-size: 0.8rem; padding: 0.5rem 1rem; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo));">
+              <span>💾</span> Spara nuvarande
+            </button>
+            <button class="btn-primary" id="btn-export-history" style="font-size: 0.8rem; padding: 0.5rem 1rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1);">
+              <span>📤</span> Exportera bibliotek
+            </button>
+            <button class="btn-primary" id="btn-import-history-trigger" style="font-size: 0.8rem; padding: 0.5rem 1rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1);">
+              <span>📥</span> Importera bibliotek
+            </button>
+            <input type="file" id="history-import-file" style="display: none;" accept=".json">
+            <button class="btn-primary" id="btn-clear-history" style="font-size: 0.8rem; padding: 0.5rem 1rem; background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2);">
+              <span>🗑️</span> Rensa allt
             </button>
           </div>
+        </div>
+
+        <!-- Jämförelse Modul -->
+        <div id="history-comparison-card" class="glass-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.06); padding: 1.25rem; margin-bottom: 2rem;">
+          <h3 style="font-family: var(--font-heading); color: #c7d2fe; font-size: 1.1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚖️</span> Jämför sajtprofiler sida vid sida
+          </h3>
+          <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 200px;">
+              <label style="font-size: 0.75rem; color: var(--text-muted);">Sajt Profil A</label>
+              <select id="compare-select-a" class="glass-card" style="padding: 0.5rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color:#fff; border-radius: 8px; outline:none; font-size:0.85rem; width:100%; height:38px;"></select>
+            </div>
+            <div style="font-size: 1.2rem; color: var(--text-muted); margin-top: 1rem;">vs</div>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 200px;">
+              <label style="font-size: 0.75rem; color: var(--text-muted);">Sajt Profil B</label>
+              <select id="compare-select-b" class="glass-card" style="padding: 0.5rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color:#fff; border-radius: 8px; outline:none; font-size:0.85rem; width:100%; height:38px;"></select>
+            </div>
+            <button id="btn-compare-execute" class="btn-primary" style="margin-top: 1.1rem; padding: 0.55rem 1.5rem; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo)); border-radius: 8px; height:38px; display:flex; align-items:center; justify-content:center;">
+              Kör jämförelse
+            </button>
+          </div>
+
+          <div id="comparison-result-table-wrapper" style="display: none; overflow-x: auto; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem;">
+            <!-- Comparison Table renders here -->
+          </div>
+        </div>
+
+        <!-- Saved Profiles List -->
+        <h3 style="font-family: var(--font-heading); color: #fff; font-size: 1.1rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.4rem;">
+          <span>📋</span> Sparade webbplatsprofiler
+        </h3>
+        <div id="history-profiles-grid" class="findings-grid" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem;">
+          <!-- Dynamically populated profile cards -->
+        </div>
+        <div id="history-empty-state" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); font-size: 0.9rem;">
+          Inga sparade profiler hittades. Analysera en sajt och klicka på "Spara nuvarande" för att börja bygga din historik.
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 5: Källor & Referenser -->
+    <div id="view-sources" class="view-section">
+      <div class="glass-card" style="padding: 1.75rem;">
+        <h2 class="section-title" style="font-size: 1.5rem; margin-bottom: 0.5rem; color: #fff; font-weight: 700;">📚 Källor, Referenser & Indata</h2>
+        <p class="section-desc" style="margin-bottom: 1.5rem;">
+          Verifiera tillförlitligheten i vår analys. Denna panel visar vilka indatafiler som lästs in samt vilka officiella dokumentationer och prestandamallar som reglerna har validerats mot.
+        </p>
+
+        <!-- Underlag Grid -->
+        <h3 style="font-family: var(--font-heading); color: #fff; font-size: 1.1rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.4rem;">
+          <span>📂</span> Analyserade systemfiler & versioner
+        </h3>
+        <div class="findings-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 2rem;" id="sources-files-grid">
+          <!-- Dynamically populated sources metadata cards -->
+        </div>
+
+        <!-- Referenser Grid -->
+        <h3 style="font-family: var(--font-heading); color: #fff; font-size: 1.1rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.4rem;">
+          <span>📖</span> Officiella prestandadokument & specifikationer
+        </h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+          
+          <!-- Elementor specifications -->
+          <div class="roadmap-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 1.25rem;">
+            <h4 id="elementor-spec-title" style="color: #c084fc; font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              🎨 Elementor v4.1.1 (Senaste live-versionen)
+            </h4>
+            <p style="color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; margin-bottom: 0.75rem;">
+              Enligt Elementors officiella prestandadokumentation ska inbyggda optimeringar (såsom *Lazy Load Images* och *Optimized Image Loading*) **inaktiveras** i inställningarna om en extern cachningslösning som LiteSpeed Cache används.
+            </p>
+            <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.02);">
+              <strong>Sökväg:</strong> <code>Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images</code><br>
+              <strong>Källa:</strong> Elementor Help Center - Optimizing Image Loading.
+            </div>
+          </div>
+
+          <!-- LiteSpeed Cache specifications -->
+          <div class="roadmap-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 1.25rem;">
+            <h4 id="lscwp-spec-title" style="color: var(--accent-cyan); font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              ⚡ LiteSpeed Cache v7.8.1 (Konfigurationer)
+            </h4>
+            <p style="color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; margin-bottom: 0.75rem;">
+              Våra rekommendationer är baserade på LiteSpeed Technologies officiella manualer för e-handelsstabilitet och serverbaserad sidoptimering.
+            </p>
+            <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.02);">
+              <strong>Nycklar som valideras:</strong> <code>cache-exc</code> (sökvägar), <code>optm-js_exc</code> (JS-undantag), <code>object</code> (objektcache), <code>esi</code> (Edge Side Includes).
+            </div>
+          </div>
+
+          <!-- Recommended Performance Profile documentation sources -->
+          <div class="roadmap-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 1.25rem;">
+            <h4 style="color: var(--color-warning); font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              📋 Rekommenderad prestandaprofil
+            </h4>
+            <p style="color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; margin-bottom: 0.75rem;">
+              Vår profil är byggd på en sammanställning av officiella prestandadokument och branschpraxis:
+            </p>
+            <div style="background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.02); line-height: 1.4;">
+              • <strong>LSCWP Advanced Preset:</strong> Officiella LiteSpeed-rekommendationer för CSS/JS-optimering.<br>
+              • <strong>WooCommerce Developer Docs:</strong> Exkluderingskrav för dynamiska sessioner.<br>
+              • <strong>Google Web Dev (LCP/CLS):</strong> Praxis för undvikande av renderblockerande JS/CSS samt lazy-loading av logotyper/herobilder.
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Klarna & Payment Gateway consensus citations -->
+        <h3 style="font-family: var(--font-heading); color: #fff; font-size: 1.1rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.4rem;">
+          <span>🤝</span> Konsensus & Utvecklarreferenser
+        </h3>
+        <div style="background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 1.25rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+          <ul style="list-style-type: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
+            <li style="border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.6rem;">
+              <strong style="color: #fff;">💳 Klarna Checkout (KCO) & Stripe Integration:</strong><br>
+              Officiella utvecklardokumentationer kräver att checkout-skript (som `klarna`, `kco`, `stripe`, `paypal`) **aldrig** skjuts upp (Defer) eller slås samman (Combine), eftersom de laddar asynkrona iframe-anslutningar som bryts om ordningen förändras.
+            </li>
+            <li style="border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.6rem;">
+              <strong style="color: #fff;">🛍️ Kustom Checkout & WooCommerce-teman:</strong><br>
+              Anpassade kassalayout-tillägg som Kustom Checkout kräver exkludering av sina egna JS-filer (sökord: `kustom`) för att undvika att kassafält låser sig eller att AJAX-ordersummeringen slutar fungera.
+            </li>
+            <li>
+              <strong style="color: #fff;">🛒 Elementor Minicart & AJAX fragmentering:</strong><br>
+              WooCommerces inbyggda skript `wc-cart-fragments` laddar kundvagnens tillstånd dynamiskt. Om det komprimeras eller skjuts upp uppstår cache-fördröjningar där besökaren ser en tom minicart eller gamla belopp i headern. Exkludering av `wc-cart-fragments` och `woocommerce` är ett krav.
+            </li>
+          </ul>
         </div>
 
       </div>

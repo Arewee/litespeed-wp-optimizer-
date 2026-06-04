@@ -1,10 +1,65 @@
 /**
- * LiteSpeed-Helper - Rules Engine
+ * AreWee WP-Optimizer - Rules Engine
  * Implements a three-tiered auditing system, payment gateway checklists,
  * and comprehensive expert citations mapping (Official LiteSpeed vs Google Web Dev/WP Rocket consensus).
  */
 
-const LSCWP_REFERENCE_VERSION = "6.2.x";
+const LSCWP_REFERENCE_VERSION = "7.8.1";
+
+/**
+ * Smart matching helper for exclusions. Checks if all entries in recommendedStr are
+ * covered in currentStr, handling wildcards, regex patterns and casing.
+ */
+function checkMissingExclusions(currentStr, recommendedStr) {
+  const cleanCur = (currentStr || "").toString().trim().toLowerCase().replace(/\r\n/g, "\n");
+  const cleanRec = (recommendedStr || "").toString().trim().toLowerCase().replace(/\r\n/g, "\n");
+  
+  const curExcludes = cleanCur.split("\n").map(x => x.trim()).filter(Boolean);
+  const recExcludes = cleanRec.split("\n").map(x => x.trim()).filter(Boolean);
+  
+  const normalize = (str) => {
+    let norm = str.replace(/[\^\$\*\\\/]/g, "").trim();
+    norm = norm.replace(/^wc-/, "");
+    norm = norm.replace(/\.min\.(js|css)$/, "").replace(/\.(js|css)$/, "");
+    return norm;
+  };
+
+  const isCovered = (recRule) => {
+    const normRec = normalize(recRule);
+    if (!normRec) return true;
+    
+    return curExcludes.some(curRule => {
+      const normCur = normalize(curRule);
+      return normCur.includes(normRec) || normRec.includes(normCur);
+    });
+  };
+  
+  return recExcludes.filter(r => !isCovered(r));
+}
+
+if (typeof window !== "undefined") {
+  window.checkMissingExclusions = checkMissingExclusions;
+}
+
+/**
+ * Smart merging helper for exclusions. Appends any missing recommended rules
+ * to the user's current rules list, preserving their existing custom exclusions.
+ */
+function mergeExclusions(currentVal, recommendedVal) {
+  const cleanCur = (currentVal || "").toString().trim().replace(/\r\n/g, "\n");
+  const cleanRec = (recommendedVal || "").toString().trim().replace(/\r\n/g, "\n");
+  
+  const curExcludes = cleanCur.split("\n").map(x => x.trim()).filter(Boolean);
+  const missing = checkMissingExclusions(currentVal, recommendedVal);
+  
+  if (missing.length === 0) return cleanCur;
+  
+  return [...curExcludes, ...missing].join("\n");
+}
+
+if (typeof window !== "undefined") {
+  window.mergeExclusions = mergeExclusions;
+}
 
 /**
  * Parses and runs multi-file analysis to generate environment insights and LiteSpeed Cache recommendations.
@@ -19,6 +74,16 @@ const LSCWP_REFERENCE_VERSION = "6.2.x";
  */
 function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, uploadedSettings = null, customCode = null, customCss = "") {
   const alerts = [];
+  
+  let lscwpVersion = LSCWP_REFERENCE_VERSION; // default "7.8.1"
+  if (sysInfo && sysInfo["wp-plugins-active"]) {
+    const keys = Object.keys(sysInfo["wp-plugins-active"]);
+    const matchKey = keys.find(k => k.toLowerCase() === "litespeed-cache" || k.toLowerCase() === "litespeed cache");
+    if (matchKey) {
+      lscwpVersion = sysInfo["wp-plugins-active"][matchKey].version;
+    }
+  }
+  
   const customCodeAlerts = [];
   const environment = {
     wpVersion: "Okänd",
@@ -31,6 +96,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     hasWordfence: false,
     hasObjectCache: false,
     hasImagick: true,
+    hasKustomCheckout: false,
     wooGateways: [],
     wooOverrides: [],
     wfFirewallMode: "Okänd",
@@ -69,6 +135,24 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     if (nameLower.includes("woocommerce")) environment.hasWooCommerce = true;
     if (nameLower.includes("elementor")) environment.hasElementor = true;
     if (nameLower.includes("wordfence")) environment.hasWordfence = true;
+    
+    // Auto-populate gateways based on active plugins list as a fallback/enhancement
+    if (nameLower.includes("klarna")) {
+      if (!environment.wooGateways.includes("Klarna")) environment.wooGateways.push("Klarna");
+    }
+    if (nameLower.includes("stripe")) {
+      if (!environment.wooGateways.includes("Stripe")) environment.wooGateways.push("Stripe");
+    }
+    if (nameLower.includes("paypal")) {
+      if (!environment.wooGateways.includes("PayPal")) environment.wooGateways.push("PayPal");
+    }
+    if (nameLower.includes("shipmondo")) {
+      if (!environment.wooGateways.includes("Shipmondo")) environment.wooGateways.push("Shipmondo");
+    }
+    if (nameLower.includes("kustom checkout") || nameLower.includes("kustom-checkout") || nameLower.includes("kustom")) {
+      environment.hasKustomCheckout = true;
+      if (!environment.wooGateways.includes("Kustom Checkout")) environment.wooGateways.push("Kustom Checkout");
+    }
   });
 
   if (wooInfo) {
@@ -86,6 +170,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
   if (elemInfo) {
     environment.hasElementor = true;
     if (elemInfo.experiments) environment.elemExperiments = elemInfo.experiments;
+    environment.hasElementorLazyLoad = elemInfo.hasLazyLoad || false;
   }
 
   // --- 2. 3-BULLET PER-FILE DIAGNOSTIC SUMMARIES (🟢, 🟡, 🔴) ---
@@ -108,8 +193,8 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     ],
     elemInfo: [
       { text: "Ladda upp Elementor statusrapport för granskning.", status: "neutral" },
-      { text: "Söker efter CSS-experiment som krockar med cachen.", status: "neutral" },
-      { text: "Granskar minnesgränser och Elementors inbyggda lazyload.", status: "neutral" }
+      { text: "Granskar minnesgränser och Elementors inbyggda lazyload-funktioner.", status: "neutral" },
+      { text: "Söker efter aktiva prestandafunktioner (Features) som krockar.", status: "neutral" }
     ],
     customCode: [
       { text: "Koppla functions.php eller snippets för granskning.", status: "neutral" },
@@ -178,8 +263,13 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     const cssExperiment = environment.elemExperiments.find(e => e.includes("css") || e.includes("assets"));
     fileSummaries.elemInfo = [
       { text: "Elementor Page Builder upptäckt.", status: "success" },
-      { text: cssExperiment ? `Experiment '${cssExperiment}' är aktivt.` : "Inga krockande CSS-experiment aktiva.", status: cssExperiment ? "warning" : "success" },
-      { text: "Minnesgräns och asset-laddning granskad.", status: "success" }
+      { 
+        text: environment.hasElementorLazyLoad 
+          ? "Elementors egna Lazy Load är AKTIVERAT (Risk för krock!)." 
+          : "Elementors inbyggda Lazy Load är inaktiverat (Optimalt).", 
+        status: environment.hasElementorLazyLoad ? "danger" : "success" 
+      },
+      { text: cssExperiment ? `Funktionen '${cssExperiment}' är aktiv.` : "Inga krockande prestandafunktioner aktiva.", status: cssExperiment ? "warning" : "success" }
     ];
   } else if (environment.hasElementor) {
     fileSummaries.elemInfo = [
@@ -351,15 +441,83 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     }
 
     if (environment.hasElementor) {
-      alerts.push({
-        type: "warning",
-        title: "Lazyload-krock: Elementor vs LiteSpeed",
-        desc: "Elementor har inbyggd bild-lazyload som kan krocka med LiteSpeeds. Dubbelkolla att Elementors egna 'Lazy Load Images' är inaktiverat under Elementor -> Inställningar -> Funktioner för att låta LiteSpeed hantera all lazyload centralt och felfritt.",
-        icon: "🖼️",
-        wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images",
-        targetTabId: "page_optimization_media",
-        targetSettingId: "media_lazy_exclude"
-      });
+      if (elemInfo) {
+        if (environment.hasElementorLazyLoad) {
+          alerts.push({
+            type: "danger",
+            title: "Lazyload-krock: Elementor vs LiteSpeed (Aktivt!)",
+            desc: "Elementors inbyggda bild-lazyload är aktiverat i din miljö samtidigt som LiteSpeed lazyload körs. Detta orsakar dubbel bearbetning av bilder, sämre LCP och potentiella layout-hopp (CLS). Inaktivera Elementors lazyload under Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images för att låta LiteSpeed hantera all lazyload.",
+            icon: "🚨",
+            wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images",
+            targetTabId: "page_optimization_media",
+            targetSettingId: "media_lazy_exclude"
+          });
+        } else {
+          alerts.push({
+            type: "success",
+            title: "Elementor Lazyload OK",
+            desc: "Elementors inbyggda bild-lazyload är inaktiverat, vilket är optimalt då LiteSpeed Cache hanterar lazyloading.",
+            icon: "✅"
+          });
+        }
+      } else {
+        alerts.push({
+          type: "warning",
+          title: "Lazyload-krock risk: Elementor vs LiteSpeed",
+          desc: "Elementor upptäcktes bland aktiva tillägg. Om Elementors egna 'Lazy Load Images' är aktivt kan det krocka med LiteSpeeds optimering. Dubbelkolla inställningen eller ladda upp Elementor statusrapport (ruta 4) för automatisk verifiering.",
+          icon: "⚠️",
+          wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images",
+          targetTabId: "page_optimization_media",
+          targetSettingId: "media_lazy_exclude"
+        });
+      }
+    }
+
+    if (uploadedSettings && environment.hasKustomCheckout) {
+      const jsExclude = (uploadedSettings.js_exclude || "").toString().toLowerCase();
+      if (!jsExclude.includes("kustom")) {
+        alerts.push({
+          type: "warning",
+          title: "Kustom Checkout JS-konflikt risk",
+          desc: "Kustom Checkout är aktivt men dess skript ('kustom') är inte exkluderat från JS-optimeringar (JS Defer/Combine). Detta kan leda till att kassan låser sig eller att ordersummeringen inte uppdateras. Lägg till 'kustom' under JS-exkluderingar.",
+          icon: "🛍️",
+          wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Sidoptimering ➔ [3] JS ➔ JS-exkluderingar (js_exclude)",
+          targetTabId: "page_optimization_js",
+          targetSettingId: "js_exclude"
+        });
+      } else {
+        alerts.push({
+          type: "success",
+          title: "Kustom Checkout JS-skydd OK",
+          desc: "Kustom Checkout-skripten är exkluderade från JavaScript-minifieringar, vilket förhindrar konflikter i kassan.",
+          icon: "✅"
+        });
+      }
+    }
+
+    if (uploadedSettings && environment.hasElementor && environment.hasWooCommerce) {
+      const jsExclude = (uploadedSettings.js_exclude || "").toString().toLowerCase();
+      const hasCartFrags = jsExclude.includes("wc-cart-fragments");
+      const hasWcExclude = jsExclude.includes("woocommerce");
+      
+      if (!hasCartFrags || !hasWcExclude) {
+        alerts.push({
+          type: "warning",
+          title: "Elementor Minicart uppdateringsrisk",
+          desc: "Du använder Elementor och WooCommerce tillsammans (och sannolikt Elementor Minicart). För att varukorgens innehåll ska uppdateras i realtid utan cache-problem måste 'wc-cart-fragments' och 'woocommerce' exkluderas under JS-exkluderingar.",
+          icon: "🛒",
+          wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Sidoptimering ➔ [3] JS ➔ JS-exkluderingar (js_exclude)",
+          targetTabId: "page_optimization_js",
+          targetSettingId: "js_exclude"
+        });
+      } else {
+        alerts.push({
+          type: "success",
+          title: "Elementor Minicart JS-skydd OK",
+          desc: "Tilläggsfiler för WooCommerce och kundvagns-fragment är exkluderade från JS-optimeringar, vilket säkrar minicart-uppdateringar.",
+          icon: "✅"
+        });
+      }
     }
   }
 
@@ -417,12 +575,28 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
       if (gLower.includes("stripe")) jsExcludes.push("stripe.com", "stripe", "stripe-checkout");
       if (gLower.includes("klarna")) jsExcludes.push("klarna", "kco", "klarna-checkout");
       if (gLower.includes("paypal")) jsExcludes.push("paypalobjects", "paypal");
+      if (gLower.includes("swish")) jsExcludes.push("swish", "bjorntech");
       if (gLower.includes("shipmondo")) jsExcludes.push("shipmondo");
       if (gLower.includes("kustom")) jsExcludes.push("kustom");
     });
   }
 
-  if (environment.activePlugins.some(p => p.toLowerCase().includes("consent") || p.toLowerCase().includes("tracking"))) {
+  // Check active plugins for CTM and GTM4WP
+  let hasGtm4wp = false;
+  let hasCtm = false;
+  
+  environment.activePlugins.forEach(p => {
+    const pLower = p.toLowerCase();
+    if (pLower.includes("gtm4wp")) hasGtm4wp = true;
+    if (pLower.includes("consent & tracking manager") || pLower.includes("consent-tracking-manager") || pLower.includes("arewee")) hasCtm = true;
+  });
+
+  if (hasGtm4wp) {
+    jsExcludes.push("gtm4wp", "gtm");
+  }
+  if (hasCtm) {
+    jsExcludes.push("consent", "arewee", "consent-tracking");
+  } else if (environment.activePlugins.some(p => p.toLowerCase().includes("consent") || p.toLowerCase().includes("tracking"))) {
     jsExcludes.push("consent", "tracking-manager", "arewee");
   }
 
@@ -442,10 +616,6 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     "woocommerce-product-gallery__image"
   ];
   const lazyExcludesString = lazyExcludes.join("\n");
-
-
-  // --- 6. CACHE OPTIONS TEMPLATE WITH EXPERT CITATIONS & REFERENCEConsensus ---
-  // Citations fields: { litespeed, consensus }
 
   const tabs = [
     {
@@ -472,7 +642,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
           safe: true,
           category: "finetuning",
           citations: {
-            litespeed: "Krävs för att ansluta sajten till QUIC.cloud API för avancerad bildkomprimering och kritiskt CSS-skaparverktyg.",
+            litespeed: "Krävs för att ansluta sajten till QUIC.cloud API for avancerad bildkomprimering och kritiskt CSS-skaparverktyg.",
             consensus: "Nödvändig nyckel om du ska använda LiteSpeeds molnbaserade funktioner. Det finns inga kända nackdelar eller spridda åsikter."
           }
         },
@@ -557,7 +727,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
         {
           id: "drop_uri",
           title: "Exkluderade sidor (drop_uri)",
-          value: "/checkout*\n/cart*\n/kassa*\n/varukorg*\n/wp-admin*",
+          value: "/checkout*\n/cart*\n/kassa*\n/varukorg*",
           desc: "Sid-exkluderingar som garanterat skyddas från all cachning. Helt nödvändigt för e-handelsfunktion.",
           safe: true,
           category: "stability",
@@ -734,7 +904,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
           safe: true,
           category: "stability",
           citations: {
-            litespeed: "Erbjuder uteslutningsfältet så att utvecklare manuellt kan exkludera instabila JS-bibliotek (t.ex. betalningsgateways).",
+            litespeed: "Erbjuder uteslutningsfältet så datatekniker manuellt kan exkludera instabila JS-bibliotek (t.ex. betalningsgateways).",
             consensus: "Helt avgörande! På WooCommerce-sajter råder det 100% konsensus om att betalsätt (Stripe, Klarna, PayPal) och kundvagns-kakor (fragments) absolut MÅSTE exkluderas från sammanslagning eller aggresiv Defer för att garantera att kassan inte låser sig."
           }
         }
@@ -760,7 +930,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
           id: "media_lazy_native",
           title: "Native Lazy Load",
           value: 1,
-          desc: "Samordnar LiteSpeeds lazyload med WordPress inbyggda bild-lazyload, vilket förhindrar dubbel bearbetning.",
+          desc: "Samordnar LiteSpeeds lazyload med WordPress inbyggda bild-lazyload, vilket förhindrar dubbel bildbearbetning.",
           safe: true,
           category: "performance",
           citations: {
@@ -808,7 +978,7 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     },
     {
       id: "crawler",
-      title: "Sökspindel (Crawler)",
+      title: "LiteSpeed Crawler",
       options: [
         {
           id: "crawler",
@@ -823,6 +993,238 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
             litespeed: "LiteSpeeds paradfunktion. Sökspindeln läser av din sitemap och för-cachrar automatiskt alla sidor som har löpt ut, vilket garanterar att en besökare ALDRIG möts av en okachad (långsam) sida.",
             consensus: "Mycket starkt rekommenderat. Det är en av de största prestandafördelarna med att köra på en LiteSpeed-server framför Nginx/Apache. Se dock till att vitlista serverns IP i Wordfence så att spindeln inte av misstag blockeras."
           }
+        }
+      ]
+    },
+    {
+      id: "woocommerce",
+      title: "WooCommerce",
+      options: [
+        {
+          id: "woo_hpos",
+          title: "High-Performance Order Storage (HPOS)",
+          value: 1,
+          desc: "Aktiverar HPOS (High-Performance Order Storage) i WooCommerce. Detta flyttar orderdata till dedikerade databastabeller vilket ökar prestandan i kassan med upp till 40%.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "LiteSpeed stöder HPOS till fullo och drar nytta av snabbare databasfrågor.",
+            consensus: "HPOS är standard i alla nya WooCommerce-installationer och rekommenderas starkt av Automattic för stabilitet."
+          },
+          wpPath: "WooCommerce ➔ Inställningar ➔ Avancerat ➔ Funktioner ➔ High-Performance Order Storage"
+        },
+        {
+          id: "woo_cart_fragments",
+          title: "Bortkoppling av wc-cart-fragments",
+          value: 1,
+          desc: "Bortkopplar wc-cart-fragments JavaScript på icke-shoppar för att spara tunga admin-ajax.php-resurser.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "wc-cart-fragments är en av de största källorna till höga svarstider (TTFB) på WordPress-sajter.",
+            consensus: "Enighet bland utvecklare om att dequeuea fragments där det inte behövs."
+          },
+          wpPath: "Hanteras via det genererade Code Snippet-tillägget."
+        },
+        {
+          id: "woo_transients_cleanup",
+          title: "Automatisk transient-rensning",
+          value: 1,
+          desc: "Rensar automatiskt utgångna transients från WooCommerce-kunder för att förhindra databas-uppsvällning.",
+          safe: true,
+          category: "finetuning",
+          citations: {
+            litespeed: "En ren databas ger snabbare svarstider under cache-bypass-förfrågningar.",
+            consensus: "Viktigt för storskaliga WooCommerce-sajter."
+          },
+          wpPath: "Hanteras via det genererade PHP-tillägget."
+        },
+        {
+          id: "woo_checkout_exclusion",
+          title: "Kassacachning undantagen (drop_uri)",
+          value: 1,
+          desc: "Säkerställer att kassasidor (/checkout*, /kassa*) exkluderas under drop_uri i LiteSpeed Cache.",
+          safe: true,
+          category: "stability",
+          citations: {
+            litespeed: "Nödvändigt för att förhindra sessionsläckor på e-handelssajter.",
+            consensus: "Fullständigt krav. Kundens personuppgifter får aldrig sparas i cachen."
+          },
+          wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Cache ➔ [4] Exkludera ➔ drop_uri"
+        }
+      ]
+    },
+    {
+      id: "elementor",
+      title: "Elementor Pro",
+      options: [
+        {
+          id: "elem_css_print_method",
+          title: "CSS-skrivmetod (External file)",
+          value: "external",
+          desc: "Ställer in Elementors CSS-utmatning till 'Extern fil' istället för 'Inbäddad CSS' så att filerna kan cachas av webbläsaren.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "LiteSpeed Cache kräver externa filer för att kunna utföra CSS-optimering och asynkron laddning.",
+            consensus: "Inbäddad CSS ökar HTML-storleken och gör sajten tyngre."
+          },
+          wpPath: "Elementor ➔ Inställningar ➔ Avancerat ➔ CSS-skrivmetod"
+        },
+        {
+          id: "elem_dom_optimization",
+          title: "Optimera DOM-utmatning",
+          value: 1,
+          desc: "Aktiverar Elementors experimentella DOM-optimering för att ta bort onödiga omslutande div-taggar.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Färre DOM-noder minskar minnesförbrukningen och påskyndar sidrendering.",
+            consensus: "Kritiskt för Google PageSpeed-betyg."
+          },
+          wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Optimized DOM Output"
+        },
+        {
+          id: "elem_asset_loading",
+          title: "Förbättrad laddning av tillgångar",
+          value: 1,
+          desc: "Laddar endast de Elementor JavaScript-bibliotek som faktiskt används på den aktuella sidan.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Minskar mängden kod som skickas via JS-defer.",
+            consensus: "Minskar initial JS-vikt på icke-redigeringssidor."
+          },
+          wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Improved Asset Loading"
+        },
+        {
+          id: "elem_css_loading",
+          title: "Förbättrad CSS-laddning",
+          value: 1,
+          desc: "Delar upp Elementors stilar i mindre bitar och laddar dem asynkront.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Samverkar perfekt med LiteSpeeds CSS-preload.",
+            consensus: "Förbättrar renderingstiden på mobila enheter."
+          },
+          wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Improved CSS Loading"
+        },
+        {
+          id: "elem_lazy_load",
+          title: "Stäng av Elementors Lazy Load Images",
+          value: 0,
+          desc: "Elementors egna lazyload bör vara AV eftersom LiteSpeed Cache sköter lazy loading på ett mer avancerat sätt.",
+          safe: true,
+          category: "stability",
+          citations: {
+            litespeed: "Dubbel lazyloading orsakar renderingsfel och krockar.",
+            consensus: "Endast en motor bör sköta bild-lazyloading på en sajt."
+          },
+          wpPath: "Elementor ➔ Inställningar ➔ Funktioner ➔ Lazy Load Images"
+        }
+      ]
+    },
+    {
+      id: "wordfence",
+      title: "Wordfence",
+      options: [
+        {
+          id: "wf_live_traffic",
+          title: "Inaktivera Live Traffic-loggning",
+          value: 0,
+          desc: "Inaktiverar eller begränsar Wordfence 'Live Traffic' till endast säkerhetshändelser för att spara databasresurser.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Tunga skrivningar under varje klick sänker serverns svarstid under trafiktoppar.",
+            consensus: "Full konsensus: Live Traffic loggning är den enskilt största prestandaboven i Wordfence."
+          },
+          wpPath: "Wordfence ➔ Globala inställningar ➔ Inställningar för Live Traffic-vy ➔ Trafikloggningsläge"
+        },
+        {
+          id: "wf_ip_header",
+          title: "IP-detektering för Crawler",
+          value: "CF-Connecting-IP",
+          desc: "Konfigurerar Wordfence att läsa besökarens IP via rätt proxy-header ifall sajten kör Cloudflare eller LiteSpeed-server.",
+          safe: true,
+          category: "stability",
+          citations: {
+            litespeed: "LiteSpeed Crawlers begäran måste identifieras korrekt av Wordfence så att de inte blockeras.",
+            consensus: "Nödvändigt steg vid körning bakom CDN för att undvika blockering av legitima anrop."
+          },
+          wpPath: "Wordfence ➔ Allmänna inställningar ➔ IP-detektering"
+        },
+        {
+          id: "wf_low_resource",
+          title: "Låg-resurs-läge för scanning",
+          value: 1,
+          desc: "Begränsar Wordfence skanner-resursanvändning under schemalagda genomsökningar. Rekommenderas för shared hosting.",
+          safe: true,
+          category: "stability",
+          citations: {
+            litespeed: "Wordfence standardscans kan orsaka CPU-spikar som ger tillfälliga 503-fel.",
+            consensus: "Viktigt för att hålla sajten stabil under scans."
+          },
+          wpPath: "Wordfence ➔ Skanna ➔ Skanningsalternativ ➔ Låg resursanvändning"
+        }
+      ]
+    },
+    {
+      id: "customcode",
+      title: "Child Theme & Snippets",
+      options: [
+        {
+          id: "cc_limit_heartbeat",
+          title: "Begränsa WordPress Heartbeat API",
+          value: 1,
+          desc: "Begränsar WordPress Heartbeat API-anrop från 15s till 120s för att spara CPU-användning i adminpanelen.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Heartbeat genererar tunga, ocachbara AJAX-förfrågningar till admin-ajax.php.",
+            consensus: "Standardprestandaåtgärd. Bör begränsas eller stängas av helt."
+          },
+          wpPath: "Hanteras via den genererade Auto-Optimizer PHP-koden."
+        },
+        {
+          id: "cc_disable_xmlrpc",
+          title: "Inaktivera XML-RPC API",
+          value: 1,
+          desc: "Inaktiverar XML-RPC API:t i WordPress, vilket sparar serverresurser och skyddar mot DDoS- och brute-force-attacker.",
+          safe: true,
+          category: "security",
+          citations: {
+            litespeed: "Skyddar serverns processer från att överbelastas av brute-force XML-RPC pingback-attacker.",
+            consensus: "Viktigt skydd för alla sajter som inte använder externa mobil-appar."
+          },
+          wpPath: "Hanteras via den genererade Auto-Optimizer PHP-koden."
+        },
+        {
+          id: "cc_disable_pingbacks",
+          title: "Inaktivera själv-pingbacks",
+          value: 1,
+          desc: "Förhindrar att WordPress skickar pingbacks till sig själv när du länkar till dina egna inlägg.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Minskar onödiga interna serveranrop.",
+            consensus: "Rekommenderas för alla WordPress-bloggar."
+          },
+          wpPath: "Hanteras via den genererade Auto-Optimizer PHP-koden."
+        },
+        {
+          id: "cc_disable_emojis",
+          title: "Inaktivera Emojis scripts",
+          value: 1,
+          desc: "Inaktiverar WordPress emoji-stödkod. Moderna webbläsare ritar emojis inbyggt, så detta JS/CSS-skript är onödigt.",
+          safe: true,
+          category: "performance",
+          citations: {
+            litespeed: "Tar bort ett onödigt JS-anrop som blockerar First Contentful Paint.",
+            consensus: "Fullständig enighet bland prestandautvecklare."
+          },
+          wpPath: "Hanteras via den genererade Auto-Optimizer PHP-koden."
         }
       ]
     }
@@ -841,26 +1243,33 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
       let currentValue = null;
       let displayCurrentValue = "Ej angivet";
 
-      if (uploadedSettings) {
-        const uploadedKey = opt.id;
-        if (uploadedSettings.hasOwnProperty(uploadedKey)) {
-          currentValue = uploadedSettings[uploadedKey];
+      const isLscwpTab = ["general", "cache", "page_optimization_css", "page_optimization_js", "page_optimization_media", "crawler"].includes(tab.id);
+
+      if (isLscwpTab) {
+        if (uploadedSettings) {
+          const uploadedKey = opt.id;
+          currentValue = uploadedSettings.hasOwnProperty(uploadedKey) ? uploadedSettings[uploadedKey] : "";
           
           const curValNorm = (currentValue === "1" || currentValue === 1 || currentValue === "on" || currentValue === true || currentValue === "swap") ? 1 : 0;
           const recValNorm = (opt.value === "1" || opt.value === 1 || opt.value === "on" || opt.value === true || opt.value === "swap") ? 1 : 0;
 
           if (typeof opt.value === "string" && (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri")) {
-            const cleanCur = (currentValue || "").toString().trim().replace(/\r\n/g, "\n");
-            const cleanRec = (opt.value || "").toString().trim().replace(/\r\n/g, "\n");
+            let missingExcludes = checkMissingExclusions(currentValue, opt.value);
             
-            const curExcludes = cleanCur.split("\n").map(x => x.trim()).filter(Boolean);
-            const recExcludes = cleanRec.split("\n").map(x => x.trim()).filter(Boolean);
-            const missingExcludes = recExcludes.filter(r => !curExcludes.some(c => c.includes(r)));
-            
+            if (opt.id === "drop_uri") {
+              const cleanCur = (currentValue || "").toString().toLowerCase();
+              const hasCheckout = cleanCur.includes("checkout") || cleanCur.includes("kassa");
+              const hasCart = cleanCur.includes("cart") || cleanCur.includes("varukorg");
+              if (hasCheckout && hasCart) {
+                missingExcludes = [];
+              }
+            }
+
             if (missingExcludes.length > 0) {
               isChangedNeeded = true;
-              displayCurrentValue = "Saknar exkluderingar";
+              displayCurrentValue = currentValue ? "Saknar exkluderingar" : "Ej angivet";
             } else {
+              isChangedNeeded = false;
               displayCurrentValue = "Matchar";
             }
           } else if (curValNorm !== recValNorm) {
@@ -870,12 +1279,102 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
             displayCurrentValue = curValNorm === 1 ? "PÅ" : "AV";
           }
         }
+      } else {
+        // Tool-specific options (WooCommerce, Elementor, Wordfence, CustomCode)
+        let toolUploaded = false;
+        
+        if (tab.id === "woocommerce") {
+          toolUploaded = !!wooInfo;
+          if (wooInfo) {
+            if (opt.id === "woo_hpos") {
+              currentValue = wooInfo.hpos_enabled ? 1 : 0;
+              displayCurrentValue = wooInfo.hpos_enabled ? "PÅ" : "AV";
+            } else if (opt.id === "woo_cart_fragments") {
+              currentValue = wooInfo.cart_fragments_dequeued ? 1 : 0;
+              displayCurrentValue = wooInfo.cart_fragments_dequeued ? "AV" : "PÅ";
+            } else if (opt.id === "woo_transients_cleanup") {
+              currentValue = wooInfo.transients_cleanup_enabled ? 1 : 0;
+              displayCurrentValue = wooInfo.transients_cleanup_enabled ? "PÅ" : "AV";
+            } else if (opt.id === "woo_checkout_exclusion") {
+              const dropUri = uploadedSettings ? (uploadedSettings.drop_uri || "").toLowerCase() : "";
+              const isExcl = dropUri.includes("checkout") || dropUri.includes("kassa");
+              currentValue = isExcl ? 1 : 0;
+              displayCurrentValue = isExcl ? "PÅ" : "AV";
+            }
+          }
+        } else if (tab.id === "elementor") {
+          toolUploaded = !!elemInfo;
+          if (elemInfo) {
+            if (opt.id === "elem_css_print_method") {
+              currentValue = elemInfo.css_print_method;
+              displayCurrentValue = currentValue === "external" ? "Extern fil" : "Inbäddad";
+            } else if (opt.id === "elem_dom_optimization") {
+              const active = elemInfo.experiments.some(e => e.toLowerCase().includes("dom") || e.toLowerCase().includes("optimized_dom"));
+              currentValue = active ? 1 : 0;
+              displayCurrentValue = active ? "PÅ" : "AV";
+            } else if (opt.id === "elem_asset_loading") {
+              const active = elemInfo.experiments.some(e => e.toLowerCase().includes("asset") || e.toLowerCase().includes("improved_asset"));
+              currentValue = active ? 1 : 0;
+              displayCurrentValue = active ? "PÅ" : "AV";
+            } else if (opt.id === "elem_css_loading") {
+              const active = elemInfo.experiments.some(e => e.toLowerCase().includes("css") || e.toLowerCase().includes("improved_css"));
+              currentValue = active ? 1 : 0;
+              displayCurrentValue = active ? "PÅ" : "AV";
+            } else if (opt.id === "elem_lazy_load") {
+              currentValue = elemInfo.hasLazyLoad ? 1 : 0;
+              displayCurrentValue = elemInfo.hasLazyLoad ? "PÅ" : "AV";
+            }
+          }
+        } else if (tab.id === "wordfence") {
+          toolUploaded = !!wfInfo;
+          if (wfInfo) {
+            if (opt.id === "wf_live_traffic") {
+              currentValue = wfInfo.live_traffic_disabled ? 1 : 0;
+              displayCurrentValue = wfInfo.live_traffic_disabled ? "AV" : "PÅ";
+            } else if (opt.id === "wf_ip_header") {
+              currentValue = wfInfo.ip_header;
+              displayCurrentValue = wfInfo.ip_header || "Okänd";
+            } else if (opt.id === "wf_low_resource") {
+              currentValue = wfInfo.low_resource_scan ? 1 : 0;
+              displayCurrentValue = wfInfo.low_resource_scan ? "PÅ" : "AV";
+            } else if (opt.id === "wf_crawler_whitelisting") {
+              currentValue = wfInfo.crawler_whitelisted ? 1 : 0;
+              displayCurrentValue = wfInfo.crawler_whitelisted ? "PÅ" : "AV";
+            }
+          }
+        } else if (tab.id === "customcode") {
+          toolUploaded = !!customCode;
+          if (customCode) {
+            if (opt.id === "cc_limit_heartbeat") {
+              currentValue = customCode.hasHeartbeatLimited ? 1 : 0;
+              displayCurrentValue = customCode.hasHeartbeatLimited ? "PÅ" : "AV";
+            } else if (opt.id === "cc_disable_xmlrpc") {
+              currentValue = customCode.hasXmlRpcDisabled ? 1 : 0;
+              displayCurrentValue = customCode.hasXmlRpcDisabled ? "PÅ" : "AV";
+            } else if (opt.id === "cc_disable_pingbacks") {
+              currentValue = customCode.hasPingbacksDisabled ? 1 : 0;
+              displayCurrentValue = customCode.hasPingbacksDisabled ? "PÅ" : "AV";
+            } else if (opt.id === "cc_disable_emojis") {
+              currentValue = customCode.hasEmojisDisabled ? 1 : 0;
+              displayCurrentValue = customCode.hasEmojisDisabled ? "PÅ" : "AV";
+            }
+          }
+        }
+
+        if (toolUploaded) {
+          const curValNorm = (currentValue === "1" || currentValue === 1 || currentValue === "on" || currentValue === true || currentValue === "external" || currentValue === "CF-Connecting-IP") ? 1 : 0;
+          const recValNorm = (opt.value === "1" || opt.value === 1 || opt.value === "on" || opt.value === true || opt.value === "external" || opt.value === "CF-Connecting-IP") ? 1 : 0;
+          
+          if (curValNorm !== recValNorm) {
+            isChangedNeeded = true;
+          }
+        }
       }
 
       recTab.options.push({
         id: opt.id,
         title: opt.title,
-        recommendedValue: typeof opt.value === "string" ? "ANPASSAD" : (opt.value === 1 ? "PÅ" : "AV"),
+        recommendedValue: typeof opt.value === "string" ? (opt.value === "external" ? "Extern fil" : "ANPASSAD") : (opt.value === 1 ? "PÅ" : "AV"),
         recommendedRaw: opt.value,
         currentValue: displayCurrentValue,
         currentRaw: currentValue,
@@ -883,12 +1382,39 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
         desc: opt.desc,
         safe: opt.safe,
         category: opt.category || "finetuning",
-        citations: opt.citations || null
+        citations: opt.citations || null,
+        wpPath: opt.wpPath || null
       });
     });
 
     recommendationsOutput.push(recTab);
   });
+
+  // Flag settings deviations if there are any
+  if (uploadedSettings) {
+    let deviationCount = 0;
+    recommendationsOutput.forEach(tab => {
+      // Only LSCWP tab deviations trigger the LiteSpeed settings deviation count
+      const isLscwpTab = ["general", "cache", "page_optimization_css", "page_optimization_js", "page_optimization_media", "crawler"].includes(tab.id);
+      if (isLscwpTab) {
+        tab.options.forEach(opt => {
+          if (opt.isChangedNeeded) {
+            deviationCount++;
+          }
+        });
+      }
+    });
+
+    if (deviationCount > 0) {
+      alerts.push({
+        type: "warning",
+        title: "Inställningsavvikelser i LiteSpeed Cache",
+        desc: `Det finns ${deviationCount} avvikelse(r) mellan din nuvarande konfiguration och den rekommenderade prestandaprofilen. Granska och åtgärda dessa under fliken 'LSCWP Inställningar'.`,
+        icon: "⚙️",
+        targetTabId: "cache"
+      });
+    }
+  }
 
   return {
     environment,
@@ -897,10 +1423,10 @@ function analyzeSystem(sysInfo, wooInfo = null, wfInfo = null, elemInfo = null, 
     customCssAlerts,
     fileSummaries,
     recommendations: recommendationsOutput,
-    lscwpVersion: LSCWP_REFERENCE_VERSION
+    lscwpVersion: lscwpVersion
   };
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { analyzeSystem, LSCWP_REFERENCE_VERSION };
+  module.exports = { analyzeSystem, LSCWP_REFERENCE_VERSION, checkMissingExclusions, mergeExclusions };
 }

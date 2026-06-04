@@ -1,5 +1,5 @@
 /**
- * LiteSpeed-Helper - Main Application Script
+ * AreWee WP-Optimizer - Main Application Script
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -7,6 +7,17 @@
  */
 
 document.addEventListener("DOMContentLoaded", () => {
+  // --- SECURITY: HTML ESCAPING HELPER ---
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return str.toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   // Prevent browser from navigating away and opening dropped files globally
   window.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -26,7 +37,17 @@ document.addEventListener("DOMContentLoaded", () => {
     uploadedSettings: null,
     analysisResults: null,
     activeTabId: "general",
-    editedSettings: {} // Active options configuration (1 for ON, 0 for OFF, or strings)
+    editedSettings: {}, // Active options configuration (1 for ON, 0 for OFF, or strings)
+    apiUrl: "",
+    apiToken: "",
+    uploadMetadata: {
+      sysInfo: { name: "", timestamp: "" },
+      wooInfo: { name: "", timestamp: "" },
+      wfInfo: { name: "", timestamp: "" },
+      elemInfo: { name: "", timestamp: "" },
+      customCodeInfo: { name: "", timestamp: "" },
+      uploadedSettings: { name: "", timestamp: "" }
+    }
   };
 
   // --- DOM ELEMENT REFERENCES ---
@@ -64,7 +85,9 @@ document.addEventListener("DOMContentLoaded", () => {
     inputs: { tab: document.getElementById("master-tab-inputs"), section: document.getElementById("view-inputs") },
     overview: { tab: document.getElementById("master-tab-overview"), section: document.getElementById("view-overview") },
     risks: { tab: document.getElementById("master-tab-risks"), section: document.getElementById("view-risks") },
-    settings: { tab: document.getElementById("master-tab-settings"), section: document.getElementById("view-settings") }
+    settings: { tab: document.getElementById("master-tab-settings"), section: document.getElementById("view-settings") },
+    history: { tab: document.getElementById("master-tab-history"), section: document.getElementById("view-history") },
+    sources: { tab: document.getElementById("master-tab-sources"), section: document.getElementById("view-sources") }
   };
 
   function switchMasterView(targetKey) {
@@ -120,9 +143,59 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const statsChangesCount = document.getElementById("stats-changes-count");
   const btnExport = document.getElementById("btn-export");
+  const btnExportPhp = document.getElementById("btn-export-php");
+  const btnExportJson = document.getElementById("btn-export-json");
+
+  const btnDownloadSyncPlugin = document.getElementById("btn-download-sync-plugin");
+  const btnApiFetch = document.getElementById("btn-api-fetch");
+  const btnApiPush = document.getElementById("btn-api-push");
+  const apiSiteUrl = document.getElementById("api-site-url");
+  const apiSyncToken = document.getElementById("api-sync-token");
+  const apiSyncStatusText = document.getElementById("api-sync-status-text");
+
+  const btnSaveCurrentProfile = document.getElementById("btn-save-current-profile");
+  const btnExportHistory = document.getElementById("btn-export-history");
+  const btnImportHistoryTrigger = document.getElementById("btn-import-history-trigger");
+  const historyImportFile = document.getElementById("history-import-file");
+  const btnClearHistory = document.getElementById("btn-clear-history");
+  const compareSelectA = document.getElementById("compare-select-a");
+  const compareSelectB = document.getElementById("compare-select-b");
+  const btnCompareExecute = document.getElementById("btn-compare-execute");
+  const comparisonResultTableWrapper = document.getElementById("comparison-result-table-wrapper");
+  const historyProfilesGrid = document.getElementById("history-profiles-grid");
+  const historyEmptyState = document.getElementById("history-empty-state");
 
   // --- INITIAL LAUNCH: POPULATE PLACEHOLDER BULLETS ---
   renderPlaceholderBullets();
+  renderSourcesTab();
+
+  // Active Site Header Dropdown Toggler
+  const headerSiteWidget = document.getElementById("header-active-site-widget");
+  const headerSiteDropdownPanel = document.getElementById("header-active-site-dropdown-panel");
+  const headerSiteArrow = document.getElementById("header-active-site-arrow");
+  if (headerSiteWidget && headerSiteDropdownPanel && headerSiteArrow) {
+    headerSiteWidget.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = headerSiteDropdownPanel.style.display === "block";
+      headerSiteDropdownPanel.style.display = isVisible ? "none" : "block";
+      headerSiteArrow.textContent = isVisible ? "▼" : "▲";
+      if (!isVisible) {
+        headerSiteWidget.style.borderColor = "var(--accent-cyan)";
+      } else {
+        headerSiteWidget.style.borderColor = "rgba(99, 102, 241, 0.2)";
+      }
+    });
+
+    document.addEventListener("click", () => {
+      headerSiteDropdownPanel.style.display = "none";
+      headerSiteArrow.textContent = "▼";
+      headerSiteWidget.style.borderColor = "rgba(99, 102, 241, 0.2)";
+    });
+
+    headerSiteDropdownPanel.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+  }
 
   // --- EVENT ATTACHMENTS & DRAG/DROP ---
   setupDragAndDrop(sysInfoDropzone, sysInfoInput, handleSysInfoFile);
@@ -135,7 +208,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start Analysis button handler
   btnStartAnalysis.addEventListener("click", () => {
     if (state.sysInfo) {
-      triggerAnalysis();
+      try {
+        triggerAnalysis();
+      } catch (err) {
+        console.error("ANALYS-FEL:", err);
+        alert("FEL VID ANALYS:\n" + err.message + "\n\nStacktrace:\n" + err.stack);
+      }
     }
   });
 
@@ -240,6 +318,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.sysInfo = parseSystemInfoText(e.target.result);
+        state.uploadMetadata.sysInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         sysInfoStatus.textContent = `✓ ${file.name}`;
         sysInfoStatus.className = "file-status loaded";
         
@@ -266,6 +345,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.wooInfo = parseWooCommerceStatus(e.target.result);
+        state.uploadMetadata.wooInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         woocommerceStatus.textContent = `✓ ${file.name}`;
         woocommerceStatus.className = "file-status loaded";
         
@@ -282,6 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.wfInfo = parseWordfenceDiagnostic(e.target.result);
+        state.uploadMetadata.wfInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         wordfenceStatus.textContent = `✓ ${file.name}`;
         wordfenceStatus.className = "file-status loaded";
         
@@ -298,6 +379,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.elemInfo = parseElementorStatus(e.target.result);
+        state.uploadMetadata.elemInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         elementorStatus.textContent = `✓ ${file.name}`;
         elementorStatus.className = "file-status loaded";
         
@@ -314,6 +396,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.customCodeInfo = parseCustomCodeText(e.target.result);
+        state.uploadMetadata.customCodeInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         customcodeStatus.textContent = `✓ ${file.name}`;
         customcodeStatus.className = "file-status loaded";
         
@@ -330,6 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = function(e) {
       try {
         state.uploadedSettings = parseSettingsFile(e.target.result);
+        state.uploadMetadata.uploadedSettings = { name: file.name, timestamp: formatTimestamp(new Date()) };
         settingsStatus.textContent = `✓ ${file.name}`;
         settingsStatus.className = "file-status loaded";
         state.editedSettings = {};
@@ -427,7 +511,7 @@ document.addEventListener("DOMContentLoaded", () => {
    * Parses WooCommerce status text dump
    */
   function parseWooCommerceStatus(text) {
-    const data = { gateways: [], overrides: [] };
+    const data = { gateways: [], overrides: [], hpos_enabled: false, cart_fragments_dequeued: false, transients_cleanup_enabled: false };
     let currentSection = "";
     const lines = text.split(/\r?\n/);
     
@@ -439,6 +523,8 @@ document.addEventListener("DOMContentLoaded", () => {
         currentSection = line.replace(/###/g, "").trim().toLowerCase();
         return;
       }
+      
+      const lower = line.toLowerCase();
       
       if (currentSection.includes("payment") || currentSection.includes("gateways") || currentSection.includes("betalsätt")) {
         const parts = line.split(":");
@@ -458,11 +544,32 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     
+    // Fallback / Extra searches for WooCommerce settings
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes("high-performance order storage: enabled") || 
+        lowerText.includes("high-performance order storage (cot): enabled") || 
+        lowerText.includes("cot enabled: yes") ||
+        lowerText.includes("high-performance order storage: aktiv")) {
+      data.hpos_enabled = true;
+    }
+    
+    if (lowerText.includes("disable-cart-fragments") || 
+        lowerText.includes("dequeue wc-cart-fragments") || 
+        lowerText.includes("wc_cart_fragments_dequeue")) {
+      data.cart_fragments_dequeued = true;
+    }
+    
+    if (lowerText.includes("transient_cleanup") || 
+        lowerText.includes("cleanup_expired_transients") || 
+        lowerText.includes("woocommerce_cleanup_personal_data")) {
+      data.transients_cleanup_enabled = true;
+    }
+    
     if (data.gateways.length === 0) {
-      if (text.toLowerCase().includes("stripe")) data.gateways.push("Stripe");
-      if (text.toLowerCase().includes("klarna")) data.gateways.push("Klarna");
-      if (text.toLowerCase().includes("paypal")) data.gateways.push("PayPal");
-      if (text.toLowerCase().includes("shipmondo")) data.gateways.push("Shipmondo");
+      if (lowerText.includes("stripe")) data.gateways.push("Stripe");
+      if (lowerText.includes("klarna")) data.gateways.push("Klarna");
+      if (lowerText.includes("paypal")) data.gateways.push("PayPal");
+      if (lowerText.includes("shipmondo")) data.gateways.push("Shipmondo");
     }
     
     return data;
@@ -472,7 +579,7 @@ document.addEventListener("DOMContentLoaded", () => {
    * Parses Wordfence diagnostic report text
    */
   function parseWordfenceDiagnostic(text) {
-    const data = { firewall_mode: "Okänd", ip_header: "Okänd" };
+    const data = { firewall_mode: "Okänd", ip_header: "Okänd", live_traffic_disabled: false, low_resource_scan: false, crawler_whitelisted: false };
     const lines = text.split(/\r?\n/);
     
     lines.forEach(line => {
@@ -492,6 +599,26 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
     });
+
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes("live traffic logging: disabled") || 
+        lowerText.includes("live traffic status: off") || 
+        lowerText.includes("live_traffic_enabled: false") ||
+        lowerText.includes("live traffic: off")) {
+      data.live_traffic_disabled = true;
+    }
+    
+    if (lowerText.includes("low resource scan: enabled") || 
+        lowerText.includes("low resource: yes") ||
+        lowerText.includes("low_resource_scan: true")) {
+      data.low_resource_scan = true;
+    }
+    
+    if (lowerText.includes("crawler whitelist: active") || 
+        lowerText.includes("whitelist litespeed crawler") ||
+        lowerText.includes("crawler_whitelisted: true")) {
+      data.crawler_whitelisted = true;
+    }
     
     return data;
   }
@@ -500,15 +627,44 @@ document.addEventListener("DOMContentLoaded", () => {
    * Parses Elementor status text dump
    */
   function parseElementorStatus(text) {
-    const data = { experiments: [] };
+    const data = { experiments: [], hasLazyLoad: false, css_print_method: "external" };
     const lines = text.split(/\r?\n/);
     
     lines.forEach(line => {
       const lower = line.toLowerCase();
-      if (lower.includes("experiment") || lower.includes("css loading") || lower.includes("asset loading") || lower.includes("optimized css")) {
-        if (line.includes(":") && (lower.includes("active") || lower.includes("aktiv"))) {
+      if (lower.includes("experiment") || lower.includes("css loading") || 
+          lower.includes("asset loading") || lower.includes("optimized css") || 
+          lower.includes("lazy load") || lower.includes("lazyload") || 
+          lower.includes("image loading")) {
+        
+        if (line.includes(":")) {
           const parts = line.split(":");
-          data.experiments.push(parts[0].trim());
+          const name = parts[0].trim();
+          const status = parts.slice(1).join(":").trim().toLowerCase();
+          
+          // Ensure we don't match 'inactive' or 'inaktiv' as active
+          const isActive = (status.includes("active") || status.includes("aktiv")) && 
+                           !status.includes("inactive") && 
+                           !status.includes("inaktiv");
+          
+          if (isActive) {
+             data.experiments.push(name);
+             
+             const nameLower = name.toLowerCase();
+             if (nameLower.includes("lazy load") || nameLower.includes("lazyload") || nameLower.includes("optimized image loading")) {
+               data.hasLazyLoad = true;
+             }
+          }
+        }
+      }
+      
+      if (lower.includes("css write method") || lower.includes("css-skrivmetod") || lower.includes("css method")) {
+        const parts = line.split(":");
+        if (parts.length >= 2) {
+          const val = parts[1].trim().toLowerCase();
+          if (val.includes("inline") || val.includes("inbäddad")) {
+            data.css_print_method = "inline";
+          }
         }
       }
     });
@@ -524,6 +680,10 @@ document.addEventListener("DOMContentLoaded", () => {
       hasOldHooks: false,
       hasRawScriptHooks: false,
       hasManualCacheHeaders: false,
+      hasXmlRpcDisabled: false,
+      hasEmojisDisabled: false,
+      hasHeartbeatLimited: false,
+      hasPingbacksDisabled: false,
       auditedFiles: []
     };
 
@@ -540,15 +700,165 @@ document.addEventListener("DOMContentLoaded", () => {
     if (lower.includes("header(") && (lower.includes("cache-control") || lower.includes("pragma") || lower.includes("expires"))) {
       data.hasManualCacheHeaders = true;
     }
+    
+    if (lower.includes("xmlrpc_enabled") && (lower.includes("return false") || lower.includes("__return_false"))) {
+      data.hasXmlRpcDisabled = true;
+    }
+    
+    if (lower.includes("disable_emojis") || lower.includes("remove_action('wp_head', 'print_emoji_detection_script')")) {
+      data.hasEmojisDisabled = true;
+    }
+    
+    if (lower.includes("heartbeat") && (lower.includes("stop") || lower.includes("modify") || lower.includes("limit") || lower.includes("disable"))) {
+      data.hasHeartbeatLimited = true;
+    }
+    
+    if (lower.includes("wp_pingback") || lower.includes("pingback") || lower.includes("self_pingback")) {
+      data.hasPingbacksDisabled = true;
+    }
 
     return data;
   }
 
   // --- SILENT BACKGROUND UPDATE FOR BULLET SUMMARIES ---
+  function formatTimestamp(date) {
+    const d = (date instanceof Date) ? date : new Date(date);
+    if (isNaN(d.getTime())) return String(date);
+    const pad = (num) => String(num).padStart(2, "0");
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = pad(d.getMonth() + 1);
+    const dd = pad(d.getDate());
+    const hh = pad(d.getHours());
+    const min = pad(d.getMinutes());
+    return `${yy}${mm}${dd} - kl. ${hh}:${min}`;
+  }
+
+  function getFriendlyDay(dateString) {
+    if (!dateString) return "";
+    try {
+      let uploadDate;
+      const customMatch = String(dateString).match(/^(\d{2})(\d{2})(\d{2})\s*-\s*kl\.\s*(\d{2}):(\d{2})/);
+      if (customMatch) {
+        const yr = 2000 + parseInt(customMatch[1], 10);
+        const mo = parseInt(customMatch[2], 10) - 1;
+        const dy = parseInt(customMatch[3], 10);
+        const hr = parseInt(customMatch[4], 10);
+        const mn = parseInt(customMatch[5], 10);
+        uploadDate = new Date(yr, mo, dy, hr, mn);
+      } else {
+        const dateParts = dateString.split(" ");
+        const dateOnly = dateParts[0]; 
+        uploadDate = new Date(dateOnly.replace(/\//g, "-"));
+      }
+      
+      if (isNaN(uploadDate.getTime())) {
+        return dateString;
+      }
+      
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      
+      if (uploadDate.toDateString() === today.toDateString()) {
+        return "idag";
+      } else if (uploadDate.toDateString() === yesterday.toDateString()) {
+        return "igår";
+      } else {
+        const options = { weekday: 'long' };
+        return uploadDate.toLocaleDateString('sv-SE', options);
+      }
+    } catch (e) {
+      return "nyligen";
+    }
+  }
+
+  function updateActiveSiteStatusBar() {
+    const siteNameEl = document.getElementById("status-bar-site-name");
+    const filesListEl = document.getElementById("status-bar-files-list");
+    const summaryEl = document.getElementById("header-active-site-summary");
+    if (!siteNameEl || !filesListEl) return;
+
+    let siteName = "Ingen sajt inläst";
+    let latestTimestamp = "";
+    let loadedCount = 0;
+    
+    const slots = [
+      { key: "sysInfo", label: "WP Systemfil", icon: "📝" },
+      { key: "wooInfo", label: "WC Status", icon: "🛒" },
+      { key: "wfInfo", label: "Wordfence", icon: "🛡️" },
+      { key: "elemInfo", label: "Elementor", icon: "🎨" },
+      { key: "customCodeInfo", label: "Snippets", icon: "🔌" },
+      { key: "uploadedSettings", label: "LSCWP Inställningar", icon: "⚙️" }
+    ];
+
+    slots.forEach(slot => {
+      const meta = state.uploadMetadata[slot.key];
+      if (meta && meta.name) {
+        loadedCount++;
+        if (slot.key === "sysInfo") {
+          latestTimestamp = meta.timestamp;
+        }
+      }
+    });
+
+    if (state.sysInfo) {
+      const wpPath = (state.sysInfo["wp-paths-sizes"] && state.sysInfo["wp-paths-sizes"].wordpress_path) || "";
+      const domainMatch = wpPath.match(/domains\/([^/]+)/);
+      if (domainMatch && domainMatch[1]) {
+        siteName = domainMatch[1];
+      } else if (state.uploadMetadata.sysInfo.name) {
+        const parts = state.uploadMetadata.sysInfo.name.split("-");
+        siteName = parts[0];
+      } else {
+        siteName = "WordPress sajt";
+      }
+    }
+    siteNameEl.textContent = siteName;
+
+    if (summaryEl) {
+      if (loadedCount > 0) {
+        const dayLabel = latestTimestamp ? getFriendlyDay(latestTimestamp) : "idag";
+        summaryEl.textContent = `${loadedCount} av 6 filer (${dayLabel})`;
+      } else {
+        summaryEl.textContent = "0 av 6 filer";
+      }
+    }
+
+    let html = "";
+    slots.forEach(slot => {
+      const meta = state.uploadMetadata[slot.key];
+      if (meta && meta.name) {
+        html += `
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.25rem 0.6rem; border-radius: 6px; display: flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+            <span>${slot.icon}</span>
+            <span style="color: var(--color-success); font-size: 0.6rem; flex-shrink: 0;">●</span>
+            <strong style="color: var(--text-main); font-weight: 600; margin-right: 0.25rem; flex-shrink: 0;">${slot.label}:</strong>
+            <span style="color: #a5b4fc; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 320px;" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</span>
+            <span style="color: var(--text-muted); font-size: 0.65rem; margin-left: auto; padding-left: 1.5rem; flex-shrink: 0;">(${meta.timestamp})</span>
+          </div>
+        `;
+      } else {
+        const isRequired = slot.key === "sysInfo";
+        html += `
+          <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.02); padding: 0.25rem 0.6rem; border-radius: 6px; display: flex; align-items: center; gap: 0.35rem; opacity: 0.6; white-space: nowrap;">
+            <span>${slot.icon}</span>
+            <span style="color: ${isRequired ? 'var(--color-danger)' : 'var(--text-muted)'}; font-size: 0.6rem; flex-shrink: 0;">●</span>
+            <strong style="color: var(--text-muted); font-weight: 500; flex-shrink: 0;">${slot.label}:</strong>
+            <span style="margin-left: auto; padding-left: 1.5rem; flex-shrink: 0;">${isRequired ? 'Krävs' : 'Ej inläst'}</span>
+          </div>
+        `;
+      }
+    });
+
+    filesListEl.innerHTML = html;
+  }
+
   function silentUpdateAnalysis() {
     // Generate temporary rules engine results to render the 3 bullets inside the uploader slots immediately!
     const tempResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss);
     renderBulletLists(tempResults.fileSummaries);
+    renderSourcesTab();
+    updateActiveSiteStatusBar();
     
     if (state.analysisResults) {
       // If they already start analysis once, auto-sync and refresh dashboards dynamically
@@ -561,55 +871,200 @@ document.addEventListener("DOMContentLoaded", () => {
   function triggerAnalysis() {
     if (!state.sysInfo) return;
 
-    state.analysisResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss);
-    
-    state.analysisResults.recommendations.forEach(tab => {
-      tab.options.forEach(opt => {
-        if (state.editedSettings[opt.id] === undefined) {
-          if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
-            const upVal = state.uploadedSettings[opt.id];
-            
-            if (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri") {
-              state.editedSettings[opt.id] = upVal || opt.recommendedRaw;
+    try {
+      state.analysisResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss);
+      
+      state.analysisResults.recommendations.forEach(tab => {
+        tab.options.forEach(opt => {
+          if (state.editedSettings[opt.id] === undefined) {
+            if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
+              const upVal = state.uploadedSettings[opt.id];
+              
+              if (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri") {
+                state.editedSettings[opt.id] = upVal || opt.recommendedRaw;
+              } else {
+                state.editedSettings[opt.id] = (upVal === "1" || upVal === 1 || upVal === "on" || upVal === true || upVal === "swap") ? 1 : 0;
+              }
             } else {
-              state.editedSettings[opt.id] = (upVal === "1" || upVal === 1 || upVal === "on" || upVal === true || upVal === "swap") ? 1 : 0;
+              state.editedSettings[opt.id] = opt.recommendedRaw;
             }
-          } else {
-            state.editedSettings[opt.id] = opt.recommendedRaw;
           }
-        }
+        });
       });
+
+      // Unlock analyzed content layouts inside all views
+      document.querySelectorAll(".view-section").forEach(sec => {
+        const placeholder = sec.querySelector(".empty-state-placeholder");
+        const content = sec.querySelector(".view-content");
+        if (placeholder) placeholder.style.display = "none";
+        if (content) content.style.display = "block";
+      });
+      
+      btnStartAnalysis.classList.remove("btn-pulse");
+      analysisReadyText.innerHTML = `✓ Analysen kördes framgångsrikt kl. ${new Date().toLocaleTimeString()}. Uppdatera filer ovan live för att analysera igen.`;
+      analysisReadyText.style.color = "var(--color-success)";
+
+      renderSummaryCard();
+      renderAlerts();
+      renderWooChecklist();
+      renderCustomCodeAudits();
+      renderTabs();
+      renderSettingsPanel();
+      renderComparisonSummary();
+      renderBulletLists(state.analysisResults.fileSummaries);
+      
+      // Calculate and render the Health Score & dynamic Overview summary
+      renderHealthScoreAndOverview();
+
+      updateActionBar();
+      renderSourcesTab();
+      
+      // Draw visual Conflict Topology map
+      drawTopologyMap();
+
+      // Auto-switch to Översikt (Overview) tab on complete
+      switchMasterView("overview");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      console.error("FEL I TRIGGERANALYSIS:", err);
+      alert("FEL VID ANALYS:\n" + err.message + "\n\nStacktrace:\n" + err.stack);
+    }
+  }
+
+  function renderSourcesTab() {
+    const grid = document.getElementById("sources-files-grid");
+    if (!grid) return;
+    grid.innerHTML = "";
+
+    const env = state.analysisResults ? state.analysisResults.environment : {
+      wpVersion: "Okänd",
+      server: "Okänd",
+      phpVersion: "Okänd",
+      theme: "Okänd",
+      hasWooCommerce: state.wooInfo ? true : false,
+      hasElementor: state.elemInfo ? true : false,
+      hasWordfence: state.wfInfo ? true : false,
+      hasKustomCheckout: false,
+      wooGateways: state.wooInfo ? state.wooInfo.gateways : [],
+      wooOverrides: state.wooInfo ? state.wooInfo.overrides : [],
+      wfFirewallMode: state.wfInfo ? state.wfInfo.firewall_mode : "Okänd",
+      wfIpHeader: state.wfInfo ? state.wfInfo.ip_header : "Okänd",
+      elemExperiments: state.elemInfo ? state.elemInfo.experiments : [],
+      hasElementorLazyLoad: state.elemInfo ? state.elemInfo.hasLazyLoad : false,
+      activePlugins: []
+    };
+
+    let elemVersion = "4.1.1"; // default to Swedish live-version/user version
+    if (state.sysInfo && state.sysInfo["wp-plugins-active"]) {
+      const keys = Object.keys(state.sysInfo["wp-plugins-active"]);
+      const matchKey = keys.find(k => k.toLowerCase() === "elementor");
+      if (matchKey) {
+        elemVersion = state.sysInfo["wp-plugins-active"][matchKey].version;
+      }
+    }
+
+    let lscwpVersion = "7.8.1"; // default/fallback
+    if (state.sysInfo && state.sysInfo["wp-plugins-active"]) {
+      const keys = Object.keys(state.sysInfo["wp-plugins-active"]);
+      const matchKey = keys.find(k => k.toLowerCase() === "litespeed-cache" || k.toLowerCase() === "litespeed cache");
+      if (matchKey) {
+        lscwpVersion = state.sysInfo["wp-plugins-active"][matchKey].version;
+      }
+    }
+
+    const files = [
+      {
+        name: "1. WordPress Systemrapport",
+        status: state.sysInfo ? "Inläst ✓" : "Ej inläst (Väntar)",
+        loaded: !!state.sysInfo,
+        color: state.sysInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.sysInfo 
+          ? `<strong>WordPress version:</strong> ${env.wpVersion}<br><strong>Webbserver:</strong> ${env.server}<br><strong>PHP-version:</strong> ${env.phpVersion}<br><strong>Aktivt tema:</strong> ${env.theme}`
+          : "Krävs för att köra analysen."
+      },
+      {
+        name: "2. WooCommerce Systemstatus",
+        status: state.wooInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.wooInfo,
+        color: state.wooInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.wooInfo 
+          ? `<strong>Antal betalsätt:</strong> ${env.wooGateways.length} st (${env.wooGateways.join(", ")})<br><strong>Mallöverskrivningar:</strong> ${env.wooOverrides.length} st`
+          : (env.hasWooCommerce ? "<strong>WooCommerce är aktivt!</strong> Vi rekommenderar starkt att du laddar upp denna rapport för att analysera betalsätt." : "Inte aktivt på sajten.")
+      },
+      {
+        name: "3. Wordfence Diagnostik",
+        status: state.wfInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.wfInfo,
+        color: state.wfInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.wfInfo 
+          ? `<strong>Brandväggsläge:</strong> ${env.wfFirewallMode}<br><strong>IP-detekteringshuvud:</strong> ${env.wfIpHeader}`
+          : (state.sysInfo && env.activePlugins.some(p => p.toLowerCase().includes("wordfence")) ? "<strong>Wordfence är aktivt!</strong> Ladda upp rapporten för att verifiera IP-detektering för sökspindeln." : "Inte aktivt på sajten.")
+      },
+      {
+        name: "4. Elementor Statusrapport",
+        status: state.elemInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.elemInfo,
+        color: state.elemInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.elemInfo 
+          ? `<strong>Detekterad live-version:</strong> v${elemVersion}<br><strong>Lazy load-status:</strong> ${env.hasElementorLazyLoad ? "Aktiv (Risk!)" : "Inaktiv (Optimalt)"}<br><strong>Aktiva funktioner:</strong> ${env.elemExperiments.length} st`
+          : (env.hasElementor ? "<strong>Elementor är aktivt!</strong> Ladda upp rapporten för att automatiskt verifiera inbyggd lazy load." : "Inte aktivt på sajten.")
+      },
+      {
+        name: "5. Anpassad PHP-kod (functions.php)",
+        status: state.customCodeInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.customCodeInfo,
+        color: state.customCodeInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.customCodeInfo 
+          ? `<strong>Gjorda PHP-tester:</strong> 3 st godkända<br><strong>Stabilitetsrisker:</strong> ${state.analysisResults ? state.analysisResults.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0} st`
+          : "Ladda upp källkodsfiler för att granska anpassade filter och actions."
+      },
+      {
+        name: "6. Nuvarande LiteSpeed Inställningar (.data)",
+        status: state.uploadedSettings ? "Inläst ✓" : "Genereras från scratch",
+        loaded: !!state.uploadedSettings,
+        color: state.uploadedSettings ? "var(--color-success)" : "var(--accent-indigo)",
+        details: state.uploadedSettings 
+          ? `<strong>Inlästa parametrar:</strong> ${Object.keys(state.uploadedSettings).length} st<br><strong>Detekterad referens:</strong> LiteSpeed Cache v${lscwpVersion}`
+          : "Ingen basfil inläst. Appen skapar en perfekt stabilitetsprofil från scratch!"
+      }
+    ];
+
+    files.forEach(file => {
+      const card = document.createElement("div");
+      card.className = "finding-stat-card";
+      card.style.flexDirection = "column";
+      card.style.alignItems = "flex-start";
+      card.style.padding = "1.25rem";
+      card.style.background = file.loaded ? "rgba(16, 185, 129, 0.02)" : "rgba(255, 255, 255, 0.01)";
+      card.style.borderColor = file.loaded ? "rgba(16, 185, 129, 0.15)" : "rgba(255, 255, 255, 0.03)";
+      card.style.borderWidth = "1px";
+      card.style.borderStyle = "solid";
+      card.style.borderRadius = "12px";
+
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+          <h4 style="font-size: 0.85rem; font-weight: 700; color: #fff; margin: 0;">${file.name}</h4>
+          <span style="font-size: 0.72rem; font-weight: bold; color: ${file.color};">${file.status}</span>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; margin: 0; width: 100%;">${file.details}</p>
+      `;
+      grid.appendChild(card);
     });
 
-    // Unlock analyzed content layouts inside all views
-    document.querySelectorAll(".view-section").forEach(sec => {
-      const placeholder = sec.querySelector(".empty-state-placeholder");
-      const content = sec.querySelector(".view-content");
-      if (placeholder) placeholder.style.display = "none";
-      if (content) content.style.display = "block";
-    });
-    
-    btnStartAnalysis.classList.remove("btn-pulse");
-    analysisReadyText.innerHTML = `✓ Analysen kördes framgångsrikt kl. ${new Date().toLocaleTimeString()}. Uppdatera filer ovan live för att analysera igen.`;
-    analysisReadyText.style.color = "var(--color-success)";
+    const specTitle = document.getElementById("elementor-spec-title");
+    if (specTitle) {
+      specTitle.innerHTML = `🎨 Elementor v${elemVersion} (${state.sysInfo && state.sysInfo["wp-plugins-active"] && state.sysInfo["wp-plugins-active"]["Elementor"] ? "Detekterad" : "Referens"})`;
+    }
 
-    renderSummaryCard();
-    renderAlerts();
-    renderWooChecklist();
-    renderCustomCodeAudits();
-    renderTabs();
-    renderSettingsPanel();
-    renderComparisonSummary();
-    renderBulletLists(state.analysisResults.fileSummaries);
-    
-    // Calculate and render the Health Score & dynamic Overview summary
-    renderHealthScoreAndOverview();
+    const lscwpSpecTitle = document.getElementById("lscwp-spec-title");
+    if (lscwpSpecTitle) {
+      lscwpSpecTitle.innerHTML = `⚡ LiteSpeed Cache v${lscwpVersion} (Konfigurationer)`;
+    }
 
-    updateActionBar();
-
-    // Auto-switch to Översikt (Overview) tab on complete
-    switchMasterView("overview");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const lscwpRefBadge = document.getElementById("lscwp-ref-badge");
+    if (lscwpRefBadge) {
+      lscwpRefBadge.innerHTML = `Referens: LiteSpeed Cache v${lscwpVersion}`;
+    }
   }
 
   function renderHealthScoreAndOverview() {
@@ -690,7 +1145,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const statSecuredStatusEl = document.getElementById("stat-secured-status");
 
     const totalRisksCount = results.alerts.filter(a => a.type === "danger" || a.type === "warning").length +
-                            results.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length;
+                            results.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length +
+                            (results.customCssAlerts ? results.customCssAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0);
 
     if (statRisksCountEl) statRisksCountEl.textContent = totalRisksCount;
     if (statRecChangesEl) statRecChangesEl.textContent = deviationCount;
@@ -847,7 +1303,20 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderAlerts() {
     alertsList.innerHTML = "";
     
-    if (state.analysisResults.alerts.length === 0) {
+    const activeAlerts = [
+      ...state.analysisResults.alerts,
+      ...state.analysisResults.customCodeAlerts,
+      ...(state.analysisResults.customCssAlerts || [])
+    ].filter(a => a.type === "danger" || a.type === "warning");
+
+    // Sort activeAlerts: danger first, then warning
+    activeAlerts.sort((a, b) => {
+      if (a.type === "danger" && b.type !== "danger") return -1;
+      if (a.type !== "danger" && b.type === "danger") return 1;
+      return 0;
+    });
+    
+    if (activeAlerts.length === 0) {
       alertsList.innerHTML = `
         <div class="alert-item success">
           <div class="alert-icon">✓</div>
@@ -860,7 +1329,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    state.analysisResults.alerts.forEach(alert => {
+    activeAlerts.forEach((alert, index) => {
       const item = document.createElement("div");
       item.className = `alert-item ${alert.type}`;
       
@@ -886,7 +1355,7 @@ document.addEventListener("DOMContentLoaded", () => {
       item.innerHTML = `
         <div class="alert-icon">${alert.icon}</div>
         <div class="alert-content">
-          <h4>${alert.title}</h4>
+          <h4>${index + 1}. ${alert.title}</h4>
           <p>${alert.desc}</p>
           ${pathHtml}
           ${buttonHtml}
@@ -1191,11 +1660,15 @@ document.addEventListener("DOMContentLoaded", () => {
       // Check if current value matches recommendation
       let isMatches = false;
       if (typeof opt.recommendedRaw === "string") {
-        const cleanCur = (activeUserVal || "").toString().trim().replace(/\r\n/g, "\n");
-        const cleanRec = (opt.recommendedRaw || "").toString().trim().replace(/\r\n/g, "\n");
-        const curExcludes = cleanCur.split("\n").map(x => x.trim()).filter(Boolean);
-        const recExcludes = cleanRec.split("\n").map(x => x.trim()).filter(Boolean);
-        const missing = recExcludes.filter(r => !curExcludes.some(c => c.includes(r)));
+        let missing = window.checkMissingExclusions ? window.checkMissingExclusions(activeUserVal, opt.recommendedRaw) : [];
+        if (opt.id === "drop_uri") {
+          const cleanVal = (activeUserVal || "").toString().toLowerCase();
+          const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
+          const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
+          if (hasCheckout && hasCart) {
+            missing = [];
+          }
+        }
         isMatches = missing.length === 0;
       } else {
         const userNorm = (activeUserVal === 1 || activeUserVal === "on" || activeUserVal === true) ? 1 : 0;
@@ -1278,11 +1751,15 @@ document.addEventListener("DOMContentLoaded", () => {
           // Live optimal badge update in title row
           const titleRow = card.querySelector(".setting-title-row");
           if (titleRow) {
-            const cleanCur = e.target.value.toString().trim().replace(/\r\n/g, "\n");
-            const cleanRec = opt.recommendedRaw.toString().trim().replace(/\r\n/g, "\n");
-            const curExcludes = cleanCur.split("\n").map(x => x.trim()).filter(Boolean);
-            const recExcludes = cleanRec.split("\n").map(x => x.trim()).filter(Boolean);
-            const missing = recExcludes.filter(r => !curExcludes.some(c => c.includes(r)));
+            let missing = window.checkMissingExclusions ? window.checkMissingExclusions(e.target.value, opt.recommendedRaw) : [];
+            if (opt.id === "drop_uri") {
+              const cleanVal = e.target.value.toString().toLowerCase();
+              const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
+              const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
+              if (hasCheckout && hasCart) {
+                missing = [];
+              }
+            }
             const innerIsMatch = missing.length === 0;
 
             const existingBadges = titleRow.querySelectorAll(".badge-risk");
@@ -1379,44 +1856,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
     state.analysisResults.recommendations.forEach(tab => {
       tab.options.forEach(opt => {
-        if (state.uploadedSettings.hasOwnProperty(opt.id)) {
-          const orig = state.uploadedSettings[opt.id];
-          const rec = opt.recommendedRaw;
+        const orig = state.uploadedSettings.hasOwnProperty(opt.id) ? state.uploadedSettings[opt.id] : "";
+        const rec = opt.recommendedRaw;
 
-          const origNorm = (orig === "1" || orig === 1 || orig === "on" || orig === true) ? 1 : 0;
-          const recNorm = (rec === "1" || rec === 1 || rec === "on" || rec === true) ? 1 : 0;
+        const origNorm = (orig === "1" || orig === 1 || orig === "on" || orig === true) ? 1 : 0;
+        const recNorm = (rec === "1" || rec === 1 || rec === "on" || rec === true) ? 1 : 0;
 
-          let isDeviant = false;
-          let devData = {
-            id: opt.id,
-            title: opt.title,
-            origVal: origNorm === 1 ? "PÅ" : "AV",
-            recVal: recNorm === 1 ? "PÅ" : "AV",
-            recRaw: recNorm
-          };
+        let isDeviant = false;
+        let devData = {
+          id: opt.id,
+          title: opt.title,
+          origVal: orig ? (origNorm === 1 ? "PÅ" : "AV") : "Ej angivet",
+          recVal: recNorm === 1 ? "PÅ" : "AV",
+          recRaw: rec
+        };
 
-          const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri";
+        const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri";
 
-          if (isTextareaField) {
-            const cleanOrig = (orig || "").toString().trim().replace(/\r\n/g, "\n");
-            const cleanRec = (rec || "").toString().trim().replace(/\r\n/g, "\n");
-            
-            const origArr = cleanOrig.split("\n").map(x => x.trim()).filter(Boolean);
-            const recArr = cleanRec.split("\n").map(x => x.trim()).filter(Boolean);
-            const missing = recArr.filter(r => !origArr.some(c => c.includes(r)));
-
-            if (missing.length > 0) {
-              isDeviant = true;
-              devData.origVal = "Saknar exkluderingar";
-              devData.recVal = "ANPASSAD";
-              devData.recRaw = rec;
+        if (isTextareaField) {
+          let missing = window.checkMissingExclusions ? window.checkMissingExclusions(orig, rec) : [];
+          if (opt.id === "drop_uri") {
+            const cleanVal = (orig || "").toString().toLowerCase();
+            const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
+            const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
+            if (hasCheckout && hasCart) {
+              missing = [];
             }
-          } else if (origNorm !== recNorm) {
-            isDeviant = true;
           }
+          if (missing.length > 0) {
+            isDeviant = true;
+            devData.origVal = orig ? "Saknar exkluderingar" : "Ej angivet";
+            devData.recVal = "ANPASSAD";
+            devData.recRaw = window.mergeExclusions ? window.mergeExclusions(orig, rec) : rec;
+          }
+        } else if (origNorm !== recNorm) {
+          isDeviant = true;
+        }
 
-          if (isDeviant) {
-            tiers[opt.category].push(devData);
+        if (isDeviant) {
+          const category = opt.category === "security" ? "stability" : (opt.category || "finetuning");
+          if (tiers[category]) {
+            tiers[category].push(devData);
+          } else {
+            tiers.finetuning.push(devData);
           }
         }
       });
@@ -1586,6 +2068,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     btnExport.disabled = false;
+    if (btnExportPhp) btnExportPhp.disabled = false;
+    if (btnExportJson) btnExportJson.disabled = false;
   }
 
   // --- TRIGGER FILE EXPORT ---
@@ -1601,13 +2085,15 @@ document.addEventListener("DOMContentLoaded", () => {
         exportObj[key] = state.editedSettings[key];
       });
 
-      const serializedData = php_serialize(exportObj);
+      // Translate all internal keys back to the real LSCWP database keys
+      const finalExportObj = translateKeysToLscwp(exportObj);
+      const serializedData = php_serialize(finalExportObj);
 
       const blob = new Blob([serializedData], { type: "text/plain;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `litespeed-helper-export-${new Date().toISOString().slice(0, 10)}.data`;
+      link.download = `arewee-wp-optimizer-export-${new Date().toISOString().slice(0, 10)}.data`;
       
       document.body.appendChild(link);
       link.click();
@@ -1617,4 +2103,867 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(`Exporteringsfel: ${err.message}`);
     }
   });
+
+  // --- CREDENTIALS RESTORATION ---
+  if (apiSiteUrl && localStorage.getItem("wp_optimizer_api_url")) {
+    apiSiteUrl.value = localStorage.getItem("wp_optimizer_api_url");
+    state.apiUrl = localStorage.getItem("wp_optimizer_api_url");
+  }
+  if (apiSyncToken && localStorage.getItem("wp_optimizer_api_token")) {
+    apiSyncToken.value = localStorage.getItem("wp_optimizer_api_token");
+    state.apiToken = localStorage.getItem("wp_optimizer_api_token");
+  }
+  if (state.apiUrl && apiSyncStatusText) {
+    apiSyncStatusText.textContent = `Status: Sparad anslutning till ${state.apiUrl.replace(/^https?:\/\//, "")}`;
+    if (btnApiPush) {
+      btnApiPush.disabled = false;
+      btnApiPush.style.background = "linear-gradient(135deg, #10b981, #059669)";
+      btnApiPush.style.color = "#fff";
+    }
+  }
+
+  // --- DOWNLOAD SYNC PLUGIN EVENT ---
+  if (btnDownloadSyncPlugin) {
+    btnDownloadSyncPlugin.addEventListener("click", () => {
+      try {
+        const phpCode = generateSyncPluginPhp();
+        const blob = new Blob([phpCode], { type: "application/x-httpd-php;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "wp-optimizer-sync.php";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert(`Fel vid skapande av sync-plugin: ${err.message}`);
+      }
+    });
+  }
+
+  // --- REST API SYNC CLIENT ---
+  if (btnApiFetch) {
+    btnApiFetch.addEventListener("click", async () => {
+      const url = apiSiteUrl.value.trim().replace(/\/$/, "");
+      const token = apiSyncToken.value.trim();
+
+      if (!url || !token) {
+        alert("Vänligen fyll i både sajt-URL och anslutnings-token.");
+        return;
+      }
+
+      btnApiFetch.disabled = true;
+      btnApiFetch.textContent = "Ansluter...";
+      apiSyncStatusText.textContent = "Status: Ansluter...";
+      apiSyncStatusText.style.color = "var(--text-muted)";
+
+      try {
+        const response = await fetch(`${url}/wp-json/wp-optimizer-sync/v1/diagnostics`, {
+          method: "GET",
+          headers: {
+            "X-WP-Optimizer-Token": token
+          }
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP fel! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Store credentials
+        localStorage.setItem("wp_optimizer_api_url", url);
+        localStorage.setItem("wp_optimizer_api_token", token);
+        state.apiUrl = url;
+        state.apiToken = token;
+
+        // Apply data to state
+        state.sysInfo = data.sysInfo;
+        state.wooInfo = data.wooInfo;
+        state.wfInfo = data.wfInfo;
+        state.elemInfo = data.elemInfo;
+        state.customCodeInfo = data.customCode;
+        if (data.uploadedSettings) {
+          state.uploadedSettings = translateKeysToInternal(data.uploadedSettings);
+          state.editedSettings = JSON.parse(JSON.stringify(state.uploadedSettings));
+        }
+
+        // Check status markers in UI
+        if (sysInfoStatus) {
+          sysInfoStatus.className = "status-badge success";
+          sysInfoStatus.textContent = "✓ Inläst";
+        }
+        if (state.wooInfo && woocommerceStatus) {
+          woocommerceStatus.className = "status-badge success";
+          woocommerceStatus.textContent = "✓ Inläst";
+        }
+        if (state.wfInfo && wordfenceStatus) {
+          wordfenceStatus.className = "status-badge success";
+          wordfenceStatus.textContent = "✓ Inläst";
+        }
+        if (state.elemInfo && elementorStatus) {
+          elementorStatus.className = "status-badge success";
+          elementorStatus.textContent = "✓ Inläst";
+        }
+        if (state.customCodeInfo && customcodeStatus) {
+          customcodeStatus.className = "status-badge success";
+          customcodeStatus.textContent = "✓ Inläst";
+        }
+        if (state.uploadedSettings && settingsStatus) {
+          settingsStatus.className = "status-badge success";
+          settingsStatus.textContent = "✓ Inläst";
+        }
+
+        triggerAnalysis();
+
+        const companionVersion = data.syncPluginVersion || "1.0.0";
+        const targetVersion = "2.1.0";
+        if (companionVersion !== targetVersion) {
+          apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${url.replace(/^https?:\/\//, "")} (Plugin v${companionVersion} är föråldrad! Ladda ner v${targetVersion})`;
+          apiSyncStatusText.style.color = "#fbbf24"; // warning color
+        } else {
+          apiSyncStatusText.textContent = `✓ Ansluten live till ${url.replace(/^https?:\/\//, "")}`;
+          apiSyncStatusText.style.color = "var(--color-success)";
+        }
+        if (btnApiPush) {
+          btnApiPush.disabled = false;
+          btnApiPush.style.background = "linear-gradient(135deg, #10b981, #059669)";
+          btnApiPush.style.color = "#fff";
+        }
+
+      } catch (err) {
+        console.error("Fetch error:", err);
+        apiSyncStatusText.textContent = `✗ Fel: ${err.message}`;
+        apiSyncStatusText.style.color = "var(--color-danger)";
+        alert(`Misslyckades att hämta data live: ${err.message}`);
+      } finally {
+        btnApiFetch.disabled = false;
+        btnApiFetch.textContent = "🔄 Hämta data live";
+      }
+    });
+  }
+
+  if (btnApiPush) {
+    btnApiPush.addEventListener("click", async () => {
+      const url = localStorage.getItem("wp_optimizer_api_url") || apiSiteUrl.value.trim().replace(/\/$/, "");
+      const token = localStorage.getItem("wp_optimizer_api_token") || apiSyncToken.value.trim();
+
+      if (!url || !token) {
+        alert("Ingen aktiv koppling hittades. Hämta data live först.");
+        return;
+      }
+
+      btnApiPush.disabled = true;
+      btnApiPush.textContent = "Skickar...";
+
+      try {
+        let exportObj = {};
+        if (state.uploadedSettings) {
+          exportObj = JSON.parse(JSON.stringify(state.uploadedSettings));
+        }
+        Object.keys(state.editedSettings).forEach(key => {
+          exportObj[key] = state.editedSettings[key];
+        });
+
+        // Compile option updates
+        const lscwpConf = translateKeysToLscwp(exportObj);
+        
+        const payload = {
+          "litespeed-cache-conf": lscwpConf
+        };
+
+        // WooCommerce HPOS
+        if (state.editedSettings['woo_hpos'] !== undefined) {
+          payload["woocommerce_custom_orders_table_enabled"] = 
+            (state.editedSettings['woo_hpos'] === 1 || state.editedSettings['woo_hpos'] === "1" || state.editedSettings['woo_hpos'] === "yes") ? 'yes' : 'no';
+        }
+
+        // Elementor External CSS print method
+        if (state.editedSettings['elem_css_print_method'] !== undefined) {
+          payload["elementor_css_print_method"] = state.editedSettings['elem_css_print_method'] || 'external';
+        }
+
+        // Elementor active experiments compilation
+        const activeExps = {};
+        if (state.elemInfo && state.elemInfo.experiments) {
+          state.elemInfo.experiments.forEach(exp => {
+            activeExps[exp] = 'active';
+          });
+        }
+        if (state.editedSettings['elem_dom_optimization'] !== undefined) {
+          const status = (state.editedSettings['elem_dom_optimization'] === 1) ? 'active' : 'inactive';
+          activeExps['container'] = status;
+          activeExps['e_dom_optimization'] = status;
+        }
+        if (state.editedSettings['elem_asset_loading'] !== undefined) {
+          const status = (state.editedSettings['elem_asset_loading'] === 1) ? 'active' : 'inactive';
+          activeExps['e_optimized_assets_loading'] = status;
+        }
+        if (state.editedSettings['elem_css_loading'] !== undefined) {
+          const status = (state.editedSettings['elem_css_loading'] === 1) ? 'active' : 'inactive';
+          activeExps['e_optimized_css_loading'] = status;
+        }
+        payload["elementor_active_experiments"] = activeExps;
+
+        // Wordfence Live Traffic
+        if (state.editedSettings['wf_live_traffic'] !== undefined) {
+          payload["wf_live_traffic"] = (state.editedSettings['wf_live_traffic'] === 1 || state.editedSettings['wf_live_traffic'] === true) ? 1 : 0;
+        }
+        // Wordfence IP Header
+        if (state.editedSettings['wf_ip_header'] !== undefined) {
+          payload["wf_ip_header"] = state.editedSettings['wf_ip_header'];
+        }
+
+        const response = await fetch(`${url}/wp-json/wp-optimizer-sync/v1/settings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-WP-Optimizer-Token": token
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP fel! Status: ${response.status}`);
+        }
+
+        alert("✓ Inställningar har skickats och tillämpats live på din WordPress-sajt!");
+      } catch (err) {
+        console.error("Push error:", err);
+        alert(`Misslyckades att skicka inställningar live: ${err.message}`);
+      } finally {
+        btnApiPush.disabled = false;
+        btnApiPush.textContent = "🚀 Skicka inställningar live";
+      }
+    });
+  }
+
+  // --- ADDITIONAL EXPORTER TRIGGERS ---
+  if (btnExportPhp) {
+    btnExportPhp.addEventListener("click", () => {
+      try {
+        const phpSnippet = generateAutoOptimizerSnippet(state.editedSettings);
+        const blob = new Blob([phpSnippet], { type: "application/x-httpd-php;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `wp-auto-optimizer-${new Date().toISOString().slice(0, 10)}.php`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert(`Fel vid generering av PHP: ${err.message}`);
+      }
+    });
+  }
+
+  if (btnExportJson) {
+    btnExportJson.addEventListener("click", () => {
+      try {
+        const snippetsJson = generateCodeSnippetsJson(state.editedSettings);
+        const blob = new Blob([snippetsJson], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `wp-code-snippets-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert(`Fel vid generering av Snippets JSON: ${err.message}`);
+      }
+    });
+  }
+
+  // --- VISUAL CONFLICT TOPOLOGY DRAW ENGINE ---
+  function drawTopologyMap() {
+    const container = document.getElementById("topology-nodes");
+    const svg = document.getElementById("topology-svg");
+    if (!container || !svg) return;
+
+    container.innerHTML = "";
+    svg.innerHTML = "";
+
+    // Determine nodes active/inactive status
+    const nodeConfigs = {
+      wp: { id: "node-wp", label: "WordPress Core", icon: "🌐", x: 50, y: 50, active: true },
+      lscwp: { 
+        id: "node-lscwp", 
+        label: "LiteSpeed Cache", 
+        icon: "⚡", 
+        x: 50, 
+        y: 15, 
+        active: !!state.uploadedSettings || (state.sysInfo && state.sysInfo['wp-plugins-active'] && Object.keys(state.sysInfo['wp-plugins-active']).some(k => k.toLowerCase().includes('litespeed')))
+      },
+      woo: { 
+        id: "node-woo", 
+        label: "WooCommerce", 
+        icon: "🛒", 
+        x: 20, 
+        y: 75, 
+        active: !!state.wooInfo || (state.sysInfo && state.sysInfo['wp-plugins-active'] && Object.keys(state.sysInfo['wp-plugins-active']).some(k => k.toLowerCase().includes('woocommerce')))
+      },
+      elem: { 
+        id: "node-elem", 
+        label: "Elementor Pro", 
+        icon: "🎨", 
+        x: 80, 
+        y: 75, 
+        active: !!state.elemInfo || (state.sysInfo && state.sysInfo['wp-plugins-active'] && Object.keys(state.sysInfo['wp-plugins-active']).some(k => k.toLowerCase().includes('elementor')))
+      },
+      wf: { 
+        id: "node-wf", 
+        label: "Wordfence Security", 
+        icon: "🛡️", 
+        x: 20, 
+        y: 25, 
+        active: !!state.wfInfo || (state.sysInfo && state.sysInfo['wp-plugins-active'] && Object.keys(state.sysInfo['wp-plugins-active']).some(k => k.toLowerCase().includes('wordfence')))
+      },
+      cc: { 
+        id: "node-cc", 
+        label: "Snippets & CSS", 
+        icon: "🔌", 
+        x: 80, 
+        y: 25, 
+        active: !!state.customCodeInfo || !!state.customCss || (state.sysInfo && state.sysInfo['wp-plugins-active'] && Object.keys(state.sysInfo['wp-plugins-active']).some(k => k.toLowerCase().includes('code-snippets')))
+      }
+    };
+
+    // Scan dashboard alerts for specific conflicts
+    const alerts = (state.analysisResults && state.analysisResults.alerts) || [];
+    const conflicts = {
+      "lscwp-wf": alerts.some(a => (a.title.includes("Wordfence") || a.desc.includes("Wordfence") || a.title.includes("Crawler")) && (a.type === "danger" || a.type === "warning")),
+      "lscwp-elem": alerts.some(a => (a.title.includes("Elementor") || a.desc.includes("Elementor") || a.title.includes("Lazy Load")) && (a.type === "danger" || a.type === "warning")),
+      "lscwp-woo": alerts.some(a => (a.title.includes("WooCommerce") || a.desc.includes("WooCommerce") || a.title.includes("kassa") || a.title.includes("Checkout")) && (a.type === "danger" || a.type === "warning")),
+      "elem-woo": alerts.some(a => (a.title.includes("Elementor") || a.desc.includes("Elementor")) && (a.title.includes("WooCommerce") || a.desc.includes("WooCommerce") || a.desc.includes("minicart") || a.desc.includes("wc-cart-fragments")) && (a.type === "danger" || a.type === "warning")),
+      "cc-woo": alerts.some(a => (a.title.includes("hook") || a.desc.includes("hook")) && (a.title.includes("WooCommerce") || a.desc.includes("WooCommerce")) && (a.type === "danger" || a.type === "warning")),
+      "cc-lscwp": alerts.some(a => (a.title.includes("CSS") || a.desc.includes("CSS") || a.title.includes("exkludering")) && (a.type === "danger" || a.type === "warning"))
+    };
+
+    const hasConflict = {
+      wp: false,
+      lscwp: conflicts["lscwp-wf"] || conflicts["lscwp-elem"] || conflicts["lscwp-woo"] || conflicts["cc-lscwp"],
+      woo: conflicts["lscwp-woo"] || conflicts["elem-woo"] || conflicts["cc-woo"],
+      elem: conflicts["lscwp-elem"] || conflicts["elem-woo"],
+      wf: conflicts["lscwp-wf"],
+      cc: conflicts["cc-woo"] || conflicts["cc-lscwp"]
+    };
+
+    const width = container.clientWidth || 600;
+    const height = container.clientHeight || 260;
+
+    const nodes = {};
+    Object.keys(nodeConfigs).forEach(key => {
+      const cfg = nodeConfigs[key];
+      if (!cfg.active) return;
+      nodes[key] = {
+        id: cfg.id,
+        label: cfg.label,
+        icon: cfg.icon,
+        px: (cfg.x / 100) * width,
+        py: (cfg.y / 100) * height,
+        conflict: hasConflict[key]
+      };
+    });
+
+    // Render connection lines
+    const linesToDraw = [
+      { from: "wp", to: "lscwp", type: "normal" },
+      { from: "wp", to: "woo", type: "normal" },
+      { from: "wp", to: "elem", type: "normal" },
+      { from: "wp", to: "wf", type: "normal" },
+      { from: "wp", to: "cc", type: "normal" },
+      
+      { from: "lscwp", to: "wf", type: conflicts["lscwp-wf"] ? "conflict" : "normal" },
+      { from: "lscwp", to: "elem", type: conflicts["lscwp-elem"] ? "conflict" : "normal" },
+      { from: "lscwp", to: "woo", type: conflicts["lscwp-woo"] ? "conflict" : "normal" },
+      { from: "elem", to: "woo", type: conflicts["elem-woo"] ? "conflict" : "normal" },
+      { from: "cc", to: "woo", type: conflicts["cc-woo"] ? "conflict" : "normal" },
+      { from: "cc", to: "lscwp", type: conflicts["cc-lscwp"] ? "conflict" : "normal" }
+    ];
+
+    linesToDraw.forEach(l => {
+      if (nodes[l.from] && nodes[l.to]) {
+        const nA = nodes[l.from];
+        const nB = nodes[l.to];
+        const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        lineEl.setAttribute("x1", nA.px);
+        lineEl.setAttribute("y1", nA.py);
+        lineEl.setAttribute("x2", nB.px);
+        lineEl.setAttribute("y2", nB.py);
+        lineEl.setAttribute("class", `topology-line ${l.type}`);
+        svg.appendChild(lineEl);
+      }
+    });
+
+    // Render divs nodes
+    Object.keys(nodes).forEach(key => {
+      const node = nodes[key];
+      const nodeDiv = document.createElement("div");
+      nodeDiv.className = `topology-node ${node.conflict ? "conflict" : ""}`;
+      nodeDiv.style.left = `${node.px}px`;
+      nodeDiv.style.top = `${node.py}px`;
+      nodeDiv.innerHTML = `
+        <span class="topology-node-icon">${node.icon}</span>
+        <div class="topology-node-label">${node.label}</div>
+      `;
+      
+      nodeDiv.addEventListener("click", () => {
+        if (key === "lscwp") switchMasterView("settings");
+        else if (key === "wf" || key === "woo" || key === "elem") switchMasterView("risks");
+        else if (key === "cc") {
+          switchMasterView("inputs");
+          const pastebox = document.getElementById("app-custom-css-pastebox");
+          if (pastebox) pastebox.focus();
+        }
+      });
+
+      container.appendChild(nodeDiv);
+    });
+  }
+
+  // Handle Resize for SVG Coordinates recalculation
+  const resizeObserver = new ResizeObserver(() => {
+    if (state.analysisResults) drawTopologyMap();
+  });
+  const wrapper = document.querySelector(".topology-wrapper");
+  if (wrapper) resizeObserver.observe(wrapper);
+
+  // --- LOCALSTORAGE PROFILE HISTORY & SIDE-BY-SIDE COMPARISON ---
+  let historyLibrary = [];
+  try {
+    const rawHistory = localStorage.getItem("wp_optimizer_history");
+    if (rawHistory) {
+      historyLibrary = JSON.parse(rawHistory);
+    }
+  } catch (e) {
+    console.error("Fel vid laddning av historik från localStorage:", e);
+  }
+
+  function saveCurrentProfile() {
+    if (!state.sysInfo) {
+      alert("Ingen aktiv analys hittades. Ladda upp data och starta en analys först.");
+      return;
+    }
+
+    const defaultName = state.apiUrl ? state.apiUrl.replace(/^https?:\/\//, "") : (state.sysInfo['wp-active-theme'] ? `${state.sysInfo['wp-active-theme'].name} Site` : "Sajt Profil");
+    const name = prompt("Ange ett namn för att spara denna sajtprofil i historiken:", defaultName);
+    if (name === null) return;
+    
+    const profileName = name.trim() || defaultName;
+    const healthScoreValEl = document.getElementById("health-score-value");
+    const healthScore = healthScoreValEl ? parseInt(healthScoreValEl.textContent, 10) : 100;
+
+    const profile = {
+      id: "profile_" + Date.now(),
+      name: profileName,
+      timestamp: formatTimestamp(new Date()),
+      healthScore: healthScore,
+      wpVersion: state.sysInfo['wp-core'] ? state.sysInfo['wp-core'].version : 'Okänd',
+      phpVersion: state.sysInfo['wp-server'] ? state.sysInfo['wp-server'].php_version : 'Okänd',
+      theme: state.sysInfo['wp-active-theme'] ? state.sysInfo['wp-active-theme'].name : 'Okänt',
+      pluginsCount: state.sysInfo['wp-plugins-active'] ? Object.keys(state.sysInfo['wp-plugins-active']).length : 0,
+      sysInfo: state.sysInfo,
+      wooInfo: state.wooInfo,
+      wfInfo: state.wfInfo,
+      elemInfo: state.elemInfo,
+      customCodeInfo: state.customCodeInfo,
+      customCss: state.customCss,
+      uploadedSettings: state.uploadedSettings,
+      editedSettings: state.editedSettings,
+      apiUrl: state.apiUrl,
+      apiToken: state.apiToken,
+      uploadMetadata: state.uploadMetadata
+    };
+
+    const existingIndex = historyLibrary.findIndex(p => p.name.toLowerCase() === profileName.toLowerCase());
+    if (existingIndex !== -1) {
+      if (confirm(`En profil med namnet "${profileName}" finns redan. Vill du skriva över den?`)) {
+        historyLibrary[existingIndex] = profile;
+      } else {
+        return;
+      }
+    } else {
+      historyLibrary.push(profile);
+    }
+
+    saveHistoryToLocalStorage();
+    renderHistoryLibrary();
+    updateCompareDropdowns();
+    alert(`✓ Profil "${profileName}" sparad framgångsrikt!`);
+  }
+
+  function saveHistoryToLocalStorage() {
+    try {
+      localStorage.setItem("wp_optimizer_history", JSON.stringify(historyLibrary));
+    } catch (e) {
+      alert(`Kunde inte spara till webbläsaren: ${e.message}`);
+    }
+  }
+
+  function deleteProfile(id) {
+    if (confirm("Är du säker på att du vill ta bort denna sparade profil?")) {
+      historyLibrary = historyLibrary.filter(p => p.id !== id);
+      saveHistoryToLocalStorage();
+      renderHistoryLibrary();
+      updateCompareDropdowns();
+    }
+  }
+
+  function clearAllHistory() {
+    if (confirm("⚠️ Är du säker på att du vill radera ALL sparad historik? Detta kan inte ångras.")) {
+      historyLibrary = [];
+      saveHistoryToLocalStorage();
+      renderHistoryLibrary();
+      updateCompareDropdowns();
+      if (comparisonResultTableWrapper) comparisonResultTableWrapper.style.display = "none";
+    }
+  }
+
+  function loadProfile(id) {
+    const profile = historyLibrary.find(p => p.id === id);
+    if (!profile) return;
+
+    if (confirm(`Vill du läsa in profilen "${profile.name}" som det aktuella arbetstillståndet? Nuvarande osprat arbete kommer att skrivas över.`)) {
+      state.sysInfo = profile.sysInfo;
+      state.wooInfo = profile.wooInfo;
+      state.wfInfo = profile.wfInfo;
+      state.elemInfo = profile.elemInfo;
+      state.customCodeInfo = profile.customCodeInfo;
+      state.customCss = profile.customCss || "";
+      state.uploadedSettings = profile.uploadedSettings;
+      state.editedSettings = JSON.parse(JSON.stringify(profile.editedSettings || {}));
+      state.apiUrl = profile.apiUrl || "";
+      state.apiToken = profile.apiToken || "";
+      state.uploadMetadata = profile.uploadMetadata || {
+        sysInfo: { name: profile.name + " (Historik WP)", timestamp: profile.timestamp },
+        wooInfo: profile.wooInfo ? { name: "Historik WC", timestamp: profile.timestamp } : { name: "", timestamp: "" },
+        wfInfo: profile.wfInfo ? { name: "Historik Wordfence", timestamp: profile.timestamp } : { name: "", timestamp: "" },
+        elemInfo: profile.elemInfo ? { name: "Historik Elementor", timestamp: profile.timestamp } : { name: "", timestamp: "" },
+        customCodeInfo: profile.customCodeInfo ? { name: "Historik Snippets", timestamp: profile.timestamp } : { name: "", timestamp: "" },
+        uploadedSettings: profile.uploadedSettings ? { name: "Historik LSCWP Settings", timestamp: profile.timestamp } : { name: "", timestamp: "" }
+      };
+
+      if (state.apiUrl && apiSiteUrl) apiSiteUrl.value = state.apiUrl;
+      if (state.apiToken && apiSyncToken) apiSyncToken.value = state.apiToken;
+
+      const mainBox = document.getElementById("app-custom-css-pastebox");
+      if (mainBox) mainBox.value = state.customCss;
+
+      updateActiveSiteStatusBar();
+      updateConnectionStatusBadges();
+      triggerAnalysis();
+      alert(`✓ Profil "${profile.name}" inläst!`);
+    }
+  }
+
+  function updateConnectionStatusBadges() {
+    const checkSet = (info, badge, key) => {
+      if (!badge) return;
+      if (info) {
+        badge.className = "file-status loaded";
+        badge.textContent = `✓ ${state.uploadMetadata[key]?.name || 'Inläst'}`;
+      } else {
+        badge.className = "file-status";
+        badge.textContent = key === "sysInfo" ? "Krävs *" : "Valfritt";
+      }
+    };
+    checkSet(state.sysInfo, sysInfoStatus, "sysInfo");
+    checkSet(state.wooInfo, woocommerceStatus, "wooInfo");
+    checkSet(state.wfInfo, wordfenceStatus, "wfInfo");
+    checkSet(state.elemInfo, elementorStatus, "elemInfo");
+    checkSet(state.customCodeInfo, customcodeStatus, "customCodeInfo");
+    checkSet(state.uploadedSettings, settingsStatus, "uploadedSettings");
+  }
+
+  function renderHistoryLibrary() {
+    if (!historyProfilesGrid) return;
+    historyProfilesGrid.innerHTML = "";
+
+    if (historyLibrary.length === 0) {
+      if (historyEmptyState) historyEmptyState.style.display = "block";
+      return;
+    }
+
+    if (historyEmptyState) historyEmptyState.style.display = "none";
+
+    historyLibrary.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "history-profile-card glass-card";
+      
+      let scoreClass = "good";
+      if (p.healthScore < 70) scoreClass = "danger";
+      else if (p.healthScore < 90) scoreClass = "warn";
+
+      card.innerHTML = `
+        <div class="history-card-header">
+          <div>
+            <div class="history-card-title" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
+            <div class="history-card-date">${escapeHtml(p.timestamp)}</div>
+          </div>
+          <div class="history-card-score ${scoreClass}">Hälsa: ${parseInt(p.healthScore, 10)}%</div>
+        </div>
+        <div class="history-card-specs">
+          <div><strong>WP:</strong> ${escapeHtml(p.wpVersion)}</div>
+          <div><strong>PHP:</strong> ${escapeHtml(p.phpVersion)}</div>
+          <div style="grid-column: span 2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><strong>Tema:</strong> ${escapeHtml(p.theme)}</div>
+          <div style="grid-column: span 2;"><strong>Aktiva tillägg:</strong> ${parseInt(p.pluginsCount, 10)} st</div>
+        </div>
+        <div class="history-card-actions">
+          <button class="history-card-btn active-load" data-id="${p.id}">Läs in</button>
+          <button class="history-card-btn delete-btn" data-id="${p.id}">🗑️</button>
+        </div>
+      `;
+
+      card.querySelector(".active-load").addEventListener("click", () => loadProfile(p.id));
+      card.querySelector(".delete-btn").addEventListener("click", () => deleteProfile(p.id));
+
+      historyProfilesGrid.appendChild(card);
+    });
+  }
+
+  function updateCompareDropdowns() {
+    if (!compareSelectA || !compareSelectB) return;
+    
+    const valA = compareSelectA.value;
+    const valB = compareSelectB.value;
+
+    compareSelectA.innerHTML = '<option value="">-- Välj profil A --</option>';
+    compareSelectB.innerHTML = '<option value="">-- Välj profil B --</option>';
+
+    historyLibrary.forEach(p => {
+      const optA = document.createElement("option");
+      optA.value = p.id;
+      optA.textContent = `${p.name} (${p.timestamp})`;
+      compareSelectA.appendChild(optA);
+
+      const optB = document.createElement("option");
+      optB.value = p.id;
+      optB.textContent = `${p.name} (${p.timestamp})`;
+      compareSelectB.appendChild(optB);
+    });
+
+    if (historyLibrary.some(p => p.id === valA)) compareSelectA.value = valA;
+    if (historyLibrary.some(p => p.id === valB)) compareSelectB.value = valB;
+  }
+
+  function exportHistoryLibrary() {
+    if (historyLibrary.length === 0) {
+      alert("Historikbiblioteket är tomt. Inget att exportera.");
+      return;
+    }
+    const rawJson = JSON.stringify(historyLibrary, null, 2);
+    const blob = new Blob([rawJson], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "wp-optimizer-history.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleHistoryImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      try {
+        const imported = JSON.parse(evt.target.result);
+        if (!Array.isArray(imported)) {
+          throw new Error("Historikfilen måste vara en JSON-matris av profiler.");
+        }
+        
+        const isValid = imported.every(p => p.hasOwnProperty("id") && p.hasOwnProperty("name") && p.hasOwnProperty("healthScore") && p.hasOwnProperty("sysInfo"));
+        if (!isValid) {
+          throw new Error("JSON innehåller inte giltiga sajtprofiler.");
+        }
+
+        if (confirm(`Hittade ${imported.length} profiler i filen. Vill du slå ihop dem med dina nuvarande sparade profiler? (Profiler med samma namn skrivs över)`)) {
+          imported.forEach(imp => {
+            const existingIdx = historyLibrary.findIndex(p => p.name.toLowerCase() === imp.name.toLowerCase());
+            if (existingIdx !== -1) {
+              historyLibrary[existingIdx] = imp;
+            } else {
+              historyLibrary.push(imp);
+            }
+          });
+
+          saveHistoryToLocalStorage();
+          renderHistoryLibrary();
+          updateCompareDropdowns();
+          alert("✓ Profiler importerade och sammanslagna framgångsrikt!");
+        }
+      } catch (err) {
+        alert(`Fel vid import: ${err.message}`);
+      } finally {
+        historyImportFile.value = "";
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function executeComparison() {
+    const idA = compareSelectA.value;
+    const idB = compareSelectB.value;
+
+    if (!idA || !idB) {
+      alert("Vänligen välj både Profil A och Profil B för att jämföra.");
+      return;
+    }
+
+    if (idA === idB) {
+      alert("Vänligen välj två olika profiler att jämföra.");
+      return;
+    }
+
+    const profA = historyLibrary.find(p => p.id === idA);
+    const profB = historyLibrary.find(p => p.id === idB);
+
+    if (!profA || !profB) {
+      alert("Kunde inte hitta profilerna.");
+      return;
+    }
+
+    let tableHtml = `
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th style="width: 25%;">Parameter</th>
+            <th style="width: 35%;">${escapeHtml(profA.name)} (A)</th>
+            <th style="width: 35%;">${escapeHtml(profB.name)} (B)</th>
+            <th style="width: 5%; text-align: center;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hälsopoäng</strong></td>
+            <td><span class="comparison-diff-badge" style="background:rgba(255,255,255,0.05); font-size:0.85rem; font-weight:700;">${parseInt(profA.healthScore, 10)}%</span></td>
+            <td><span class="comparison-diff-badge" style="background:rgba(255,255,255,0.05); font-size:0.85rem; font-weight:700;">${parseInt(profB.healthScore, 10)}%</span></td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.healthScore === profB.healthScore ? 'match' : 'diff'}">
+                ${profA.healthScore === profB.healthScore ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Sajt-URL</strong></td>
+            <td><code>${profA.apiUrl ? escapeHtml(profA.apiUrl) : 'Manuell uppladdning'}</code></td>
+            <td><code>${profB.apiUrl ? escapeHtml(profB.apiUrl) : 'Manuell uppladdning'}</code></td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.apiUrl === profB.apiUrl ? 'match' : 'diff'}">
+                ${profA.apiUrl === profB.apiUrl ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>WordPress Version</strong></td>
+            <td>${escapeHtml(profA.wpVersion)}</td>
+            <td>${escapeHtml(profB.wpVersion)}</td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.wpVersion === profB.wpVersion ? 'match' : 'diff'}">
+                ${profA.wpVersion === profB.wpVersion ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>PHP Version</strong></td>
+            <td>${escapeHtml(profA.phpVersion)}</td>
+            <td>${escapeHtml(profB.phpVersion)}</td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.phpVersion === profB.phpVersion ? 'match' : 'diff'}">
+                ${profA.phpVersion === profB.phpVersion ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Tema</strong></td>
+            <td>${escapeHtml(profA.theme)}</td>
+            <td>${escapeHtml(profB.theme)}</td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.theme === profB.theme ? 'match' : 'diff'}">
+                ${profA.theme === profB.theme ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Aktiva tillägg</strong></td>
+            <td>${parseInt(profA.pluginsCount, 10)} st</td>
+            <td>${parseInt(profB.pluginsCount, 10)} st</td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${profA.pluginsCount === profB.pluginsCount ? 'match' : 'diff'}">
+                ${profA.pluginsCount === profB.pluginsCount ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+    `;
+
+    const settingsToCompare = [
+      { key: "css_minify", label: "CSS Minifiering" },
+      { key: "css_combine", label: "CSS Kombinering" },
+      { key: "js_minify", label: "JS Minifiering" },
+      { key: "js_combine", label: "JS Kombinering" },
+      { key: "js_defer", label: "JS Defer (Skjut upp)" },
+      { key: "media_lazy", label: "Bild Lazy Load" },
+      { key: "object_cache", label: "Objekt-cache" },
+      { key: "woo_hpos", label: "WooCommerce HPOS" },
+      { key: "elem_css_print_method", label: "Elementor CSS-metod" }
+    ];
+
+    settingsToCompare.forEach(setting => {
+      const valA = profA.editedSettings[setting.key] !== undefined ? profA.editedSettings[setting.key] : "Ej konf";
+      const valB = profB.editedSettings[setting.key] !== undefined ? profB.editedSettings[setting.key] : "Ej konf";
+
+      const formatVal = (v) => {
+        if (v === 1 || v === "1" || v === "on" || v === true) return "✅ PÅ (Aktiv)";
+        if (v === 0 || v === "0" || v === "off" || v === false) return "❌ AV (Inaktiv)";
+        return v;
+      };
+
+      const strA = formatVal(valA);
+      const strB = formatVal(valB);
+
+      tableHtml += `
+        <tr>
+          <td>${setting.label}</td>
+          <td>${strA}</td>
+          <td>${strB}</td>
+          <td style="text-align: center;">
+             <span class="comparison-diff-badge ${valA === valB ? 'match' : 'diff'}">
+               ${valA === valB ? 'Lika' : 'Diff'}
+             </span>
+          </td>
+        </tr>
+      `;
+    });
+
+    tableHtml += `
+        </tbody>
+      </table>
+    `;
+
+    if (comparisonResultTableWrapper) {
+      comparisonResultTableWrapper.innerHTML = tableHtml;
+      comparisonResultTableWrapper.style.display = "block";
+    }
+  }
+
+  // Bind History buttons event listeners
+  if (btnSaveCurrentProfile) btnSaveCurrentProfile.addEventListener("click", saveCurrentProfile);
+  if (btnExportHistory) btnExportHistory.addEventListener("click", exportHistoryLibrary);
+  if (btnImportHistoryTrigger) btnImportHistoryTrigger.addEventListener("click", () => historyImportFile.click());
+  if (historyImportFile) historyImportFile.addEventListener("change", handleHistoryImport);
+  if (btnClearHistory) btnClearHistory.addEventListener("click", clearAllHistory);
+  if (btnCompareExecute) btnCompareExecute.addEventListener("click", executeComparison);
+
+  // Initial rendering
+  renderHistoryLibrary();
+  updateCompareDropdowns();
 });
