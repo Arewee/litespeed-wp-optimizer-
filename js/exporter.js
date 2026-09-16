@@ -581,7 +581,8 @@ function generateCodeSnippetsJson(editedSettings) {
   }
 
   const exportObj = {
-    generator: "Code Snippets AreWee WP-Optimizer",
+    generator: "Site Code Manager / Code Snippets (AreWee-Optimizer)",
+    version: "2.2.0",
     date_created: new Date().toISOString().replace('T', ' ').substring(0, 19),
     snippets: snippets
   };

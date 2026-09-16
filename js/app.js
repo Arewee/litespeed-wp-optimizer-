@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
     uploadedSettings: null,
     analysisResults: null,
     activeTabId: "general",
+    activeSettingsFilter: "all",
     editedSettings: {}, // Active options configuration (1 for ON, 0 for OFF, or strings)
     apiUrl: "",
     apiToken: "",
@@ -217,6 +218,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Settings Filter Bar buttons
+  const filterBtns = document.querySelectorAll(".filter-btn");
+  filterBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.activeSettingsFilter = btn.dataset.filter || "all";
+      if (state.analysisResults) {
+        renderSettingsPanel();
+      }
+    });
+  });
+
+  // Health Score Breakdown toggler
+  const btnToggleHealthBreakdown = document.getElementById("btn-toggle-health-breakdown");
+  const healthBreakdownPanel = document.getElementById("health-breakdown-panel");
+  if (btnToggleHealthBreakdown && healthBreakdownPanel) {
+    btnToggleHealthBreakdown.addEventListener("click", () => {
+      const isVisible = healthBreakdownPanel.style.display === "block";
+      healthBreakdownPanel.style.display = isVisible ? "none" : "block";
+      btnToggleHealthBreakdown.innerHTML = isVisible 
+        ? "💡 Hur beräknas min poäng? (Klicka för nedbrytning)" 
+        : "💡 Dölj poängnedbrytning";
+    });
+  }
+
   // --- SEPARATE CUSTOM CSS INPUT SYSTEM ---
   const appCssPastebox = document.getElementById("app-custom-css-pastebox");
   if (appCssPastebox) {
@@ -395,14 +422,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const reader = new FileReader();
     reader.onload = function(e) {
       try {
-        state.customCodeInfo = parseCustomCodeText(e.target.result);
+        const text = e.target.result;
+        let parsedScm = null;
+        try {
+          const json = JSON.parse(text);
+          if (json && (json.snippets || Array.isArray(json))) {
+            parsedScm = {
+              snippets: json.snippets || json,
+              isScmPackage: true
+            };
+          }
+        } catch (jsonErr) {
+          // Fallback to text parser
+        }
+
+        if (!parsedScm) {
+          parsedScm = parseCustomCodeText(text);
+        }
+
+        state.scmInfo = parsedScm;
+        state.customCodeInfo = parsedScm;
         state.uploadMetadata.customCodeInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
         customcodeStatus.textContent = `✓ ${file.name}`;
         customcodeStatus.className = "file-status loaded";
         
         silentUpdateAnalysis();
       } catch (err) {
-        alert(`Kunde inte läsa den anpassade kodfilen: ${err.message}`);
+        alert(`Kunde inte läsa SCM-filen: ${err.message}`);
       }
     };
     reader.readAsText(file);
@@ -1067,9 +1113,85 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function renderBenchmarkMatrix() {
+    const tbody = document.getElementById("benchmark-matrix-tbody");
+    if (!tbody || !state.analysisResults || !state.analysisResults.versionMatrix) return;
+
+    let html = "";
+    state.analysisResults.versionMatrix.forEach(row => {
+      const isMatched = row.isParityMatch;
+      const badgeClass = row.isActive ? (isMatched ? "matched" : "notice") : "inactive";
+      const badgeText = row.isActive ? (isMatched ? "✓ Paritet OK" : "ℹ️ Äldre version (Auditerad)") : "Ej aktiv";
+
+      html += `
+        <tr>
+          <td><strong>${escapeHtml(row.name)}</strong></td>
+          <td><span style="color: #c7d2fe; font-weight: 600;">${escapeHtml(row.installedVersion)}</span></td>
+          <td>
+            <span style="color: #a5b4fc;">v${escapeHtml(row.benchmarkVersion)}</span>
+            <span style="color: var(--text-muted); font-size: 0.7rem; margin-left: 0.25rem;">(Granskad: ${escapeHtml(row.auditDate)})</span>
+          </td>
+          <td><span style="color: var(--text-muted); font-size: 0.72rem;">${escapeHtml(row.source)}</span></td>
+          <td><span class="parity-badge ${badgeClass}">${badgeText}</span></td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+  }
+
+  function renderHealthScoreBreakdown() {
+    const rowsEl = document.getElementById("health-breakdown-rows");
+    if (!rowsEl || !state.analysisResults) return;
+
+    const results = state.analysisResults;
+
+    let stabilityDeductions = 0;
+    results.alerts.filter(a => a.impactCategory === "stability" || a.type === "danger").forEach(() => stabilityDeductions += 15);
+    const stabilityScore = Math.max(0, 100 - stabilityDeductions);
+
+    let perfDeductions = 0;
+    results.alerts.filter(a => a.impactCategory === "performance" && a.type !== "danger").forEach(() => perfDeductions += 10);
+    const perfScore = Math.max(0, 100 - perfDeductions);
+
+    let secDeductions = 0;
+    results.alerts.filter(a => a.impactCategory === "security").forEach(() => secDeductions += 15);
+    const secScore = Math.max(0, 100 - secDeductions);
+
+    let configDeductions = 0;
+    results.recommendations.forEach(tab => {
+      tab.options.forEach(opt => {
+        if (opt.isChangedNeeded) configDeductions += 2;
+      });
+    });
+    const configScore = Math.max(0, 100 - configDeductions);
+
+    rowsEl.innerHTML = `
+      <div class="breakdown-row">
+        <span>🛡️ Stabilitet & Kassaskydd (40%):</span>
+        <strong style="color: ${stabilityScore >= 80 ? 'var(--color-success)' : 'var(--color-danger)'};">${stabilityScore}/100</strong>
+      </div>
+      <div class="breakdown-row">
+        <span>⚡ Prestanda & CWV (30%):</span>
+        <strong style="color: ${perfScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${perfScore}/100</strong>
+      </div>
+      <div class="breakdown-row">
+        <span>🔒 Säkerhet & Headers (20%):</span>
+        <strong style="color: ${secScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${secScore}/100</strong>
+      </div>
+      <div class="breakdown-row">
+        <span>⚙️ Konfiguration & Paritet (10%):</span>
+        <strong style="color: ${configScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${configScore}/100</strong>
+      </div>
+    `;
+  }
+
   function renderHealthScoreAndOverview() {
     const results = state.analysisResults;
     if (!results) return;
+
+    renderBenchmarkMatrix();
+    renderHealthScoreBreakdown();
 
     // Calculate score starting at 100
     let score = 100;
@@ -1398,13 +1520,15 @@ document.addEventListener("DOMContentLoaded", () => {
     renderBulletsInto(woocommerceBullets, summaries.wooInfo);
     renderBulletsInto(wordfenceBullets, summaries.wfInfo);
     renderBulletsInto(elementorBullets, summaries.elemInfo);
-    renderBulletsInto(customcodeBullets, summaries.customCode);
-    renderBulletsInto(settingsBullets, summaries.settings);
+    renderBulletsInto(customcodeBullets, (summaries && (summaries.scmInfo || summaries.customCode)) || null);
+    renderBulletsInto(settingsBullets, (summaries && (summaries.uploadedSettings || summaries.settings)) || null);
   }
 
   function renderPlaceholderBullets() {
     const rulesObj = analyzeSystem(null);
-    renderBulletLists(rulesObj.fileSummaries);
+    if (rulesObj && rulesObj.fileSummaries) {
+      renderBulletLists(rulesObj.fileSummaries);
+    }
   }
 
   function renderWooChecklist() {
@@ -1467,7 +1591,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // WooCommerce gateways exclusions check
     const activeExcludes = (state.editedSettings.js_exclude || "").toLowerCase();
     
-    if (env.wooGateways.length > 0) {
+    if (env.wooGateways && env.wooGateways.length > 0) {
       env.wooGateways.forEach(gate => {
         let isExcluded = false;
         const gateLower = gate.toLowerCase();
@@ -1643,13 +1767,51 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsContainer.appendChild(cssEditorCard);
     }
 
-    activeTab.options.forEach(opt => {
+    // Filter options if filter is active
+    let filteredOptions = activeTab.options;
+    if (state.activeSettingsFilter === "critical") {
+      filteredOptions = activeTab.options.filter(o => o.criticalLevel === "critical");
+    } else if (state.activeSettingsFilter === "deviations") {
+      filteredOptions = activeTab.options.filter(o => {
+        const activeVal = state.editedSettings[o.id];
+        const userNorm = (activeVal === 1 || activeVal === "on" || activeVal === true) ? 1 : 0;
+        const recNorm = (o.recommendedRaw === 1 || o.recommendedRaw === "on" || o.recommendedRaw === true) ? 1 : 0;
+        return userNorm !== recNorm;
+      });
+    } else if (state.activeSettingsFilter === "ecommerce") {
+      filteredOptions = activeTab.options.filter(o => o.id.includes("woo") || o.id.includes("drop_uri") || o.id.includes("esi") || o.id.includes("cart"));
+    }
+
+    if (filteredOptions.length === 0) {
+      const emptyNotice = document.createElement("div");
+      emptyNotice.className = "glass-card";
+      emptyNotice.style.gridColumn = "span 2";
+      emptyNotice.style.padding = "2rem";
+      emptyNotice.style.textAlign = "center";
+      emptyNotice.style.color = "var(--text-muted)";
+      emptyNotice.innerHTML = `
+        <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">✓</span>
+        <strong>Inga inställningar matchar det aktiva filtret ('${state.activeSettingsFilter}').</strong>
+        <p style="font-size: 0.8rem; margin-top: 0.25rem;">Klicka på 'Alla inställningar' för att se hela listan.</p>
+      `;
+      settingsContainer.appendChild(emptyNotice);
+      return;
+    }
+
+    filteredOptions.forEach(opt => {
       // Avoid re-rendering custom_css as a separate card if it's the custom CSS option field
       if (opt.id === "optm_css_custom") return;
 
       const card = document.createElement("div");
       card.className = "setting-card";
       
+      let criticalTagHtml = "";
+      if (opt.criticalLevel === "critical") {
+        criticalTagHtml = `<span class="badge-critical-tag critical">🚨 Kritisk</span>`;
+      } else if (opt.criticalLevel === "high") {
+        criticalTagHtml = `<span class="badge-critical-tag high">⚡ Hög påverkan</span>`;
+      }
+
       const riskBadge = opt.safe 
           ? `<span class="badge-risk safe">Stabil</span>` 
           : `<span class="badge-risk high">Högre Risk</span>`;
@@ -1730,8 +1892,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (isTextareaField) {
         card.innerHTML = `
           <div class="setting-info" style="grid-column: span 2;">
-            <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem;">
+            <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
               <h4 class="setting-title">${opt.title}</h4>
+              ${criticalTagHtml}
               ${riskBadge}
               ${matchBadge}
               <span class="info-label" style="font-size:0.75rem;">(ID: ${opt.id})</span>
@@ -1779,8 +1942,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         card.innerHTML = `
           <div class="setting-info">
-            <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem;">
+            <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
               <h4 class="setting-title">${opt.title}</h4>
+              ${criticalTagHtml}
               ${riskBadge}
               ${matchBadge}
               <span class="info-label" style="font-size:0.75rem;">(ID: ${opt.id})</span>
@@ -2369,7 +2533,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `wp-code-snippets-${new Date().toISOString().slice(0, 10)}.json`;
+        link.download = `scm-snippets-optimizer-${new Date().toISOString().slice(0, 10)}.json`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

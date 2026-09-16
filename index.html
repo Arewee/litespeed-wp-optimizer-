@@ -162,7 +162,7 @@
       <div class="logo-container">
         <span class="logo-icon">⚡</span>
         <h1 class="logo-text">AreWee WP-Optimizer</h1>
-        <span class="logo-tag">Stabilitet Först (v2.1.0)</span>
+        <span class="logo-tag">Stabilitet Först (v2.2.0)</span>
       </div>
       <!-- Active Site Dropdown (Header bar widget) -->
       <div class="active-site-dropdown-wrapper" style="position: relative; display: flex; align-items: center; gap: 0.75rem;">
@@ -196,7 +196,7 @@
     <!-- Master View Navigation -->
     <nav class="master-navigation">
       <button class="master-tab-btn active" id="master-tab-inputs">
-        <span>📂</span> Datakällor & Kod
+        <span>📂</span> Datakällor & SCM
       </button>
       <button class="master-tab-btn" id="master-tab-overview">
         <span>📊</span> Översikt & Karta
@@ -274,12 +274,12 @@
             </ul>
           </div>
 
-          <!-- Slot 5: Custom Code (functions.php / snippets) -->
+          <!-- Slot 5: Site Code Manager (SCM) -->
           <div class="upload-zone" id="customcode-dropzone" style="padding: 0.85rem 0.4rem; min-height: 180px; border-color: rgba(16, 185, 129, 0.25); background: rgba(16, 185, 129, 0.01); display: flex; flex-direction: column; align-items: center; justify-content: center;">
             <span class="upload-icon" style="font-size: 1.3rem; margin-bottom: 0.25rem; color: var(--color-success);">💻</span>
-            <h4 class="upload-title" style="font-size: 0.8rem; color: #a7f3d0;">5. Anpassad Kod</h4>
-            <span class="file-status" id="customcode-status" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; margin-top: 0.4rem;">functions/snippets</span>
-            <input type="file" id="customcode-input">
+            <h4 class="upload-title" style="font-size: 0.8rem; color: #a7f3d0;">5. SCM (Snippets)</h4>
+            <span class="file-status" id="customcode-status" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; margin-top: 0.4rem;">SCM JSON / PHP</span>
+            <input type="file" id="customcode-input" accept=".json,.php,.txt,.css">
             
             <ul class="file-bullets-list" id="customcode-bullets">
               <!-- Dynamically populated -->
@@ -404,6 +404,39 @@
 
       <!-- Main Overview Content (Hidden until analyzed) -->
       <div class="view-content" style="display: none;">
+        
+        <!-- TOP SECTION: Versions- och Dokumentationsmatris (Benchmark Audit) -->
+        <div class="version-benchmark-card glass-card" id="version-benchmark-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.6rem;">
+            <div>
+              <h3 style="font-family: var(--font-heading); color: #c7d2fe; font-size: 1.05rem; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.15rem;">
+                <span>📚</span> Versionsgranskning & Dokumentationsbenchmark
+              </h3>
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">
+                Verifierar installerade versioner mot officiell dokumentation och community-standarder för samma version.
+              </p>
+            </div>
+            <span class="parity-badge matched" style="font-size: 0.7rem;">✓ 100% Versionsparitet</span>
+          </div>
+          
+          <div style="overflow-x: auto; margin-top: 0.5rem;">
+            <table class="benchmark-table" id="benchmark-matrix-table">
+              <thead>
+                <tr>
+                  <th>Verktyg / Modul</th>
+                  <th>Installerad Version</th>
+                  <th>Granskad mot (Dokumentation & Datum)</th>
+                  <th>Källa / Referens</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="benchmark-matrix-tbody">
+                <!-- Dynamically populated from rules.js BENCHMARK_VERSIONS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="view-grid-layout two-cols">
           
           <!-- Left Sidebar: Health Score & System Details -->
@@ -418,6 +451,19 @@
               </div>
               <h3 id="health-score-title" style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Optimerad</h3>
               <p id="health-score-desc" style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">Prestanda- och stabilitetsindex baserat på analyserade systemrapporter.</p>
+              
+              <!-- Transparent Breakdown Toggle -->
+              <button id="btn-toggle-health-breakdown" style="margin-top: 0.85rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #c7d2fe; font-size: 0.75rem; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;">
+                <span>💡</span> Hur beräknas min poäng?
+              </button>
+
+              <!-- Breakdown Detail Panel (Collapsible) -->
+              <div id="health-breakdown-panel" class="health-breakdown-card">
+                <h4 style="font-size: 0.8rem; color: #fff; margin-bottom: 0.5rem; font-weight: 700;">Poängnedbrytning per kategori:</h4>
+                <div id="health-breakdown-rows">
+                  <!-- Dynamically populated in app.js -->
+                </div>
+              </div>
             </div>
 
             <!-- Collapsible System Overview Card -->
@@ -648,9 +694,26 @@
         <div class="glass-card" style="padding: 1.75rem;">
           <div>
             <h2 class="section-title" style="font-size: 1.5rem; margin-bottom: 0.25rem;">⚙️ Rekommenderade inställningar</h2>
-            <p class="section-desc" style="margin-bottom: 1.5rem;">
-              Ändra inställningar interaktivt nedan. Vi har automatiskt ställt in de mest stabila prestandavärdena baserat på dina miljörapporter.
+            <p class="section-desc" style="margin-bottom: 1.25rem;">
+              Fullständig 1:1 paritet med plugin-strukturen. Ändra inställningar interaktivt nedan eller filtrera efter allvarlighetsgrad.
             </p>
+          </div>
+
+          <!-- Quick Filter Bar (All / Critical / Deviations / Security) -->
+          <div class="settings-filter-bar" id="settings-filter-bar">
+            <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 600; margin-right: 0.25rem;">Filtrera vy:</span>
+            <button class="filter-btn active" data-filter="all" id="filter-btn-all">
+              <span>📋</span> Alla inställningar
+            </button>
+            <button class="filter-btn" data-filter="critical" id="filter-btn-critical">
+              <span>🚨</span> Endast kritiska
+            </button>
+            <button class="filter-btn" data-filter="deviations" id="filter-btn-deviations">
+              <span>⚠️</span> Endast avvikelser
+            </button>
+            <button class="filter-btn" data-filter="ecommerce" id="filter-btn-ecommerce">
+              <span>🛡️</span> E-handel & Kassa
+            </button>
           </div>
 
           <!-- Dynamic Settings Tab Bar -->
@@ -670,13 +733,13 @@
             </div>
             <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; width: 100%; justify-content: flex-end;">
               <button class="btn-primary" id="btn-export" disabled style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo));">
-                <span>📥</span> 1. LiteSpeed .data-fil
-              </button>
-              <button class="btn-primary" id="btn-export-php" disabled style="background: linear-gradient(135deg, #ec4899, #8b5cf6);">
-                <span>🔌</span> 2. PHP Auto-Optimizer
+                <span>📥</span> 1. Exportera LiteSpeed .data-fil
               </button>
               <button class="btn-primary" id="btn-export-json" disabled style="background: linear-gradient(135deg, #10b981, #059669);">
-                <span>📄</span> 3. Code Snippets JSON
+                <span>💻</span> 2. Exportera SCM JSON-paket
+              </button>
+              <button class="btn-primary" id="btn-export-php" disabled style="background: linear-gradient(135deg, #ec4899, #8b5cf6);">
+                <span>🔌</span> 3. PHP Auto-Optimizer Snippet
               </button>
             </div>
           </div>
