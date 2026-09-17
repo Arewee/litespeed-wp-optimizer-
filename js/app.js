@@ -38,6 +38,8 @@ document.addEventListener("DOMContentLoaded", () => {
     analysisResults: null,
     activeTabId: "general",
     activeSettingsFilter: "all",
+    activeRiskFilter: "all",
+    psiScores: null,
     editedSettings: {}, // Active options configuration (1 for ON, 0 for OFF, or strings)
     apiUrl: "",
     apiToken: "",
@@ -47,7 +49,8 @@ document.addEventListener("DOMContentLoaded", () => {
       wfInfo: { name: "", timestamp: "" },
       elemInfo: { name: "", timestamp: "" },
       customCodeInfo: { name: "", timestamp: "" },
-      uploadedSettings: { name: "", timestamp: "" }
+      uploadedSettings: { name: "", timestamp: "" },
+      customCss: { name: "", timestamp: "" }
     }
   };
 
@@ -58,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const elementorDropzone = document.getElementById("elementor-dropzone");
   const customcodeDropzone = document.getElementById("customcode-dropzone");
   const settingsDropzone = document.getElementById("settings-dropzone");
+  const customcssDropzone = document.getElementById("customcss-dropzone");
 
   const sysInfoInput = document.getElementById("sysinfo-input");
   const woocommerceInput = document.getElementById("woocommerce-input");
@@ -65,6 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const elementorInput = document.getElementById("elementor-input");
   const customcodeInput = document.getElementById("customcode-input");
   const settingsInput = document.getElementById("settings-input");
+  const customcssInput = document.getElementById("customcss-input");
   
   const sysInfoStatus = document.getElementById("sysinfo-status");
   const woocommerceStatus = document.getElementById("woocommerce-status");
@@ -72,14 +77,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const elementorStatus = document.getElementById("elementor-status");
   const customcodeStatus = document.getElementById("customcode-status");
   const settingsStatus = document.getElementById("settings-status");
+  const customcssStatus = document.getElementById("customcss-status");
   
-  // Bullets lists references
-  const sysInfoBullets = document.getElementById("sysinfo-bullets");
-  const woocommerceBullets = document.getElementById("woocommerce-bullets");
-  const wordfenceBullets = document.getElementById("wordfence-bullets");
-  const elementorBullets = document.getElementById("elementor-bullets");
-  const customcodeBullets = document.getElementById("customcode-bullets");
-  const settingsBullets = document.getElementById("settings-bullets");
+  const sysInfoSummary = document.getElementById("sysinfo-summary");
+  const woocommerceSummary = document.getElementById("woocommerce-summary");
+  const wordfenceSummary = document.getElementById("wordfence-summary");
+  const elementorSummary = document.getElementById("elementor-summary");
+  const customcodeSummary = document.getElementById("customcode-summary");
+  const settingsSummary = document.getElementById("settings-summary");
+  const customcssSummary = document.getElementById("customcss-summary");
 
   // --- MASTER VIEW NAVIGATION SYSTEM ---
   const views = {
@@ -145,11 +151,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const statsChangesCount = document.getElementById("stats-changes-count");
   const btnExport = document.getElementById("btn-export");
   const btnExportPhp = document.getElementById("btn-export-php");
+  const btnCopyPhp = document.getElementById("btn-copy-php");
   const btnExportJson = document.getElementById("btn-export-json");
+  const btnCopyAiSecondOpinion = document.getElementById("btn-copy-ai-second-opinion");
+  const btnDownloadAiSecondOpinion = document.getElementById("btn-download-ai-second-opinion");
+  const btnBatchAiSecondOpinion = document.getElementById("btn-batch-ai-second-opinion");
 
   const btnDownloadSyncPlugin = document.getElementById("btn-download-sync-plugin");
   const btnApiFetch = document.getElementById("btn-api-fetch");
-  const btnApiPush = document.getElementById("btn-api-push");
   const apiSiteUrl = document.getElementById("api-site-url");
   const apiSyncToken = document.getElementById("api-sync-token");
   const apiSyncStatusText = document.getElementById("api-sync-status-text");
@@ -205,6 +214,546 @@ document.addEventListener("DOMContentLoaded", () => {
   setupDragAndDrop(elementorDropzone, elementorInput, handleElementorFile);
   setupDragAndDrop(customcodeDropzone, customcodeInput, handleCustomCodeFile);
   setupDragAndDrop(settingsDropzone, settingsInput, handleSettingsFile);
+  setupDragAndDrop(customcssDropzone, customcssInput, handleCustomCssFile);
+
+  // --- PASTE MODAL & DIRECT CLIPBOARD INGESTION ---
+  let activePasteSlot = null;
+  const pasteModal = document.getElementById("paste-modal");
+  const pasteModalTitle = document.getElementById("paste-modal-title");
+  const pasteModalTextarea = document.getElementById("paste-modal-textarea");
+  const btnClosePasteModal = document.getElementById("btn-close-paste-modal");
+  const btnCancelPasteModal = document.getElementById("btn-cancel-paste-modal");
+  const btnSubmitPasteModal = document.getElementById("btn-submit-paste-modal");
+
+  const slotLabels = {
+    sysinfo: "1. WordPress Systemfil (Hälsotillstånd)",
+    woocommerce: "2. WooCommerce Systemstatus",
+    wordfence: "3. Wordfence Diagnostik",
+    elementor: "4. Elementor Systeminfo",
+    customcode: "5. SCM / Anpassad PHP-kod",
+    settings: "6. LiteSpeed Cache .data-inställningar",
+    customcss: "7. Anpassad CSS-kod"
+  };
+
+  const ALLOWED_EXTENSIONS = [".txt", ".json", ".data", ".php", ".css", ".log", ".conf"];
+
+  function isValidTextFileExtension(filename) {
+    if (!filename || typeof filename !== "string") return false;
+    const lower = filename.toLowerCase();
+    return ALLOWED_EXTENSIONS.some(ext => lower.endsWith(ext));
+  }
+
+  function isBinaryContent(text) {
+    if (!text || typeof text !== "string") return false;
+    // Check known binary magic prefixes
+    if (text.startsWith("%PDF-") || 
+        text.startsWith("PK\x03\x04") || 
+        text.startsWith("\x89PNG") || 
+        text.startsWith("GIF8") || 
+        text.startsWith("\xFF\xD8\xFF") ||
+        text.startsWith("\x7fELF") ||
+        text.startsWith("MZ")) {
+      return true;
+    }
+    // Check for null bytes or excessive non-printable control characters in sample
+    const sample = text.substring(0, 4096);
+    if (sample.includes("\0")) return true;
+    let nonPrintable = 0;
+    for (let i = 0; i < sample.length; i++) {
+      const code = sample.charCodeAt(i);
+      // Allow standard whitespace (\t = 9, \n = 10, \r = 13) and printable chars >= 32
+      if (code < 9 || (code > 10 && code < 13) || (code > 13 && code < 32)) {
+        nonPrintable++;
+      }
+    }
+    return nonPrintable > 5;
+  }
+
+  function detectFilenameHint(filename) {
+    if (!filename || typeof filename !== "string") return null;
+    const lower = filename.toLowerCase();
+    if (lower.startsWith("system-info-") || lower.includes("elementor") || lower.includes("elem-info") || lower.includes("elementor-system")) {
+      return "elementor";
+    }
+    if (lower.startsWith("diagnostics_for_") || lower.includes("wordfence") || lower.includes("wf-diagnostic") || lower.includes("wfconfig") || lower.includes("wf_diagnostic")) {
+      return "wordfence";
+    }
+    if (lower.startsWith("systemstatusreport_") || lower.includes("systemstatusreport") || lower.includes("woocommerce") || lower.includes("wc-status") || lower.includes("wc_status") || lower.includes("woo-status") || lower.includes("wc-report")) {
+      return "woocommerce";
+    }
+    if (lower.startsWith("lscwp_") || lower.endsWith(".data") || lower.includes("litespeed") || lower.includes("lscwp")) {
+      return "settings";
+    }
+    if (lower.startsWith("scm-export-") || lower.includes("scm") || lower.includes("snippets") || lower.includes("site-code") || lower.endsWith(".php")) {
+      return "customcode";
+    }
+    if (lower.includes("systemfil") || lower.includes("site-health") || lower.includes("wp-info") || lower.includes("wp-health") || lower.includes("system-report") || lower.includes("wp-system")) {
+      return "sysinfo";
+    }
+    if (lower.endsWith(".css") || lower.includes("custom-css") || lower.includes("style.css")) {
+      return "customcss";
+    }
+    return null;
+  }
+
+  function detectPastedFormat(text, filenameHint) {
+    if (!text || isBinaryContent(text)) return null;
+    const trimmed = text.trim();
+    
+    // 1. SysInfo
+    if (trimmed.includes("### wp-core ###") || trimmed.includes("wp-server") || trimmed.includes("wp-paths-sizes") || trimmed.includes("wp-database") || (trimmed.includes("### wp-plugins-active") && trimmed.includes("wp-version"))) {
+      return "sysinfo";
+    }
+    // 2. Elementor (Prioritized before generic checks, with strict section headers)
+    if (trimmed.includes("== Elementor ==") || trimmed.includes("### Elementor ###") || trimmed.includes("== Elementor Pro ==") || trimmed.includes("== Elementor -") || trimmed.includes("== Elementor Experiments ==") || (trimmed.includes("== Server Environment ==") && trimmed.includes("== PHP ==") && trimmed.includes("Elementor"))) {
+      return "elementor";
+    }
+    // 3. WooCommerce
+    if (trimmed.includes("### woocommerce ###") || trimmed.includes("### payment-gateways ###") || trimmed.includes("WC Version") || trimmed.includes("WooCommerce Version") || (trimmed.includes("Database tables") && trimmed.toLowerCase().includes("woocommerce")) || trimmed.includes("high-performance order storage") || trimmed.includes("### woocommerce-tables ###")) {
+      return "woocommerce";
+    }
+    // 4. Wordfence (Requires explicit Wordfence diagnostic headers, not just plugin list mentions)
+    if (trimmed.includes("Wordfence Diagnostic") || trimmed.includes("wfConfig") || trimmed.includes("Wordfence Network") || trimmed.includes("Wordfence Live Traffic") || trimmed.includes("How Wordfence gets IPs") || trimmed.includes("Wordfence Memory Limit") || (trimmed.includes("Firewall Mode:") && trimmed.includes("Wordfence")) || (trimmed.toLowerCase().includes("wordfence diagnostic report"))) {
+      return "wordfence";
+    }
+    // 5. Custom code / SCM
+    if (trimmed.startsWith("<?php") || trimmed.includes("add_action(") || trimmed.includes("Site Code Manager") || trimmed.includes('"isScmPackage"') || (trimmed.includes('"snippets"') && trimmed.includes("["))) {
+      return "customcode";
+    }
+    // 6. LiteSpeed .data settings
+    if (trimmed.startsWith("a:") || trimmed.includes("litespeed-cache-conf") || (trimmed.includes("optm_") && trimmed.includes("cache_")) || (trimmed.includes("optm-") && trimmed.includes("media-"))) {
+      return "settings";
+    }
+    // 7. Custom CSS
+    if (trimmed.includes("{") && trimmed.includes("}") && (trimmed.includes("font-family") || trimmed.includes("color:") || trimmed.includes("margin:") || trimmed.includes("@media") || trimmed.includes("@font-face") || trimmed.includes(":root") || trimmed.includes("display:") || trimmed.includes("background:"))) {
+      return "customcss";
+    }
+
+    // Secondary fallback: If filenameHint is available and text contains relevant partial match
+    if (filenameHint) {
+      if (filenameHint === "elementor" && (trimmed.includes("Elementor") || trimmed.includes("== Server Environment =="))) return "elementor";
+      if (filenameHint === "wordfence" && trimmed.includes("Wordfence")) return "wordfence";
+      if (filenameHint === "woocommerce" && trimmed.includes("WooCommerce")) return "woocommerce";
+      if (filenameHint === "settings" && (trimmed.startsWith("a:") || trimmed.includes("cache") || trimmed.includes("optm"))) return "settings";
+      if (filenameHint === "customcode" && (trimmed.includes("<?php") || trimmed.includes("function") || trimmed.includes("snippets"))) return "customcode";
+      if (filenameHint === "customcss" && trimmed.includes("{") && trimmed.includes("}")) return "customcss";
+      if (filenameHint === "sysinfo" && trimmed.includes("wp-")) return "sysinfo";
+    }
+
+    return null;
+  }
+
+  function routeAndProcessContent(text, intendedSlot, sourceName) {
+    if (!text || !text.trim()) {
+      alert("❌ Ingen data hittades i filen eller urklipp.");
+      return false;
+    }
+
+    // Step 1: Binary & PDF Guard
+    if (isBinaryContent(text)) {
+      alert(`❌ Otillåten data: Filen "${sourceName || "Uppladdad fil"}" är en binärfil (t.ex. PDF, bild eller arkiv) och innehåller inte läsbar textdata.`);
+      return false;
+    }
+
+    const filenameHint = sourceName ? detectFilenameHint(sourceName) : null;
+    const detectedFormat = detectPastedFormat(text, filenameHint);
+
+    // Step 2: Strict rejection of unknown / invalid content
+    if (!detectedFormat) {
+      alert(`❌ Ogiltigt innehåll: Filen eller texten "${sourceName || "Urklipp"}" kunde inte valideras som en godkänd rapport eller konfiguration för WordPress, WooCommerce, Wordfence, Elementor, SCM eller LiteSpeed.`);
+      return false;
+    }
+
+    let targetSlot = intendedSlot;
+
+    // Step 3: Smart cross-slot auto-routing with clear notification
+    if (intendedSlot && intendedSlot !== "auto" && intendedSlot !== detectedFormat) {
+      const sourceSlotName = slotLabels[intendedSlot] || intendedSlot;
+      const destSlotName = slotLabels[detectedFormat] || detectedFormat;
+      alert(`ℹ️ Innehållet släpptes/klistrades i [${sourceSlotName}] men identifierades som [${destSlotName}]. Det placerades automatiskt i rätt modul!`);
+      targetSlot = detectedFormat;
+    } else {
+      targetSlot = detectedFormat;
+    }
+
+    const timestampStr = formatTimestamp(new Date());
+    const finalSourceName = sourceName || ("Data (" + timestampStr + ")");
+
+    if (targetSlot === "sysinfo") {
+      processSysInfoText(text, finalSourceName);
+    } else if (targetSlot === "woocommerce") {
+      processWooCommerceText(text, finalSourceName);
+    } else if (targetSlot === "wordfence") {
+      processWordfenceText(text, finalSourceName);
+    } else if (targetSlot === "elementor") {
+      processElementorText(text, finalSourceName);
+    } else if (targetSlot === "customcode") {
+      processCustomCodeTextData(text, finalSourceName);
+    } else if (targetSlot === "settings") {
+      processSettingsText(text, finalSourceName);
+    } else if (targetSlot === "customcss") {
+      processCustomCssText(text, finalSourceName);
+    }
+    return true;
+  }
+
+  function openPasteModal(slotKey) {
+    activePasteSlot = slotKey;
+    if (pasteModalTitle) {
+      const slotText = slotKey ? slotLabels[slotKey] : "Automatisk identifiering";
+      pasteModalTitle.innerHTML = `<span>📋</span> Klistra in: ${escapeHtml(slotText)}`;
+    }
+    if (pasteModalTextarea) {
+      pasteModalTextarea.value = "";
+    }
+    if (pasteModal) {
+      pasteModal.style.display = "flex";
+      setTimeout(() => {
+        if (pasteModalTextarea) pasteModalTextarea.focus();
+      }, 50);
+    }
+  }
+
+  function closePasteModal() {
+    if (pasteModal) {
+      pasteModal.style.display = "none";
+    }
+    activePasteSlot = null;
+  }
+
+  if (btnClosePasteModal) btnClosePasteModal.addEventListener("click", closePasteModal);
+  if (btnCancelPasteModal) btnCancelPasteModal.addEventListener("click", closePasteModal);
+
+  // Trigger buttons inside dropzones
+  document.querySelectorAll(".btn-paste-trigger").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const slot = btn.dataset.slot;
+      openPasteModal(slot);
+    });
+  });
+
+  function applyPastedContent(text, slotKey) {
+    if (!text || !text.trim()) {
+      alert("Ingen text klistrades in.");
+      return;
+    }
+    const timestampStr = formatTimestamp(new Date());
+    routeAndProcessContent(text, slotKey, "Inklistrad data (" + timestampStr + ")");
+    closePasteModal();
+  }
+
+  // --- SLOT GUIDANCE HELP MODAL ---
+  const slotHelpModal = document.getElementById("slot-help-modal");
+  const slotHelpTitle = document.getElementById("slot-help-title");
+  const slotHelpBody = document.getElementById("slot-help-body");
+  const btnCloseSlotHelp = document.getElementById("btn-close-slot-help");
+  const btnDismissSlotHelp = document.getElementById("btn-dismiss-slot-help");
+
+  const SLOT_HELP_DATA = {
+    sysinfo: {
+      title: "📝 1. WP Systemfil (Webbplatshälsa)",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; Verktyg &rarr; Webbplatshälsa &rarr; Information</code><br>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">(Engelska: Tools &rarr; Site Health &rarr; Info)</span>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Klicka på knappen <strong>"Kopiera webbplatsinformation till urklipp"</strong>.</li>
+        <li>Gå tillbaka hit och klicka på <strong>"📋 Klistra in"</strong> i rutan för WP Systemfil.</li>
+        <li>Klicka på <strong>"Spara & Tolka Data"</strong>.</li>
+      </ol>`
+    },
+    woocommerce: {
+      title: "🛒 2. WooCommerce Systemstatus",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; WooCommerce &rarr; Status &rarr; Systemstatus</code><br>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">(Engelska: WooCommerce &rarr; Status &rarr; System status)</span>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Klicka på knappen <strong>"Hämta systemrapport"</strong> (*Get system report*).</li>
+        <li>Klicka på knappen <strong>"Kopiera för support"</strong> (*Copy for support*).</li>
+        <li>Klicka på <strong>"📋 Klistra in"</strong> i rutan för WC Status och läs in.</li>
+      </ol>`
+    },
+    wordfence: {
+      title: "🛡️ 3. Wordfence Diagnostik",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; Wordfence &rarr; Tools &rarr; Diagnostics</code><br>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">(Engelska: Wordfence &rarr; Tools &rarr; Diagnostics)</span>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Klicka på <strong>"Send Report by Email" / "Export Diagnostic Data"</strong> eller kopiera all text från diagnostiksidan.</li>
+        <li>Klicka på <strong>"📋 Klistra in"</strong> i rutan för WF Diagnostik och spara.</li>
+      </ol>`
+    },
+    elementor: {
+      title: "🎨 4. Elementor Systeminformation",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; Elementor &rarr; Systeminformation</code><br>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">(Engelska: Elementor &rarr; System Info)</span>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Klicka på knappen <strong>"Kopiera systeminformation"</strong> (*Copy System Info*).</li>
+        <li>Klicka på <strong>"📋 Klistra in"</strong> i rutan för Elementor Status och spara.</li>
+      </ol>`
+    },
+    customcode: {
+      title: "💻 5. SCM / Egna Kodsnuttar (Snippets)",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>Code Snippets / WPCode / Temats functions.php</code>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Exportera dina kodsnuttar som <code>.json</code> eller kopiera innehållet ur din <code>functions.php</code>.</li>
+        <li>Ladda upp filen eller klistra in koden via <strong>"📋 Klistra in"</strong>.</li>
+      </ol>`
+    },
+    settings: {
+      title: "⚙️ 6. LiteSpeed Cache Inställningsfil (.data)",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; LiteSpeed Cache &rarr; Verktyg &rarr; Importera / Exportera</code><br>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">(Engelska: LiteSpeed Cache &rarr; Toolbox &rarr; Import / Export)</span>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Klicka på knappen <strong>"Exportera"</strong> (*Export*). En <code>.data</code>-fil laddas ner till din dator.</li>
+        <li>Dra filen hit till rutan eller klicka för att välja den.</li>
+      </ol>`
+    },
+    customcss: {
+      title: "🎨 7. Anpassad CSS-kod",
+      html: `<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 0.35rem;">📍 Var i WordPress:</strong>
+        <code>WP Admin &rarr; Utseende &rarr; Anpassa &rarr; Extra CSS (eller Elementor Custom CSS / Child-theme style.css)</code>
+      </div>
+      <strong style="color: #fff; display: block; margin-bottom: 0.35rem;">👉 Så här gör du:</strong>
+      <ol style="margin: 0; padding-left: 1.2rem; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6;">
+        <li>Kopiera din anpassade CSS-kod.</li>
+        <li>Klicka på <strong>"📋 Klistra in"</strong> i rutan för Anpassad CSS.</li>
+        <li>Klicka på <strong>"Spara & Tolka Data"</strong>.</li>
+      </ol>`
+    }
+  };
+
+  function openSlotHelpModal(slotKey) {
+    const data = SLOT_HELP_DATA[slotKey];
+    if (!data || !slotHelpModal) return;
+    if (slotHelpTitle) slotHelpTitle.innerHTML = `<span>ℹ️</span> ${data.title}`;
+    if (slotHelpBody) slotHelpBody.innerHTML = data.html;
+    slotHelpModal.style.display = "flex";
+  }
+
+  function closeSlotHelpModal() {
+    if (slotHelpModal) slotHelpModal.style.display = "none";
+  }
+
+  if (btnCloseSlotHelp) btnCloseSlotHelp.addEventListener("click", closeSlotHelpModal);
+  if (btnDismissSlotHelp) btnDismissSlotHelp.addEventListener("click", closeSlotHelpModal);
+  if (slotHelpModal) {
+    slotHelpModal.addEventListener("click", (e) => {
+      if (e.target === slotHelpModal) closeSlotHelpModal();
+    });
+  }
+
+  document.querySelectorAll(".btn-slot-info").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const slot = btn.dataset.slotHelp;
+      openSlotHelpModal(slot);
+    });
+  });
+
+  if (btnSubmitPasteModal) {
+    btnSubmitPasteModal.addEventListener("click", () => {
+      const text = pasteModalTextarea ? pasteModalTextarea.value : "";
+      applyPastedContent(text, activePasteSlot);
+    });
+  }
+
+  // Global paste handler (Cmd+V / Ctrl+V when not focused on another input)
+  window.addEventListener("paste", (e) => {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === "TEXTAREA" || activeEl.tagName === "INPUT")) {
+      return; // Default paste inside active fields
+    }
+    const pastedText = (e.clipboardData || window.clipboardData).getData("text");
+    if (pastedText && pastedText.trim().length > 20) {
+      const detected = detectPastedFormat(pastedText);
+      if (detected) {
+        applyPastedContent(pastedText, detected);
+      } else {
+        openPasteModal(null);
+        if (pasteModalTextarea) {
+          pasteModalTextarea.value = pastedText;
+        }
+      }
+    }
+  });
+
+  // --- GOOGLE PAGESPEED INSIGHTS & CRUX LIVE RUNNER ---
+  const btnRunPsi = document.getElementById("btn-run-psi");
+  const psiResultsWrapper = document.getElementById("psi-results-wrapper");
+  const psiLoadingStatus = document.getElementById("psi-loading-status");
+  const psiScoreMobile = document.getElementById("psi-score-mobile");
+  const psiScoreDesktop = document.getElementById("psi-score-desktop");
+  const psiMetricLcp = document.getElementById("psi-metric-lcp");
+  const psiMetricInp = document.getElementById("psi-metric-inp");
+  const psiMetricCls = document.getElementById("psi-metric-cls");
+  const psiMetricCrux = document.getElementById("psi-metric-crux");
+  const psiDiagnosticsTips = document.getElementById("psi-diagnostics-tips");
+
+  function setPsiScoreGauge(el, score) {
+    if (!el) return;
+    el.textContent = score !== null && score !== undefined ? Math.round(score) : "-";
+    el.classList.remove("good", "needs-improvement", "poor");
+    if (score >= 90) el.classList.add("good");
+    else if (score >= 50) el.classList.add("needs-improvement");
+    else el.classList.add("poor");
+  }
+
+  async function runPageSpeedInsights() {
+    let targetUrl = state.detectedSiteUrl || extractSiteUrl(state.sysInfo, state.wooInfo);
+    if (!targetUrl) {
+      const psiTargetUrl = document.getElementById("psi-target-url");
+      if (psiTargetUrl && psiTargetUrl.textContent && psiTargetUrl.textContent !== "-" && psiTargetUrl.textContent.startsWith("http")) {
+        targetUrl = psiTargetUrl.textContent.trim();
+      }
+    }
+    if (!targetUrl) {
+      targetUrl = prompt("Ange webbplatsens fullständiga URL för att köra PageSpeed Insights (t.ex. https://example.com):");
+    }
+    if (!targetUrl) return;
+
+    targetUrl = targetUrl.trim();
+    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+      targetUrl = "https://" + targetUrl;
+    }
+    updateDetectedSiteUrl(targetUrl);
+
+    if (psiLoadingStatus) psiLoadingStatus.style.display = "block";
+    if (psiResultsWrapper) psiResultsWrapper.style.display = "none";
+    if (btnRunPsi) {
+      btnRunPsi.disabled = true;
+      btnRunPsi.textContent = "⏳ Analyserar...";
+    }
+
+    try {
+      const mobileApiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(targetUrl)}&strategy=mobile`;
+      const desktopApiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(targetUrl)}&strategy=desktop`;
+
+      const [mobileRes, desktopRes] = await Promise.all([
+        fetch(mobileApiUrl).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(desktopApiUrl).then(r => r.ok ? r.json() : null).catch(() => null)
+      ]);
+
+      if (!mobileRes && !desktopRes) {
+        throw new Error("Kunde inte ansluta till Google PageSpeed Insights API. Kontrollera att sajten är offentligt nåbar över internet.");
+      }
+
+      const mScore = mobileRes?.lighthouseResult?.categories?.performance?.score != null
+        ? Math.round(mobileRes.lighthouseResult.categories.performance.score * 100)
+        : null;
+      const dScore = desktopRes?.lighthouseResult?.categories?.performance?.score != null
+        ? Math.round(desktopRes.lighthouseResult.categories.performance.score * 100)
+        : null;
+
+      const mAudits = mobileRes?.lighthouseResult?.audits || {};
+      const lcp = mAudits["largest-contentful-paint"]?.displayValue || "-";
+      const inp = mAudits["interaction-to-next-paint"]?.displayValue || (mobileRes?.loadingExperience?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile ? `${mobileRes.loadingExperience.metrics.INTERACTION_TO_NEXT_PAINT.percentile} ms` : "-");
+      const cls = mAudits["cumulative-layout-shift"]?.displayValue || "-";
+
+      const cruxCategory = mobileRes?.loadingExperience?.overall_category || desktopRes?.loadingExperience?.overall_category || "Ingen fältdata (Låg trafik)";
+      let cruxLabel = cruxCategory;
+      if (cruxCategory === "FAST") cruxLabel = "🟢 Snabb (Godkänd CWV)";
+      else if (cruxCategory === "AVERAGE") cruxLabel = "🟡 Medel (Förbättring krävs)";
+      else if (cruxCategory === "SLOW") cruxLabel = "🔴 Långsam (Underkänd CWV)";
+
+      // Store PSI scores in state
+      state.psiScores = {
+        mobile: mScore,
+        desktop: dScore,
+        lcp,
+        inp,
+        cls,
+        crux: cruxLabel
+      };
+
+      setPsiScoreGauge(psiScoreMobile, mScore);
+      setPsiScoreGauge(psiScoreDesktop, dScore);
+      if (psiMetricLcp) psiMetricLcp.textContent = lcp;
+      if (psiMetricInp) psiMetricInp.textContent = inp;
+      if (psiMetricCls) psiMetricCls.textContent = cls;
+      if (psiMetricCrux) psiMetricCrux.textContent = cruxLabel;
+
+      // Update direct PSI link
+      const psiDirectLink = document.getElementById("psi-direct-link");
+      const psiDirectAnchor = document.getElementById("psi-direct-anchor");
+      if (psiDirectLink && psiDirectAnchor) {
+        psiDirectAnchor.href = `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(targetUrl)}`;
+        psiDirectLink.style.display = "block";
+      }
+
+      if (psiDiagnosticsTips) {
+        const opps = [];
+        if (mAudits["render-blocking-resources"]?.details?.items?.length) {
+          opps.push("⚡ Eliminera render-blockerande resurser (Aktivera CSS/JS Defer & Exkludera CTM)");
+        }
+        if (mAudits["uses-optimized-images"]?.details?.items?.length || mAudits["modern-image-formats"]?.details?.items?.length) {
+          opps.push("🖼️ Konvertera bilder till WebP/AVIF via LiteSpeed Image Optimization");
+        }
+        if (mAudits["unminified-css"]?.details?.items?.length || mAudits["unminified-javascript"]?.details?.items?.length) {
+          opps.push("📦 Minifiera CSS/JS i LiteSpeed Cache");
+        }
+        if (mAudits["server-response-time"]?.numericValue > 600) {
+          opps.push("🚀 Förbättra TTFB (Svarstid) med LiteSpeed HTML-cache & Redis Object Cache");
+        }
+
+        if (opps.length > 0) {
+          psiDiagnosticsTips.innerHTML = `<strong>💡 Rekommenderade åtgärder baserat på Google Lighthouse:</strong><ul style="margin: 0.35rem 0 0 1rem; padding: 0;">` +
+            opps.map(o => `<li style="margin-bottom: 0.2rem;">${escapeHtml(o)}</li>`).join("") +
+            `</ul>`;
+        } else {
+          psiDiagnosticsTips.innerHTML = `<strong>✓ Utmärkt!</strong> Google Lighthouse hittade inga allvarliga prestandaflaskhalsar på den testade URL:en.`;
+        }
+      }
+
+      if (psiResultsWrapper) psiResultsWrapper.style.display = "block";
+
+      // Refresh health score with new PSI factor
+      renderHealthScoreAndOverview();
+    } catch (err) {
+      console.error("PSI API error:", err);
+      const psiDirectLink = document.getElementById("psi-direct-link");
+      const psiDirectAnchor = document.getElementById("psi-direct-anchor");
+      if (psiDirectLink && psiDirectAnchor && targetUrl) {
+        psiDirectAnchor.href = `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(targetUrl)}`;
+        psiDirectLink.style.display = "block";
+      }
+      alert("PageSpeed Insights API kunde inte slutföras direkt (detta kan bero på att Google API blockeras av webbläsarens integritetsskydd/Brave Shields eller att sajten inte är publikt nåbar).\n\nAnvänd direktlänken under PSI-rutan för att öppna analysen på Google PageSpeed Insights.");
+    } finally {
+      if (psiLoadingStatus) psiLoadingStatus.style.display = "none";
+      if (btnRunPsi) {
+        btnRunPsi.disabled = false;
+        btnRunPsi.textContent = "⚡ Kör PageSpeed Insights Live";
+      }
+    }
+  }
+
+  if (btnRunPsi) {
+    btnRunPsi.addEventListener("click", runPageSpeedInsights);
+  }
 
   // Start Analysis button handler
   btnStartAnalysis.addEventListener("click", () => {
@@ -283,8 +832,8 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="alert-item ${alert.type}" style="margin-top: 0.5rem; padding: 0.6rem 0.85rem; font-size:0.75rem;">
             <span class="alert-icon" style="font-size:1rem;">${alert.icon}</span>
             <div class="alert-content">
-              <strong>${alert.title}</strong>
-              <p style="opacity:0.85; font-size:0.7rem; margin-top:0.1rem;">${alert.desc}</p>
+              <strong>${escapeHtml(alert.title)}</strong>
+              <p style="opacity:0.85; font-size:0.7rem; margin-top:0.1rem;">${escapeHtml(alert.desc)}</p>
             </div>
           </div>
         `;
@@ -305,18 +854,26 @@ document.addEventListener("DOMContentLoaded", () => {
   function setupDragAndDrop(dropzone, input, fileHandler) {
     if (!dropzone || !input) return;
 
-    // Invisible absolute input overlay spans 100% of the zone and captures clicks natively.
+    function processSelectedFile(file) {
+      if (!file) return;
+      if (!isValidTextFileExtension(file.name)) {
+        alert(`❌ Otillåten filtyp: "${file.name}". Du kan endast ladda upp textbaserade systemrapporter eller konfigurationsfiler (.txt, .data, .json, .php, .css).`);
+        input.value = "";
+        return;
+      }
+      try {
+        fileHandler(file);
+      } catch (error) {
+        console.error(`Error in file handler for ${file.name}:`, error);
+        alert(`Ett fel uppstod vid bearbetning av ${file.name}: ${error.message}`);
+      } finally {
+        input.value = "";
+      }
+    }
+
     input.addEventListener("change", (e) => {
-      console.log(`File input change event fired for: ${input.id}`);
       if (e.target.files.length > 0) {
-        const file = e.target.files[0];
-        console.log(`Selected file: ${file.name}, size: ${file.size} bytes`);
-        try {
-          fileHandler(file);
-        } catch (error) {
-          console.error(`Error in file handler for ${file.name}:`, error);
-          alert(`Ett fel uppstod vid bearbetning av ${file.name}: ${error.message}`);
-        }
+        processSelectedFile(e.target.files[0]);
       }
     });
 
@@ -333,151 +890,332 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       dropzone.classList.remove("dragging");
       if (e.dataTransfer.files.length > 0) {
-        fileHandler(e.dataTransfer.files[0]);
+        processSelectedFile(e.dataTransfer.files[0]);
       }
     });
   }
 
-  // --- PARSERS & UPLOAD HANDLERS ---
+  // --- URL EXTRACTION HELPER ---
+  function extractSiteUrl(sysInfo, wooInfo, rawText) {
+    if (sysInfo) {
+      if (sysInfo["wp-core"]) {
+        const core = sysInfo["wp-core"];
+        for (const k of Object.keys(core)) {
+          const lk = k.toLowerCase();
+          if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("webbplatsadress") || lk.includes("webbadress") || lk === "url" || lk.includes("siteurl") || lk.includes("homeurl")) {
+            const val = core[k];
+            if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
+          }
+        }
+      }
+      for (const sec of Object.keys(sysInfo)) {
+        if (typeof sysInfo[sec] === "object" && sysInfo[sec] !== null) {
+          for (const k of Object.keys(sysInfo[sec])) {
+            const lk = k.toLowerCase();
+            if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("webbplatsadress") || lk.includes("webbadress")) {
+              const val = sysInfo[sec][k];
+              if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
+            }
+          }
+        }
+      }
+    }
+    if (wooInfo) {
+      if (wooInfo.site_url && typeof wooInfo.site_url === "string" && wooInfo.site_url.startsWith("http")) return wooInfo.site_url.trim();
+      if (wooInfo.home_url && typeof wooInfo.home_url === "string" && wooInfo.home_url.startsWith("http")) return wooInfo.home_url.trim();
+      if (wooInfo.environment) {
+        for (const k of Object.keys(wooInfo.environment)) {
+          const lk = k.toLowerCase();
+          if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("url")) {
+            const val = wooInfo.environment[k];
+            if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
+          }
+        }
+      }
+    }
+    if (rawText && typeof rawText === "string") {
+      const match = rawText.match(/(?:site_url|home_url|webbplatsadress|webbadress|siteurl|homeurl|site url|home url)\s*[:=]\s*(https?:\/\/[^\s\r\n]+)/i);
+      if (match) return match[1].trim();
+      const genericUrls = rawText.match(/https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s\r\n]*)?/g);
+      if (genericUrls) {
+        for (const u of genericUrls) {
+          const lu = u.toLowerCase();
+          if (!lu.includes("wordpress.org") && !lu.includes("github.com") && !lu.includes("litespeedtech.com") && !lu.includes("gravatar.com") && !lu.includes("schema.org") && !lu.includes("w3.org") && !lu.includes("w.org") && !lu.includes("googleapis.com")) {
+            try {
+              const parsed = new URL(u);
+              return `${parsed.protocol}//${parsed.host}`;
+            } catch (e) {
+              return u;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function updateDetectedSiteUrl(url) {
+    if (!url || typeof url !== "string") return;
+    const cleanUrl = url.trim();
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) return;
+    state.detectedSiteUrl = cleanUrl;
+    const psiTargetUrl = document.getElementById("psi-target-url");
+    if (psiTargetUrl) psiTargetUrl.textContent = cleanUrl;
+  }
+
+  // --- PARSERS & UPLOAD/PASTE HANDLERS ---
+
+  function processSysInfoText(text, sourceName) {
+    try {
+      state.sysInfo = parseSystemInfoText(text);
+      state.uploadMetadata.sysInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      sysInfoStatus.textContent = "✓ Inläst";
+      sysInfoStatus.title = sourceName;
+      sysInfoStatus.className = "file-status loaded";
+      
+      if (sysInfoSummary) {
+        const wpVer = state.sysInfo["wp-core"] ? (state.sysInfo["wp-core"].version || state.sysInfo["wp-core"].wp_version || "") : "";
+        const pluginCount = state.sysInfo["wp-plugins-active"] ? Object.keys(state.sysInfo["wp-plugins-active"]).length : 0;
+        sysInfoSummary.textContent = `✓ WP ${wpVer || "Inläst"} (${pluginCount} tillägg)`;
+        sysInfoSummary.classList.add("active");
+      }
+
+      btnStartAnalysis.disabled = false;
+      btnStartAnalysis.className = "btn-primary btn-pulse";
+      btnStartAnalysis.style.background = "linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-indigo) 100%)";
+      btnStartAnalysis.style.color = "var(--text-main)";
+      btnStartAnalysis.style.cursor = "pointer";
+      
+      analysisReadyText.innerHTML = `<strong>Systemrapport inläst!</strong> Klicka på knappen bredvid för att köra analysen.`;
+      analysisReadyText.style.color = "var(--accent-cyan)";
+      
+      const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
+      if (detectedUrl) {
+        updateDetectedSiteUrl(detectedUrl);
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa systemdata: ${err.message}`);
+    }
+  }
 
   function handleSysInfoFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        state.sysInfo = parseSystemInfoText(e.target.result);
-        state.uploadMetadata.sysInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        sysInfoStatus.textContent = `✓ ${file.name}`;
-        sysInfoStatus.className = "file-status loaded";
-        
-        btnStartAnalysis.disabled = false;
-        btnStartAnalysis.className = "btn-primary btn-pulse";
-        btnStartAnalysis.style.background = "linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-indigo) 100%)";
-        btnStartAnalysis.style.color = "var(--text-main)";
-        btnStartAnalysis.style.cursor = "pointer";
-        
-        analysisReadyText.innerHTML = `<strong>Systemrapport inläst!</strong> Klicka på knappen bredvid för att köra analysen.`;
-        analysisReadyText.style.color = "var(--accent-cyan)";
-        
-        // Dynamic audit update for the bullet summary
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa systemfilen: ${err.message}`);
-      }
+      routeAndProcessContent(e.target.result, "sysinfo", file.name);
     };
     reader.readAsText(file);
+  }
+
+  function processWooCommerceText(text, sourceName) {
+    try {
+      state.wooInfo = parseWooCommerceStatus(text);
+      state.uploadMetadata.wooInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      woocommerceStatus.textContent = "✓ Inläst";
+      woocommerceStatus.title = sourceName;
+      woocommerceStatus.className = "file-status loaded";
+      
+      if (woocommerceSummary) {
+        const wooVer = state.wooInfo.version || "";
+        const gwCount = state.wooInfo.gateways ? state.wooInfo.gateways.length : 0;
+        woocommerceSummary.textContent = `✓ WC ${wooVer || "Inläst"} (${gwCount} betalsätt)`;
+        woocommerceSummary.classList.add("active");
+      }
+
+      const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
+      if (detectedUrl) {
+        updateDetectedSiteUrl(detectedUrl);
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa WooCommerce-statusdata: ${err.message}`);
+    }
   }
 
   function handleWooCommerceFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        state.wooInfo = parseWooCommerceStatus(e.target.result);
-        state.uploadMetadata.wooInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        woocommerceStatus.textContent = `✓ ${file.name}`;
-        woocommerceStatus.className = "file-status loaded";
-        
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa WooCommerce-statusfilen: ${err.message}`);
-      }
+      routeAndProcessContent(e.target.result, "woocommerce", file.name);
     };
     reader.readAsText(file);
+  }
+
+  function processWordfenceText(text, sourceName) {
+    try {
+      state.wfInfo = parseWordfenceDiagnostic(text);
+      state.uploadMetadata.wfInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      wordfenceStatus.textContent = "✓ Inläst";
+      wordfenceStatus.title = sourceName;
+      wordfenceStatus.className = "file-status loaded";
+      
+      if (wordfenceSummary) {
+        const wafMode = state.wfInfo.firewall_mode || "Aktiv";
+        wordfenceSummary.textContent = `✓ WAF (${wafMode})`;
+        wordfenceSummary.classList.add("active");
+      }
+
+      const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
+      if (detectedUrl && !state.detectedSiteUrl) {
+        updateDetectedSiteUrl(detectedUrl);
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa Wordfence-data: ${err.message}`);
+    }
   }
 
   function handleWordfenceFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        state.wfInfo = parseWordfenceDiagnostic(e.target.result);
-        state.uploadMetadata.wfInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        wordfenceStatus.textContent = `✓ ${file.name}`;
-        wordfenceStatus.className = "file-status loaded";
-        
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa Wordfence-filen: ${err.message}`);
-      }
+      routeAndProcessContent(e.target.result, "wordfence", file.name);
     };
     reader.readAsText(file);
+  }
+
+  function processElementorText(text, sourceName) {
+    try {
+      state.elemInfo = parseElementorStatus(text);
+      state.uploadMetadata.elemInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      elementorStatus.textContent = "✓ Inläst";
+      elementorStatus.title = sourceName;
+      elementorStatus.className = "file-status loaded";
+      
+      if (elementorSummary) {
+        const elemVer = state.elemInfo.version || "";
+        elementorSummary.textContent = `✓ Elementor ${elemVer || "Inläst"}`;
+        elementorSummary.classList.add("active");
+      }
+
+      const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
+      if (detectedUrl && !state.detectedSiteUrl) {
+        updateDetectedSiteUrl(detectedUrl);
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa Elementor-data: ${err.message}`);
+    }
   }
 
   function handleElementorFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        state.elemInfo = parseElementorStatus(e.target.result);
-        state.uploadMetadata.elemInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        elementorStatus.textContent = `✓ ${file.name}`;
-        elementorStatus.className = "file-status loaded";
-        
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa Elementor-filen: ${err.message}`);
-      }
+      routeAndProcessContent(e.target.result, "elementor", file.name);
     };
     reader.readAsText(file);
+  }
+
+  function processCustomCodeTextData(text, sourceName) {
+    try {
+      let parsedScm = null;
+      try {
+        const json = JSON.parse(text);
+        if (json && (json.snippets || Array.isArray(json))) {
+          parsedScm = {
+            snippets: json.snippets || json,
+            isScmPackage: true
+          };
+        }
+      } catch (jsonErr) {
+        // Fallback to text parser
+      }
+
+      if (!parsedScm) {
+        parsedScm = parseCustomCodeText(text);
+      }
+
+      state.scmInfo = parsedScm;
+      state.customCodeInfo = parsedScm;
+      state.uploadMetadata.customCodeInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      customcodeStatus.textContent = "✓ Inläst";
+      customcodeStatus.title = sourceName;
+      customcodeStatus.className = "file-status loaded";
+      
+      if (customcodeSummary) {
+        const snipCount = parsedScm.snippets ? (Array.isArray(parsedScm.snippets) ? parsedScm.snippets.length : Object.keys(parsedScm.snippets).length) : 0;
+        customcodeSummary.textContent = `✓ SCM (${snipCount > 0 ? snipCount + ' kodsnuttar' : text.length + ' tkn'})`;
+        customcodeSummary.classList.add("active");
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa SCM-kod: ${err.message}`);
+    }
   }
 
   function handleCustomCodeFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        const text = e.target.result;
-        let parsedScm = null;
-        try {
-          const json = JSON.parse(text);
-          if (json && (json.snippets || Array.isArray(json))) {
-            parsedScm = {
-              snippets: json.snippets || json,
-              isScmPackage: true
-            };
-          }
-        } catch (jsonErr) {
-          // Fallback to text parser
-        }
-
-        if (!parsedScm) {
-          parsedScm = parseCustomCodeText(text);
-        }
-
-        state.scmInfo = parsedScm;
-        state.customCodeInfo = parsedScm;
-        state.uploadMetadata.customCodeInfo = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        customcodeStatus.textContent = `✓ ${file.name}`;
-        customcodeStatus.className = "file-status loaded";
-        
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa SCM-filen: ${err.message}`);
-      }
+      routeAndProcessContent(e.target.result, "customcode", file.name);
     };
     reader.readAsText(file);
+  }
+
+  function processSettingsText(text, sourceName) {
+    try {
+      state.uploadedSettings = parseSettingsFile(text);
+      state.uploadMetadata.uploadedSettings = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      settingsStatus.textContent = "✓ Inläst";
+      settingsStatus.title = sourceName;
+      settingsStatus.className = "file-status loaded";
+      state.editedSettings = {};
+      
+      if (settingsSummary) {
+        const optCount = state.uploadedSettings ? Object.keys(state.uploadedSettings).length : 0;
+        settingsSummary.textContent = `✓ .data (${optCount} inställningar)`;
+        settingsSummary.classList.add("active");
+      }
+
+      // Grab custom CSS if exists in uploaded settings
+      if (state.uploadedSettings && state.uploadedSettings.optm_css_custom) {
+        state.customCss = state.uploadedSettings.optm_css_custom;
+        const mainBox = document.getElementById("app-custom-css-pastebox");
+        if (mainBox) {
+          mainBox.value = state.customCss;
+        }
+        renderCssAudits();
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa LiteSpeed settingsdata: ${err.message}`);
+    }
   }
 
   function handleSettingsFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
-      try {
-        state.uploadedSettings = parseSettingsFile(e.target.result);
-        state.uploadMetadata.uploadedSettings = { name: file.name, timestamp: formatTimestamp(new Date()) };
-        settingsStatus.textContent = `✓ ${file.name}`;
-        settingsStatus.className = "file-status loaded";
-        state.editedSettings = {};
-        
-        // Grab custom CSS if exists in uploaded settings
-        if (state.uploadedSettings && state.uploadedSettings.optm_css_custom) {
-          state.customCss = state.uploadedSettings.optm_css_custom;
-          const mainBox = document.getElementById("app-custom-css-pastebox");
-          if (mainBox) {
-            mainBox.value = state.customCss;
-          }
-          renderCssAudits();
-        }
+      routeAndProcessContent(e.target.result, "settings", file.name);
+    };
+    reader.readAsText(file);
+  }
 
-        silentUpdateAnalysis();
-      } catch (err) {
-        alert(`Kunde inte läsa LiteSpeed settingsfilen: ${err.message}`);
+  function processCustomCssText(text, sourceName) {
+    try {
+      syncCustomCss(text, "slot-customcss");
+      state.uploadMetadata.customCss = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+      customcssStatus.textContent = "✓ Inläst";
+      customcssStatus.title = sourceName;
+      customcssStatus.className = "file-status loaded";
+      
+      if (customcssSummary) {
+        customcssSummary.textContent = `✓ CSS (${text.length} tecken)`;
+        customcssSummary.classList.add("active");
       }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa CSS: ${err.message}`);
+    }
+  }
+
+  function handleCustomCssFile(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      routeAndProcessContent(e.target.result, "customcss", file.name);
     };
     reader.readAsText(file);
   }
@@ -864,9 +1602,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (summaryEl) {
       if (loadedCount > 0) {
         const dayLabel = latestTimestamp ? getFriendlyDay(latestTimestamp) : "idag";
-        summaryEl.textContent = `${loadedCount} av 6 filer (${dayLabel})`;
+        summaryEl.textContent = `${loadedCount} av 7 filer (${dayLabel})`;
       } else {
-        summaryEl.textContent = "0 av 6 filer";
+        summaryEl.textContent = "0 av 7 filer";
       }
     }
 
@@ -907,14 +1645,14 @@ document.addEventListener("DOMContentLoaded", () => {
     updateActiveSiteStatusBar();
     
     if (state.analysisResults) {
-      // If they already start analysis once, auto-sync and refresh dashboards dynamically
-      triggerAnalysis();
+      // If they already start analysis once, auto-sync and refresh dashboards dynamically without auto-switching tabs
+      triggerAnalysis(false);
     }
   }
 
   // --- CORE SYSTEM CONTROLLER & RENDERERS ---
 
-  function triggerAnalysis() {
+  function triggerAnalysis(autoSwitch = true) {
     if (!state.sysInfo) return;
 
     try {
@@ -926,7 +1664,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
               const upVal = state.uploadedSettings[opt.id];
               
-              if (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri") {
+              if (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri") {
                 state.editedSettings[opt.id] = upVal || opt.recommendedRaw;
               } else {
                 state.editedSettings[opt.id] = (upVal === "1" || upVal === 1 || upVal === "on" || upVal === true || upVal === "swap") ? 1 : 0;
@@ -968,9 +1706,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // Draw visual Conflict Topology map
       drawTopologyMap();
 
-      // Auto-switch to Översikt (Overview) tab on complete
-      switchMasterView("overview");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      // Auto-switch to Översikt (Overview) tab only on explicit button click
+      if (autoSwitch) {
+        switchMasterView("overview");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     } catch (err) {
       console.error("FEL I TRIGGERANALYSIS:", err);
       alert("FEL VID ANALYS:\n" + err.message + "\n\nStacktrace:\n" + err.stack);
@@ -1056,12 +1796,12 @@ document.addEventListener("DOMContentLoaded", () => {
           : (env.hasElementor ? "<strong>Elementor är aktivt!</strong> Ladda upp rapporten för att automatiskt verifiera inbyggd lazy load." : "Inte aktivt på sajten.")
       },
       {
-        name: "5. Anpassad PHP-kod (functions.php)",
+        name: "5. Anpassad PHP-kod (functions.php / SCM)",
         status: state.customCodeInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.customCodeInfo,
         color: state.customCodeInfo ? "var(--color-success)" : "var(--text-muted)",
         details: state.customCodeInfo 
-          ? `<strong>Gjorda PHP-tester:</strong> 3 st godkända<br><strong>Stabilitetsrisker:</strong> ${state.analysisResults ? state.analysisResults.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0} st`
+          ? `<strong>Analyserade moduler:</strong> ${state.customCodeInfo.snippets ? state.customCodeInfo.snippets.length : 1} st<br><strong>Stabilitetsrisker:</strong> ${state.analysisResults ? state.analysisResults.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0} st`
           : "Ladda upp källkodsfiler för att granska anpassade filter och actions."
       },
       {
@@ -1072,6 +1812,15 @@ document.addEventListener("DOMContentLoaded", () => {
         details: state.uploadedSettings 
           ? `<strong>Inlästa parametrar:</strong> ${Object.keys(state.uploadedSettings).length} st<br><strong>Detekterad referens:</strong> LiteSpeed Cache v${lscwpVersion}`
           : "Ingen basfil inläst. Appen skapar en perfekt stabilitetsprofil från scratch!"
+      },
+      {
+        name: "7. Anpassad CSS & Stilregler",
+        status: state.customCss ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.customCss,
+        color: state.customCss ? "var(--color-success)" : "var(--text-muted)",
+        details: state.customCss 
+          ? `<strong>CSS-storlek:</strong> ${state.customCss.length} tecken<br><strong>Stilvarningar:</strong> ${state.analysisResults ? state.analysisResults.customCssAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0} st`
+          : "Ladda upp tema-CSS eller klistra in stilregler för granskning mot render-blockering."
       }
     ];
 
@@ -1115,13 +1864,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderBenchmarkMatrix() {
     const tbody = document.getElementById("benchmark-matrix-tbody");
+    const parityBadge = document.getElementById("benchmark-parity-badge");
     if (!tbody || !state.analysisResults || !state.analysisResults.versionMatrix) return;
 
+    let hasOlderVersions = false;
     let html = "";
     state.analysisResults.versionMatrix.forEach(row => {
       const isMatched = row.isParityMatch;
+      if (row.isActive && !isMatched) hasOlderVersions = true;
       const badgeClass = row.isActive ? (isMatched ? "matched" : "notice") : "inactive";
-      const badgeText = row.isActive ? (isMatched ? "✓ Paritet OK" : "ℹ️ Äldre version (Auditerad)") : "Ej aktiv";
+      const badgeText = row.isActive ? (isMatched ? "✓ Senaste version" : "ℹ️ Äldre version (Auditerad)") : "Ej aktiv";
 
       html += `
         <tr>
@@ -1131,6 +1883,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span style="color: #a5b4fc;">v${escapeHtml(row.benchmarkVersion)}</span>
             <span style="color: var(--text-muted); font-size: 0.7rem; margin-left: 0.25rem;">(Granskad: ${escapeHtml(row.auditDate)})</span>
           </td>
+          <td><span style="color: #67e8f9; font-weight: 500;">v${escapeHtml(row.latestRelease || row.benchmarkVersion)}</span></td>
           <td><span style="color: var(--text-muted); font-size: 0.72rem;">${escapeHtml(row.source)}</span></td>
           <td><span class="parity-badge ${badgeClass}">${badgeText}</span></td>
         </tr>
@@ -1138,11 +1891,20 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     tbody.innerHTML = html;
+
+    if (parityBadge) {
+      if (hasOlderVersions) {
+        parityBadge.className = "parity-badge notice";
+        parityBadge.textContent = "ℹ️ Granskad mot installerade versioner (Nyare finns tillgängliga)";
+      } else {
+        parityBadge.className = "parity-badge matched";
+        parityBadge.textContent = "✓ 100% Versionsparitet (Senaste versioner)";
+      }
+    }
   }
 
-  function renderHealthScoreBreakdown() {
-    const rowsEl = document.getElementById("health-breakdown-rows");
-    if (!rowsEl || !state.analysisResults) return;
+  function computeHealthScoreBreakdown() {
+    if (!state.analysisResults) return { stabilityScore: 100, perfScore: 100, secScore: 100, configScore: 100, masterScore: 100, hasPsiScore: false };
 
     const results = state.analysisResults;
 
@@ -1152,7 +1914,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let perfDeductions = 0;
     results.alerts.filter(a => a.impactCategory === "performance" && a.type !== "danger").forEach(() => perfDeductions += 10);
-    const perfScore = Math.max(0, 100 - perfDeductions);
+    const configPerfScore = Math.max(0, 100 - perfDeductions);
+    const perfScore = state.psiScores?.mobile != null 
+      ? Math.round((configPerfScore * 0.5) + (state.psiScores.mobile * 0.5))
+      : configPerfScore;
 
     let secDeductions = 0;
     results.alerts.filter(a => a.impactCategory === "security").forEach(() => secDeductions += 15);
@@ -1166,13 +1931,30 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     const configScore = Math.max(0, 100 - configDeductions);
 
+    const masterScore = Math.max(20, Math.min(100, Math.round(
+      (stabilityScore * 0.40) + (perfScore * 0.30) + (secScore * 0.20) + (configScore * 0.10)
+    )));
+
+    return { stabilityScore, perfScore, secScore, configScore, masterScore, hasPsiScore: state.psiScores?.mobile != null };
+  }
+
+  function renderHealthScoreBreakdown() {
+    const rowsEl = document.getElementById("health-breakdown-rows");
+    if (!rowsEl || !state.analysisResults) return;
+
+    const { stabilityScore, perfScore, secScore, configScore, hasPsiScore } = computeHealthScoreBreakdown();
+
+    const psiNote = hasPsiScore 
+      ? `(30% - inkl. PSI Mobil ${state.psiScores.mobile}/100)` 
+      : `(30% - kör PSI för live-data)`;
+
     rowsEl.innerHTML = `
       <div class="breakdown-row">
         <span>🛡️ Stabilitet & Kassaskydd (40%):</span>
         <strong style="color: ${stabilityScore >= 80 ? 'var(--color-success)' : 'var(--color-danger)'};">${stabilityScore}/100</strong>
       </div>
       <div class="breakdown-row">
-        <span>⚡ Prestanda & CWV (30%):</span>
+        <span>⚡ Prestanda & CWV ${psiNote}:</span>
         <strong style="color: ${perfScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${perfScore}/100</strong>
       </div>
       <div class="breakdown-row">
@@ -1190,51 +1972,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const results = state.analysisResults;
     if (!results) return;
 
+    const env = results.environment || {};
+
+    let deviationCount = 0;
+    const compFn = window.getOptionComparison || getOptionComparison;
+    if (results.recommendations) {
+      results.recommendations.forEach(tab => {
+        tab.options.forEach(o => {
+          if (o.id === "optm_css_custom") return;
+          const comp = compFn ? compFn(o, state.uploadedSettings, env) : { isDeviant: false };
+          if (comp.isDeviant) deviationCount++;
+        });
+      });
+    }
+
     renderBenchmarkMatrix();
     renderHealthScoreBreakdown();
 
-    // Calculate score starting at 100
-    let score = 100;
-
-    // 1. Compatibility warnings
-    results.alerts.forEach(alert => {
-      if (alert.type === "danger") score -= 15;
-      else if (alert.type === "warning") score -= 8;
-    });
-
-    // 2. Custom code (PHP) audits
-    results.customCodeAlerts.forEach(alert => {
-      if (alert.type === "danger") score -= 10;
-      else if (alert.type === "warning") score -= 4;
-    });
-
-    // 3. Custom CSS alerts
-    if (results.customCssAlerts) {
-      results.customCssAlerts.forEach(alert => {
-        if (alert.type === "danger") score -= 10;
-        else if (alert.type === "warning") score -= 4;
-      });
-    }
-
-    // 4. Exclusions / WooCommerce protection
-    const env = results.environment;
-    if (env.hasWooCommerce && !state.wooInfo) {
-      score -= 5;
-    }
-
-    // 5. Settings deviations
-    let deviationCount = 0;
-    results.recommendations.forEach(tab => {
-      tab.options.forEach(opt => {
-        if (opt.isChangedNeeded) {
-          deviationCount++;
-        }
-      });
-    });
-    score -= deviationCount * 1.5;
-
-    // Clamp between 20 and 100
-    score = Math.max(20, Math.min(100, Math.round(score)));
+    const { masterScore } = computeHealthScoreBreakdown();
+    const score = masterScore;
 
     // Render score value & gauge
     const scoreValEl = document.getElementById("health-score-value");
@@ -1251,61 +2007,154 @@ document.addEventListener("DOMContentLoaded", () => {
     if (scoreTitleEl && scoreDescEl) {
       if (score >= 90) {
         scoreTitleEl.textContent = "Utmärkt status! 🟢";
-        scoreDescEl.textContent = "Din sajt är perfekt optimerad och har maximal e-handelsstabilitet.";
+        scoreDescEl.textContent = "Din sajt är optimalt konfigurerad och har maximal stabilitet.";
       } else if (score >= 70) {
         scoreTitleEl.textContent = "Godkänd status 🟡";
-        scoreDescEl.textContent = "Sajten är stabil men det finns prestandaförbättringar att göra.";
+        scoreDescEl.textContent = "Sajten är stabil men det finns prestandaavvikelser att optimera.";
       } else {
         scoreTitleEl.textContent = "Åtgärd krävs! 🔴";
-        scoreDescEl.textContent = "Kritiska stabilitetsrisker detekterade för kassan eller sidbyggaren.";
+        scoreDescEl.textContent = "Kritiska stabilitetsrisker eller krockar detekterade i din miljö.";
       }
     }
 
-    // Render badge counts
-    const statRisksCountEl = document.getElementById("stat-count-risks");
-    const statRecChangesEl = document.getElementById("stat-count-rec-changes");
-    const statSecuredStatusEl = document.getElementById("stat-secured-status");
+    // 7 Key Component Status Cards + PSI Card in Översikt
+    const overviewGridEl = document.getElementById("overview-component-status-grid");
+    if (overviewGridEl) {
+      overviewGridEl.innerHTML = "";
 
-    const totalRisksCount = results.alerts.filter(a => a.type === "danger" || a.type === "warning").length +
-                            results.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length +
-                            (results.customCssAlerts ? results.customCssAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0);
+      const rawAlerts = [
+        ...(results.alerts || []),
+        ...(results.customCodeAlerts || []),
+        ...(results.customCssAlerts || [])
+      ].filter(a => a.type === "danger" || a.type === "warning");
 
-    if (statRisksCountEl) statRisksCountEl.textContent = totalRisksCount;
-    if (statRecChangesEl) statRecChangesEl.textContent = deviationCount;
-
-    let checkoutSecure = false;
-    if (env.hasWooCommerce) {
-      const dropUri = state.editedSettings.drop_uri || "";
-      const dropUriLower = dropUri.toString().toLowerCase();
-      if (dropUriLower.includes("checkout") || dropUriLower.includes("kassa")) {
-        checkoutSecure = true;
-      }
-      
-      if (statSecuredStatusEl) {
-        if (checkoutSecure) {
-          statSecuredStatusEl.textContent = "Säkrad OK";
-          statSecuredStatusEl.style.color = "var(--color-success)";
-        } else {
-          statSecuredStatusEl.textContent = "RISK!";
-          statSecuredStatusEl.style.color = "var(--color-danger)";
+      const normalizedAlerts = rawAlerts.map(a => {
+        let comp = a.component;
+        if (!comp) {
+          if (a.targetTabId === "elementor") comp = "elementor";
+          else if (a.targetTabId === "wordfence") comp = "wordfence";
+          else if (a.title.toLowerCase().includes("ctm")) comp = "ctm";
+          else if (a.title.toLowerCase().includes("woo") || a.title.toLowerCase().includes("kassa") || a.title.toLowerCase().includes("cart")) comp = "woocommerce";
+          else if (a.title.toLowerCase().includes("litespeed")) comp = "litespeed";
+          else if (a.title.toLowerCase().includes("scm")) comp = "scm";
+          else comp = "server";
         }
+        return { ...a, component: comp };
+      });
+
+      const componentDefs = {
+        litespeed: { key: "litespeed", label: "LiteSpeed", icon: "⚡" },
+        woocommerce: { key: "woocommerce", label: "WooCommerce", icon: "🛒" },
+        wordfence: { key: "wordfence", label: "Wordfence", icon: "🔒" },
+        elementor: { key: "elementor", label: "Elementor", icon: "🎨" },
+        ctm: { key: "ctm", label: "CTM", icon: "🏷️" },
+        scm: { key: "scm", label: "SCM (Kod)", icon: "💻" },
+        server: { key: "server", label: "Server & Core", icon: "🖥️" }
+      };
+
+      const statusKeys = ["litespeed", "woocommerce", "wordfence", "elementor", "ctm", "scm", "server"];
+
+      statusKeys.forEach(k => {
+        const def = componentDefs[k];
+        const compAlerts = normalizedAlerts.filter(a => {
+          if (a.components && Array.isArray(a.components)) return a.components.includes(k);
+          return a.component === k;
+        });
+
+        const hasDanger = compAlerts.some(a => a.type === "danger");
+        const hasWarning = compAlerts.some(a => a.type === "warning");
+        const cardStatusClass = hasDanger ? "status-danger" : hasWarning ? "status-warning" : "status-safe";
+        const cardStatusText = hasDanger ? "Kritiskt 🔴" : hasWarning ? "Varning 🟡" : "Optimalt 🟢";
+
+        const card = document.createElement("div");
+        card.className = `risk-component-card ${cardStatusClass}`;
+        card.style.cursor = "pointer";
+        card.title = "Klicka för att se detaljerade risker för denna modul i Riskdetektorn";
+        card.innerHTML = `
+          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">${def.icon}</div>
+          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">${def.label}</div>
+          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; font-weight: 600;">${cardStatusText}</div>
+          <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">
+            ${compAlerts.length > 0 ? `${compAlerts.length} notifiering(ar)` : 'Noll krockar'}
+          </div>
+        `;
+
+        card.addEventListener("click", () => {
+          switchMasterView("risks");
+          state.activeRiskFilter = k;
+          renderAlerts();
+        });
+
+        overviewGridEl.appendChild(card);
+      });
+
+      // Append PSI score card if available
+      const psiCard = document.createElement("div");
+      if (state.psiScores && state.psiScores.mobile != null) {
+        const mScore = state.psiScores.mobile;
+        const psiClass = mScore >= 90 ? "status-safe" : mScore >= 50 ? "status-warning" : "status-danger";
+        psiCard.className = `risk-component-card ${psiClass}`;
+        psiCard.style.cursor = "pointer";
+        psiCard.innerHTML = `
+          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">📱</div>
+          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">PSI Mobil</div>
+          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; font-weight: 600;">${mScore}/100</div>
+          <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">
+            ${state.psiScores.desktop != null ? `Desktop: ${state.psiScores.desktop}/100` : 'PageSpeed Insights'}
+          </div>
+        `;
+        psiCard.title = "Klicka för att se PageSpeed Insights under Datakällor";
+        psiCard.addEventListener("click", () => {
+          switchMasterView("inputs");
+        });
+      } else {
+        psiCard.className = "risk-component-card";
+        psiCard.style.cursor = "pointer";
+        psiCard.style.opacity = "0.75";
+        psiCard.innerHTML = `
+          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">📱</div>
+          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">PSI Test</div>
+          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; color: var(--text-muted);">Ej körd</div>
+          <div style="font-size: 0.65rem; color: var(--accent-cyan); margin-top: 0.25rem; text-decoration: underline;">
+            Kör PSI test ➔
+          </div>
+        `;
+        psiCard.title = "Klicka för att köra live Google PageSpeed Insights test under Datakällor";
+        psiCard.addEventListener("click", () => {
+          switchMasterView("inputs");
+          const urlInput = document.getElementById("psi-url-input");
+          if (urlInput) urlInput.focus();
+        });
       }
-    } else {
-      if (statSecuredStatusEl) {
-        statSecuredStatusEl.textContent = "Ej aktiv";
-        statSecuredStatusEl.style.color = "var(--text-muted)";
+
+      overviewGridEl.appendChild(psiCard);
+    }
+
+    let isDropUriMeasured = false;
+    let checkoutSecure = false;
+    let cartSecure = false;
+    if (env.hasWooCommerce) {
+      const rawDropUri = state.uploadedSettings ? state.uploadedSettings.drop_uri : null;
+      if (rawDropUri !== null && rawDropUri !== undefined) {
+        isDropUriMeasured = true;
+        const clean = String(rawDropUri).toLowerCase().replace(/[\^\$]/g, "");
+        checkoutSecure = clean.includes("checkout") || clean.includes("kassa");
+        cartSecure = clean.includes("cart") || clean.includes("varukorg");
       }
     }
 
     // Render top recommendation message
     const topFindingTextEl = document.getElementById("top-finding-text");
     if (topFindingTextEl) {
-      if (env.hasWooCommerce && !checkoutSecure) {
-        topFindingTextEl.textContent = "Varning: Din butikskassa (checkout) är inte exkluderad från LiteSpeed Cache! Detta är en allvarlig stabilitetsrisk som måste åtgärdas omedelbart under inställningarna.";
-      } else if (results.alerts.some(a => a.type === "danger" || a.type === "warning")) {
+      if (env.hasWooCommerce && isDropUriMeasured && !checkoutSecure) {
+        topFindingTextEl.textContent = "Varning: Din butikskassa (checkout) är inte exkluderad från LiteSpeed Cache i din inlästa profil! Detta är en allvarlig stabilitetsrisk som måste åtgärdas under inställningarna.";
+      } else if (results.alerts.some(a => a.type === "danger")) {
+        const firstDanger = results.alerts.find(a => a.type === "danger");
+        topFindingTextEl.textContent = `Kritisk varning: ${firstDanger.title}. Se fliken 'Risker & Kompatibilitet'.`;
+      } else if (results.alerts.some(a => a.type === "warning")) {
         topFindingTextEl.textContent = "Detekterade kompatibilitetsvarningar i din miljö (t.ex. krockande lazy-loads). Se fliken 'Risker & Kompatibilitet' för detaljerade råd.";
       } else if (deviationCount > 0) {
-        topFindingTextEl.textContent = "Din sajt är kompatibel men inte fullt optimerad. Vi rekommenderar att du går till fliken 'LSCWP Inställningar', klickar på 'Åtgärda alla avvikelser' och laddar ner profilfilen.";
+        topFindingTextEl.textContent = `Din sajt är stabil och har ${deviationCount} rekommenderade prestandaoptimeringar. Se fliken 'Rekommenderade inställningar'.`;
       } else {
         topFindingTextEl.textContent = "Din webbplats är fullt optimerad och butikskassan är säkrad. Inga ytterligare prestandaåtgärder behövs!";
       }
@@ -1338,10 +2187,14 @@ document.addEventListener("DOMContentLoaded", () => {
         li2.style.display = "flex";
         li2.style.alignItems = "center";
         li2.style.gap = "0.5rem";
-        if (checkoutSecure) {
-          li2.innerHTML = `<span style="color: var(--color-success);">✓</span> WooCommerce kassa- och varukorgssidor är säkrade från sessionsläckor.`;
+        if (isDropUriMeasured) {
+          if (checkoutSecure && cartSecure) {
+            li2.innerHTML = `<span style="color: var(--color-success);">✓</span> WooCommerce kassa- och varukorgssidor är säkrade från sessionsläckor.`;
+          } else {
+            li2.innerHTML = `<span style="color: var(--color-danger);">❌</span> Kassan/varukorgen saknar exkluderingsregler i inläst fil!`;
+          }
         } else {
-          li2.innerHTML = `<span style="color: var(--color-danger);">❌</span> Kassan saknar exkluderingsregler! Risk för session-läckor i din butik.`;
+          li2.innerHTML = `<span style="color: #94a3b8;">ℹ️</span> Kassaexkluderingar verifieras när .data-fil laddas upp i Slot 6.`;
         }
         bulletListEl.appendChild(li2);
       }
@@ -1363,28 +2216,36 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderSummaryCard() {
+    if (!sumWpVersion || !state.analysisResults) return;
     const env = state.analysisResults.environment;
     
     sumWpVersion.textContent = env.wpVersion;
-    sumServer.textContent = env.server;
-    sumPhpVersion.textContent = env.phpVersion;
-    sumTheme.textContent = env.theme;
+    if (sumServer) sumServer.textContent = env.server;
+    if (sumPhpVersion) sumPhpVersion.textContent = env.phpVersion;
+    if (sumTheme) sumTheme.textContent = env.theme;
     
-    sumWooCommerce.textContent = env.hasWooCommerce ? "Aktiv" : "Inaktiv";
-    sumWooCommerce.className = env.hasWooCommerce ? "info-value badge-info" : "info-value";
+    if (sumWooCommerce) {
+      sumWooCommerce.textContent = env.hasWooCommerce ? "Aktiv" : "Inaktiv";
+      sumWooCommerce.className = env.hasWooCommerce ? "info-value badge-info" : "info-value";
+    }
     
-    sumElementor.textContent = env.hasElementor ? "Aktiv" : "Inaktiv";
-    sumElementor.className = env.hasElementor ? "info-value badge-info" : "info-value";
+    if (sumElementor) {
+      sumElementor.textContent = env.hasElementor ? "Aktiv" : "Inaktiv";
+      sumElementor.className = env.hasElementor ? "info-value badge-info" : "info-value";
+    }
     
-    sumObjectCache.textContent = env.hasObjectCache ? "Ja" : "Nej";
-    sumObjectCache.className = env.hasObjectCache ? "info-value badge-info" : "info-value";
+    if (sumObjectCache) {
+      sumObjectCache.textContent = env.hasObjectCache ? "Ja" : "Nej";
+      sumObjectCache.className = env.hasObjectCache ? "info-value badge-info" : "info-value";
+    }
     
-    // Toned down summary badge
-    const hasCritAlert = state.analysisResults.alerts.some(a => a.type === "danger" || a.type === "warning");
-    summaryCardStatusBadge.textContent = hasCritAlert ? "⚠️ Varning" : "🟢 Säkrad OK";
-    summaryCardStatusBadge.style.color = hasCritAlert ? "var(--color-warning)" : "var(--color-success)";
-    summaryCardStatusBadge.style.background = hasCritAlert ? "var(--color-warning-bg)" : "var(--color-success-bg)";
-    summaryCardStatusBadge.style.borderColor = hasCritAlert ? "rgba(245,158,11,0.2)" : "rgba(16,185,129,0.2)";
+    if (summaryCardStatusBadge) {
+      const hasCritAlert = state.analysisResults.alerts.some(a => a.type === "danger" || a.type === "warning");
+      summaryCardStatusBadge.textContent = hasCritAlert ? "⚠️ Varning" : "🟢 Säkrad OK";
+      summaryCardStatusBadge.style.color = hasCritAlert ? "var(--color-warning)" : "var(--color-success)";
+      summaryCardStatusBadge.style.background = hasCritAlert ? "var(--color-warning-bg)" : "var(--color-success-bg)";
+      summaryCardStatusBadge.style.borderColor = hasCritAlert ? "rgba(245,158,11,0.2)" : "rgba(16,185,129,0.2)";
+    }
   }
 
   function jumpToSetting(tabId, settingId) {
@@ -1406,7 +2267,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (cardWrapper) {
           cardWrapper.scrollIntoView({ behavior: "smooth", block: "center" });
           
-          // Apply a temporary glowing ring animation to draw focus
           cardWrapper.style.transition = "all 0.5s ease";
           cardWrapper.style.borderColor = "var(--accent-cyan)";
           cardWrapper.style.boxShadow = "0 0 25px rgba(6, 182, 212, 0.6)";
@@ -1423,44 +2283,185 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderAlerts() {
+    if (!alertsList || !state.analysisResults) return;
     alertsList.innerHTML = "";
-    
-    const activeAlerts = [
+
+    const rawAlerts = [
       ...state.analysisResults.alerts,
       ...state.analysisResults.customCodeAlerts,
       ...(state.analysisResults.customCssAlerts || [])
     ].filter(a => a.type === "danger" || a.type === "warning");
 
-    // Sort activeAlerts: danger first, then warning
-    activeAlerts.sort((a, b) => {
+    // Component mapping definitions
+    const componentDefs = {
+      litespeed: { key: "litespeed", label: "LiteSpeed", icon: "⚡" },
+      woocommerce: { key: "woocommerce", label: "WooCommerce", icon: "🛒" },
+      wordfence: { key: "wordfence", label: "Wordfence", icon: "🔒" },
+      elementor: { key: "elementor", label: "Elementor", icon: "🎨" },
+      ctm: { key: "ctm", label: "CTM", icon: "🏷️" },
+      server: { key: "server", label: "Server & Core", icon: "🖥️" },
+      scm: { key: "scm", label: "SCM (Kod)", icon: "💻" }
+    };
+
+    // Normalize component on each alert
+    const normalizedAlerts = rawAlerts.map(a => {
+      let comp = a.component;
+      if (!comp) {
+        if (a.targetTabId === "elementor") comp = "elementor";
+        else if (a.targetTabId === "wordfence") comp = "wordfence";
+        else if (a.title.toLowerCase().includes("ctm")) comp = "ctm";
+        else if (a.title.toLowerCase().includes("woo") || a.title.toLowerCase().includes("kassa") || a.title.toLowerCase().includes("cart")) comp = "woocommerce";
+        else if (a.title.toLowerCase().includes("litespeed")) comp = "litespeed";
+        else if (a.title.toLowerCase().includes("scm")) comp = "scm";
+        else comp = "server";
+      }
+      return { ...a, component: comp };
+    });
+
+    // Update global counter badges
+    const critCount = normalizedAlerts.filter(a => a.type === "danger").length;
+    const warnCount = normalizedAlerts.filter(a => a.type === "warning").length;
+    const critBadge = document.getElementById("risk-count-critical-badge");
+    const warnBadge = document.getElementById("risk-count-warning-badge");
+    if (critBadge) critBadge.textContent = `${critCount} Kritiska`;
+    if (warnBadge) warnBadge.textContent = `${warnCount} Varningar`;
+
+    // 1. Render Top Component Status Grid
+    const statusGridEl = document.getElementById("risk-component-status-grid");
+    if (statusGridEl) {
+      statusGridEl.innerHTML = "";
+      const statusKeys = ["litespeed", "woocommerce", "wordfence", "elementor", "ctm", "scm", "server"];
+
+      statusKeys.forEach(k => {
+        const def = componentDefs[k] || { label: k, icon: "📦" };
+        const compAlerts = normalizedAlerts.filter(a => {
+          if (a.components && Array.isArray(a.components)) {
+            return a.components.includes(k) || (k === "server" && (a.components.includes("scm") || a.components.includes("css")));
+          }
+          return a.component === k || (k === "server" && (a.component === "scm" || a.component === "css"));
+        });
+        const cCount = compAlerts.filter(a => a.type === "danger").length;
+        const wCount = compAlerts.filter(a => a.type === "warning").length;
+
+        let cardStatusClass = "ok";
+        let statusBadgeText = "🟢 OK (Inga problem)";
+        if (cCount > 0) {
+          cardStatusClass = "danger";
+          statusBadgeText = `🔴 ${cCount} Kritiska ${wCount > 0 ? `(${wCount} v)` : ""}`;
+        } else if (wCount > 0) {
+          cardStatusClass = "warning";
+          statusBadgeText = `🟡 ${wCount} Varning${wCount > 1 ? "ar" : ""}`;
+        }
+
+        const isSelected = state.activeRiskFilter === k;
+
+        const card = document.createElement("div");
+        card.className = `risk-component-card ${cardStatusClass} ${isSelected ? "selected" : ""}`;
+        card.style.cursor = "pointer";
+        card.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <strong style="font-size: 0.85rem; color: #fff; display: flex; align-items: center; gap: 0.35rem;">
+              <span>${def.icon}</span> ${escapeHtml(def.label)}
+            </strong>
+          </div>
+          <div style="font-size: 0.72rem; font-weight: 600;">
+            ${statusBadgeText}
+          </div>
+        `;
+
+        card.addEventListener("click", () => {
+          state.activeRiskFilter = state.activeRiskFilter === k ? "all" : k;
+          renderAlerts();
+        });
+
+        statusGridEl.appendChild(card);
+      });
+    }
+
+    // 2. Render Component Filter Toolbar
+    const toolbarEl = document.getElementById("risk-filter-toolbar");
+    if (toolbarEl) {
+      toolbarEl.innerHTML = "";
+      
+      const filterItems = [
+        { key: "all", label: "Alla", count: normalizedAlerts.length },
+        { key: "litespeed", label: "LiteSpeed", count: normalizedAlerts.filter(a => a.components ? a.components.includes("litespeed") : a.component === "litespeed").length },
+        { key: "woocommerce", label: "WooCommerce", count: normalizedAlerts.filter(a => a.components ? a.components.includes("woocommerce") : a.component === "woocommerce").length },
+        { key: "wordfence", label: "Wordfence", count: normalizedAlerts.filter(a => a.components ? a.components.includes("wordfence") : a.component === "wordfence").length },
+        { key: "elementor", label: "Elementor", count: normalizedAlerts.filter(a => a.components ? a.components.includes("elementor") : a.component === "elementor").length },
+        { key: "ctm", label: "CTM", count: normalizedAlerts.filter(a => a.components ? a.components.includes("ctm") : a.component === "ctm").length },
+        { key: "scm", label: "SCM", count: normalizedAlerts.filter(a => a.components ? a.components.includes("scm") : a.component === "scm").length },
+        { key: "server", label: "Server/Core", count: normalizedAlerts.filter(a => a.components ? (a.components.includes("server") || a.components.includes("css")) : (a.component === "server" || a.component === "css")).length }
+      ];
+
+      filterItems.forEach(item => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `btn-risk-filter ${state.activeRiskFilter === item.key ? "active" : ""}`;
+        btn.innerHTML = `${escapeHtml(item.label)} <span class="badge" style="margin-left: 0.25rem; font-size: 0.65rem;">${item.count}</span>`;
+        btn.addEventListener("click", () => {
+          state.activeRiskFilter = item.key;
+          renderAlerts();
+        });
+        toolbarEl.appendChild(btn);
+      });
+    }
+
+    // 3. Filter & Sort Alerts
+    let displayAlerts = [...normalizedAlerts];
+    if (state.activeRiskFilter && state.activeRiskFilter !== "all") {
+      const f = state.activeRiskFilter;
+      displayAlerts = displayAlerts.filter(a => {
+        if (a.components && Array.isArray(a.components)) {
+          return a.components.includes(f) || (f === "server" && (a.components.includes("scm") || a.components.includes("css")));
+        }
+        return a.component === f || (f === "server" && (a.component === "scm" || a.component === "css"));
+      });
+    }
+
+    // Descending sort: danger first, then warning
+    displayAlerts.sort((a, b) => {
       if (a.type === "danger" && b.type !== "danger") return -1;
       if (a.type !== "danger" && b.type === "danger") return 1;
       return 0;
     });
-    
-    if (activeAlerts.length === 0) {
+
+    if (displayAlerts.length === 0) {
+      const activeFilterName = componentDefs[state.activeRiskFilter]?.label || "valda komponenten";
       alertsList.innerHTML = `
         <div class="alert-item success">
           <div class="alert-icon">✓</div>
           <div class="alert-content">
             <h4>Inga risker identifierade</h4>
-            <p>Din webbplats matchar 100% av våra prestanda- och stabilitetsregler!</p>
+            <p>${state.activeRiskFilter === "all" ? "Din webbplats matchar 100% av våra stabilitetsregler!" : `Inga aktiva risker för ${activeFilterName}. Status är 100% OK!`}</p>
           </div>
         </div>
       `;
       return;
     }
 
-    activeAlerts.forEach((alert, index) => {
+    displayAlerts.forEach((alert, index) => {
       const item = document.createElement("div");
       item.className = `alert-item ${alert.type}`;
       
+      const compDef = componentDefs[alert.component] || { label: alert.component || "WordPress", icon: "⚙️" };
+
       let pathHtml = "";
       if (alert.wpPath) {
         pathHtml = `
           <div style="margin-top: 0.5rem; font-size: 0.72rem; opacity: 0.85; display: flex; flex-direction: column; gap: 0.25rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.4rem;">
             <span>📍 <strong>Sökväg i WordPress:</strong></span>
-            <code style="background: rgba(0,0,0,0.3); padding: 0.15rem 0.4rem; border-radius: 4px; color: #a5b4fc; display: inline-block; font-size: 0.7rem; font-family: monospace; border: 1px solid rgba(255,255,255,0.03);">${alert.wpPath}</code>
+            <code style="background: rgba(0,0,0,0.3); padding: 0.15rem 0.4rem; border-radius: 4px; color: #a5b4fc; display: inline-block; font-size: 0.7rem; font-family: monospace; border: 1px solid rgba(255,255,255,0.03);">${escapeHtml(alert.wpPath)}</code>
+          </div>
+        `;
+      }
+
+      let sourceHtml = "";
+      if (alert.source || alert.compatibility) {
+        sourceHtml = `
+          <div style="margin-top: 0.5rem; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.72rem; line-height: 1.45; display: flex; flex-direction: column; gap: 0.25rem;">
+            ${alert.source ? `<div><strong style="color: #c7d2fe;">📖 Källa:</strong> <span style="color: #cbd5e1;">${escapeHtml(alert.source)}</span></div>` : ""}
+            ${alert.compatibility ? `<div><strong style="color: #4ade80;">🔒 Kompatibilitet:</strong> <span style="color: #cbd5e1;">${escapeHtml(alert.compatibility)}</span></div>` : ""}
           </div>
         `;
       }
@@ -1469,7 +2470,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (alert.targetTabId && alert.targetSettingId) {
         buttonHtml = `
           <button class="btn-jump-setting" style="margin-top: 0.5rem; background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3); color: var(--accent-cyan); font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 6px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.2s;">
-            🎯 Visa inställningen i LSCWP ➔
+            🎯 Visa inställningen i Rekommenderade inställningar ➔
           </button>
         `;
       }
@@ -1477,8 +2478,14 @@ document.addEventListener("DOMContentLoaded", () => {
       item.innerHTML = `
         <div class="alert-icon">${alert.icon}</div>
         <div class="alert-content">
-          <h4>${index + 1}. ${alert.title}</h4>
-          <p>${alert.desc}</p>
+          <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; flex-wrap: wrap;">
+            <span class="badge" style="font-size: 0.65rem; background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; padding: 0.1rem 0.4rem; font-weight: 600;">
+              ${compDef.icon} ${escapeHtml(compDef.label)}
+            </span>
+            <h4 style="margin: 0; font-size: 0.95rem;">${index + 1}. ${escapeHtml(alert.title)}</h4>
+          </div>
+          <p style="margin-top: 0.25rem;">${escapeHtml(alert.desc)}</p>
+          ${sourceHtml}
           ${pathHtml}
           ${buttonHtml}
         </div>
@@ -1497,41 +2504,16 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Populate dynamic 3-bullet lists on each upload card
   function renderBulletLists(summaries) {
-    if (!summaries) return;
-
-    function renderBulletsInto(ul, bullets) {
-      if (!ul) return;
-      ul.innerHTML = "";
-      bullets.forEach(b => {
-        const li = document.createElement("li");
-        li.className = `file-bullet ${b.status !== 'neutral' ? 'active' : ''}`;
-        
-        li.innerHTML = `
-          <span class="bullet-dot ${b.status}">●</span>
-          <span>${b.text}</span>
-        `;
-        ul.appendChild(li);
-      });
-    }
-
-    renderBulletsInto(sysInfoBullets, summaries.sysInfo);
-    renderBulletsInto(woocommerceBullets, summaries.wooInfo);
-    renderBulletsInto(wordfenceBullets, summaries.wfInfo);
-    renderBulletsInto(elementorBullets, summaries.elemInfo);
-    renderBulletsInto(customcodeBullets, (summaries && (summaries.scmInfo || summaries.customCode)) || null);
-    renderBulletsInto(settingsBullets, (summaries && (summaries.uploadedSettings || summaries.settings)) || null);
+    // Bullets on slot cards replaced by slot-verified-summary
   }
 
   function renderPlaceholderBullets() {
-    const rulesObj = analyzeSystem(null);
-    if (rulesObj && rulesObj.fileSummaries) {
-      renderBulletLists(rulesObj.fileSummaries);
-    }
+    // No-op for cleaner slot cards
   }
 
   function renderWooChecklist() {
+    if (!paymentChecklist || !state.analysisResults) return;
     paymentChecklist.innerHTML = "";
     const env = state.analysisResults.environment;
     
@@ -1546,50 +2528,48 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const checklist = [];
 
-    // Checkout cache exclusion
+    // Checkout & Cart cache exclusions
+    let isDropUriMeasured = false;
     let checkoutSecure = false;
-    if (state.editedSettings.drop_uri) {
-      const dropUri = state.editedSettings.drop_uri.toLowerCase();
-      if (dropUri.includes("checkout") || dropUri.includes("kassa")) {
-        checkoutSecure = true;
-      }
+    let cartSecure = false;
+    const rawDropUri = state.uploadedSettings ? state.uploadedSettings.drop_uri : null;
+    if (rawDropUri !== null && rawDropUri !== undefined) {
+      isDropUriMeasured = true;
+      const clean = String(rawDropUri).toLowerCase().replace(/[\^\$]/g, "");
+      checkoutSecure = clean.includes("checkout") || clean.includes("kassa");
+      cartSecure = clean.includes("cart") || clean.includes("varukorg");
     }
 
     checklist.push({
       label: "Kassacaching undantagen (drop_uri)",
-      status: checkoutSecure ? "Skyddad" : "RISK",
-      risk: !checkoutSecure,
-      desc: checkoutSecure 
-        ? "Kassan exkluderas från cachning för att förhindra session- och dataläckor."
-        : "Kassan cachas aktivt! Risk för session-läckor eller misslyckade köp.",
+      status: !isDropUriMeasured ? "Ej uppmätt (Kräver Slot 6)" : (checkoutSecure ? "Skyddad" : "RISK"),
+      risk: isDropUriMeasured && !checkoutSecure,
+      desc: !isDropUriMeasured
+        ? "Ladda upp LiteSpeed .data (Slot 6) för att verifiera att kassan är exkluderad i drop_uri."
+        : (checkoutSecure 
+          ? "Kassan exkluderas från cachning för att förhindra session- och dataläckor."
+          : "Kassan cachas aktivt! Risk för session-läckor eller misslyckade köp."),
       wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Cache ➔ [4] Exkludera ➔ Exkludera sökvägar (drop_uri)",
       targetTabId: "cache",
       targetSettingId: "drop_uri"
     });
 
-    // Cart cache exclusion
-    let cartSecure = false;
-    if (state.editedSettings.drop_uri) {
-      const dropUri = state.editedSettings.drop_uri.toLowerCase();
-      if (dropUri.includes("cart") || dropUri.includes("varukorg")) {
-        cartSecure = true;
-      }
-    }
-
     checklist.push({
       label: "Varukorgscaching undantagen (drop_uri)",
-      status: cartSecure ? "Skyddad" : "RISK",
-      risk: !cartSecure,
-      desc: cartSecure
-        ? "Varukorgen är exkluderad, vilket säkrar kundvagnsfragmenten."
-        : "Varukorgen är inte exkluderad. Risk för tomma kundvagnar under navigation.",
+      status: !isDropUriMeasured ? "Ej uppmätt (Kräver Slot 6)" : (cartSecure ? "Skyddad" : "RISK"),
+      risk: isDropUriMeasured && !cartSecure,
+      desc: !isDropUriMeasured
+        ? "Ladda upp LiteSpeed .data (Slot 6) för att verifiera att varukorgen är exkluderad i drop_uri."
+        : (cartSecure
+          ? "Varukorgen är exkluderad, vilket säkrar kundvagnsfragmenten."
+          : "Varukorgen är inte exkluderad. Risk för tomma kundvagnar under navigation."),
       wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Cache ➔ [4] Exkludera ➔ Exkludera sökvägar (drop_uri)",
       targetTabId: "cache",
       targetSettingId: "drop_uri"
     });
 
     // WooCommerce gateways exclusions check
-    const activeExcludes = (state.editedSettings.js_exclude || "").toLowerCase();
+    const activeExcludes = ((state.uploadedSettings && state.uploadedSettings.js_exclude) || state.editedSettings.js_exclude || "").toLowerCase();
     
     if (env.wooGateways && env.wooGateways.length > 0) {
       env.wooGateways.forEach(gate => {
@@ -1671,6 +2651,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderCustomCodeAudits() {
+    if (!customCodeAlertsList || !state.analysisResults) return;
     customCodeAlertsList.innerHTML = "";
     
     if (!state.customCodeInfo) {
@@ -1689,8 +2670,8 @@ document.addEventListener("DOMContentLoaded", () => {
       item.innerHTML = `
         <div class="alert-icon">${alert.icon}</div>
         <div class="alert-content">
-          <h4>${alert.title}</h4>
-          <p>${alert.desc}</p>
+          <h4>${escapeHtml(alert.title)}</h4>
+          <p>${escapeHtml(alert.desc)}</p>
         </div>
       `;
       customCodeAlertsList.appendChild(item);
@@ -1706,6 +2687,15 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.textContent = tab.title;
       btn.addEventListener("click", () => {
         state.activeTabId = tab.id;
+        if (state.activeSettingsFilter === "deviations") {
+          state.activeSettingsFilter = "all";
+          const allBtn = document.getElementById("filter-btn-all");
+          if (allBtn) {
+            const fBtns = document.querySelectorAll(".filter-btn");
+            fBtns.forEach(b => b.classList.remove("active"));
+            allBtn.classList.add("active");
+          }
+        }
         renderTabs();
         renderSettingsPanel();
       });
@@ -1735,8 +2725,8 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="alert-item ${alert.type}" style="margin-top: 0.5rem; padding: 0.6rem 0.85rem; font-size:0.75rem;">
               <span class="alert-icon" style="font-size:1rem;">${alert.icon}</span>
               <div class="alert-content">
-                <strong>${alert.title}</strong>
-                <p style="opacity:0.85; font-size:0.7rem; margin-top:0.1rem;">${alert.desc}</p>
+                <strong>${escapeHtml(alert.title)}</strong>
+                <p style="opacity:0.85; font-size:0.7rem; margin-top:0.1rem;">${escapeHtml(alert.desc)}</p>
               </div>
             </div>
           `;
@@ -1768,18 +2758,36 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Filter options if filter is active
+    const compFn = window.getOptionComparison || getOptionComparison;
     let filteredOptions = activeTab.options;
+    
     if (state.activeSettingsFilter === "critical") {
-      filteredOptions = activeTab.options.filter(o => o.criticalLevel === "critical");
-    } else if (state.activeSettingsFilter === "deviations") {
-      filteredOptions = activeTab.options.filter(o => {
-        const activeVal = state.editedSettings[o.id];
-        const userNorm = (activeVal === 1 || activeVal === "on" || activeVal === true) ? 1 : 0;
-        const recNorm = (o.recommendedRaw === 1 || o.recommendedRaw === "on" || o.recommendedRaw === true) ? 1 : 0;
-        return userNorm !== recNorm;
+      const allCritical = [];
+      state.analysisResults.recommendations.forEach(tab => {
+        tab.options.forEach(o => {
+          if (o.id === "optm_css_custom") return;
+          if (o.criticalLevel === "critical") {
+            allCritical.push({ ...o, tabCategoryTitle: tab.title });
+          }
+        });
       });
+      filteredOptions = allCritical;
+    } else if (state.activeSettingsFilter === "deviations") {
+      const allDeviations = [];
+      state.analysisResults.recommendations.forEach(tab => {
+        tab.options.forEach(o => {
+          if (o.id === "optm_css_custom") return;
+          const comp = compFn ? compFn(o, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false };
+          if (comp.isDeviant) {
+            allDeviations.push({ ...o, tabCategoryTitle: tab.title });
+          }
+        });
+      });
+      filteredOptions = allDeviations;
     } else if (state.activeSettingsFilter === "ecommerce") {
       filteredOptions = activeTab.options.filter(o => o.id.includes("woo") || o.id.includes("drop_uri") || o.id.includes("esi") || o.id.includes("cart"));
+    } else if (state.activeSettingsFilter === "baseline") {
+      filteredOptions = activeTab.options;
     }
 
     if (filteredOptions.length === 0) {
@@ -1789,11 +2797,19 @@ document.addEventListener("DOMContentLoaded", () => {
       emptyNotice.style.padding = "2rem";
       emptyNotice.style.textAlign = "center";
       emptyNotice.style.color = "var(--text-muted)";
-      emptyNotice.innerHTML = `
-        <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">✓</span>
-        <strong>Inga inställningar matchar det aktiva filtret ('${state.activeSettingsFilter}').</strong>
-        <p style="font-size: 0.8rem; margin-top: 0.25rem;">Klicka på 'Alla inställningar' för att se hela listan.</p>
-      `;
+      if (state.activeSettingsFilter === "deviations") {
+        emptyNotice.innerHTML = `
+          <span style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; color: #4ade80;">🎉</span>
+          <strong style="color: #4ade80; font-size: 1rem;">Inga avvikelser hittades!</strong>
+          <p style="font-size: 0.82rem; margin-top: 0.25rem;">Alla inställningar matchar våra rekommenderade guldstandard-regler (100% Guldstandard).</p>
+        `;
+      } else {
+        emptyNotice.innerHTML = `
+          <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">✓</span>
+          <strong>Inga inställningar matchar det aktiva filtret ('${state.activeSettingsFilter}').</strong>
+          <p style="font-size: 0.8rem; margin-top: 0.25rem;">Klicka på 'Alla inställningar' för att se hela listan.</p>
+        `;
+      }
       settingsContainer.appendChild(emptyNotice);
       return;
     }
@@ -1806,60 +2822,112 @@ document.addEventListener("DOMContentLoaded", () => {
       card.className = "setting-card";
       
       let criticalTagHtml = "";
-      if (opt.criticalLevel === "critical") {
-        criticalTagHtml = `<span class="badge-critical-tag critical">🚨 Kritisk</span>`;
+      if (opt.tabCategoryTitle && (state.activeSettingsFilter === "deviations" || state.activeSettingsFilter === "critical")) {
+        criticalTagHtml += `<span class="badge" style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);">📂 ${escapeHtml(opt.tabCategoryTitle)}</span>`;
+      }
+      if (state.activeSettingsFilter === "baseline") {
+        criticalTagHtml += `<span class="badge-critical-tag" style="background: rgba(99, 102, 241, 0.2); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.4);">⭐ Golden Master</span>`;
+      } else if (opt.criticalLevel === "critical") {
+        criticalTagHtml += `<span class="badge-critical-tag critical">🚨 Kritisk</span>`;
       } else if (opt.criticalLevel === "high") {
-        criticalTagHtml = `<span class="badge-critical-tag high">⚡ Hög påverkan</span>`;
-      }
-
-      const riskBadge = opt.safe 
-          ? `<span class="badge-risk safe">Stabil</span>` 
-          : `<span class="badge-risk high">Högre Risk</span>`;
-        
-      const activeUserVal = state.editedSettings[opt.id];
-      const isChecked = activeUserVal === 1 || activeUserVal === "on" || activeUserVal === true;
-
-      // Check if current value matches recommendation
-      let isMatches = false;
-      if (typeof opt.recommendedRaw === "string") {
-        let missing = window.checkMissingExclusions ? window.checkMissingExclusions(activeUserVal, opt.recommendedRaw) : [];
-        if (opt.id === "drop_uri") {
-          const cleanVal = (activeUserVal || "").toString().toLowerCase();
-          const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
-          const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
-          if (hasCheckout && hasCart) {
-            missing = [];
-          }
-        }
-        isMatches = missing.length === 0;
+        criticalTagHtml += `<span class="badge-critical-tag high">⚡ Hög påverkan</span>`;
       } else {
-        const userNorm = (activeUserVal === 1 || activeUserVal === "on" || activeUserVal === true) ? 1 : 0;
-        const recNorm = (opt.recommendedRaw === 1 || opt.recommendedRaw === "on" || opt.recommendedRaw === true) ? 1 : 0;
-        isMatches = userNorm === recNorm;
+        criticalTagHtml += `<span class="badge-critical-tag standard">ℹ️ Standard</span>`;
       }
 
-      const matchBadge = isMatches 
-        ? `<span class="badge-risk safe" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3);">✓ Optimal</span>`
-        : `<span class="badge-risk high" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.3);">⚠️ Avvikelse</span>`;
+      let activeUserVal = "";
+      if (state.editedSettings && state.editedSettings.hasOwnProperty(opt.id)) {
+        activeUserVal = state.editedSettings[opt.id];
+      } else if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
+        activeUserVal = state.uploadedSettings[opt.id];
+      }
+
+      let isChecked = false;
+      let isMatches = false;
+
+      const comp = compFn ? compFn(opt, state.uploadedSettings, state.analysisResults.environment) : {
+        isMeasured: !!state.uploadedSettings,
+        isMatches: true,
+        statusLabel: "🟢 Optimal",
+        currentDisplay: "PÅ",
+        recommendedDisplay: "PÅ"
+      };
+
+      if (opt.id === "drop_uri" || opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc") {
+        isMatches = comp.isMatches;
+      } else if (typeof opt.recommendedRaw === "string" && opt.recommendedRaw !== "1" && opt.recommendedRaw !== "0") {
+        isMatches = comp.isMatches;
+      } else {
+        isChecked = activeUserVal === 1 || activeUserVal === "1" || activeUserVal === "on" || activeUserVal === true;
+        isMatches = comp.isMatches;
+      }
+
+      let riskBadge = "";
+      if (opt.riskLevel === "high") {
+        riskBadge = `<span class="badge-risk high">⚠️ Krockrisk: JS/CSS</span>`;
+      } else if (opt.riskLevel === "critical") {
+        riskBadge = `<span class="badge-risk high">🚨 Kritisk kassa/WooCommerce</span>`;
+      } else if (opt.riskLevel === "safe") {
+        riskBadge = `<span class="badge-risk safe">✓ Säker prestanda</span>`;
+      }
+
+      const toolLabels = {
+        litespeed: "⚡ LiteSpeed Cache",
+        woocommerce: "🛒 WooCommerce",
+        elementor: "🎨 Elementor",
+        wordfence: "🔒 Wordfence",
+        server: "🖥️ WP Core & Server"
+      };
+      const toolBadgeHtml = `<span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 600;">${toolLabels[opt.tool || "litespeed"] || "⚡ LiteSpeed Cache"}</span>`;
+
+      // Check if setting corresponds to an active alert in Riskdetektorn
+      const hasActiveRisk = state.analysisResults && state.analysisResults.alerts && state.analysisResults.alerts.some(a => 
+        (a.targetSettingId === opt.id) || 
+        (a.targetTabId === state.activeTabId && (opt.id.includes("lazy") || opt.id.includes("drop") || opt.id.includes("js_exclude") || opt.id.includes("ip_header")))
+      );
+      const activeRiskBadge = hasActiveRisk 
+        ? `<span class="badge-risk high" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 600;">🚨 Aktiv risk i Riskdetektorn</span>` 
+        : "";
+
+      const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri";
+
+      const matchBadge = !comp.isMeasured 
+        ? `<span class="badge-risk info" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">⚪ Ej uppmätt (Kräver Slot 6)</span>`
+        : comp.isMatches 
+          ? `<span class="badge-risk safe" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Optimal (Matchar guldstandard)</span>`
+          : `<span class="badge-risk high" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.3);">🟡 Avvikelse (Rekommenderat: ${comp.recommendedDisplay})</span>`;
 
       let diffHtml = "";
-      if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
-        let currentLabel = opt.currentValue;
-        let recLabel = opt.recommendedValue;
-        
-        const currentClass = currentLabel.toLowerCase() === "på" || currentLabel.toLowerCase() === "matchar" ? "on" : "off";
-        const recClass = recLabel.toLowerCase() === "på" || recLabel.toLowerCase() === "anpassad" ? "on" : "off";
+      if (comp.isMeasured) {
+        const curBadgeText = isTextareaField ? comp.currentDisplay : (comp.rawMeasured === "1" || comp.rawMeasured === 1 || comp.rawMeasured === "on" || comp.rawMeasured === true ? "PÅ" : "AV");
+        const recBadgeText = isTextareaField ? comp.recommendedDisplay : (comp.rawRecommended === "1" || comp.rawRecommended === 1 || comp.rawRecommended === "on" || comp.rawRecommended === true ? "PÅ" : (typeof comp.rawRecommended === "string" ? comp.rawRecommended : "AV"));
+        const currentClass = (comp.rawMeasured === 1 || comp.rawMeasured === "1" || (isTextareaField && comp.isMatches)) ? "on" : "off";
+        const recClass = (comp.rawRecommended === 1 || comp.rawRecommended === "1" || (isTextareaField && comp.isMatches)) ? "on" : "off";
         
         diffHtml = `
           <div class="comparison-container" style="margin-top:0.75rem;">
             <div class="status-block">
-              <span class="status-label">Nuvarande</span>
-              <span class="status-badge ${currentClass}">${currentLabel}</span>
+              <span class="status-label">Din inställning</span>
+              <span class="status-badge ${currentClass}">${curBadgeText}</span>
             </div>
             <span class="comparison-arrow">→</span>
             <div class="status-block">
               <span class="status-label">Rekommenderat</span>
-              <span class="status-badge ${recClass}">${recLabel}</span>
+              <span class="status-badge ${recClass}">${recBadgeText}</span>
+            </div>
+          </div>
+        `;
+      } else {
+        diffHtml = `
+          <div class="comparison-container" style="margin-top:0.75rem;">
+            <div class="status-block">
+              <span class="status-label">Slot 6 status</span>
+              <span class="status-badge off" style="color:#94a3b8; border-color:rgba(255,255,255,0.1);">Ej inläst</span>
+            </div>
+            <span class="comparison-arrow">→</span>
+            <div class="status-block">
+              <span class="status-label">Guldstandard</span>
+              <span class="status-badge on">${comp.recommendedDisplay}</span>
             </div>
           </div>
         `;
@@ -1875,103 +2943,99 @@ document.addEventListener("DOMContentLoaded", () => {
             </summary>
             <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.72rem; line-height: 1.4; border-top: 1px solid rgba(255,255,255,0.03); padding-top: 0.5rem;">
               <div style="border-left: 2px solid var(--accent-indigo); padding-left: 0.5rem;">
-                <strong style="color: #c7d2fe; display: block; margin-bottom: 0.1rem;">Officiell LiteSpeed-rekommendation:</strong>
-                <span style="color: var(--text-muted);">${opt.citations.litespeed || "Ingen officiell kommentar tillgänglig."}</span>
+                <strong style="color: #c7d2fe; display: block; margin-bottom: 0.1rem;">Officiell rekommendation:</strong>
+                <span style="color: var(--text-muted);">${opt.citations.litespeed || opt.citations.consensus || "Officiell rekommendation."}</span>
               </div>
               <div style="border-left: 2px solid var(--color-warning); padding-left: 0.5rem; margin-top: 0.25rem;">
                 <strong style="color: #fde68a; display: block; margin-bottom: 0.1rem;">Modern Webb-standard & Konsensus:</strong>
-                <span style="color: var(--text-muted);">${opt.citations.consensus || "Ingen konsensuskommentar tillgänglig."}</span>
+                <span style="color: var(--text-muted);">${opt.citations.consensus || "Branschstandard och best practice."}</span>
               </div>
             </div>
           </details>
         `;
       }
 
-      const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri";
+      // Single Source of Truth / Double Activation Explanation
+      let singleSourceHtml = "";
+      if (opt.singleSourceInfo) {
+        singleSourceHtml = `
+          <div class="double-activation-info-box" style="margin-top: 0.65rem;">
+            <div style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem;">
+              <span>ℹ️ Single Source of Truth:</span>
+              <span class="badge-double-tag">${escapeHtml(opt.singleSourceInfo.recommendedTool)}</span>
+            </div>
+            <p style="margin-top: 0.25rem; font-size: 0.72rem; color: var(--text-muted); line-height: 1.35;">
+              ${escapeHtml(opt.singleSourceInfo.reason)}
+            </p>
+            <div style="margin-top: 0.35rem; font-size: 0.7rem; color: #fde68a;">
+              <strong>Åtgärd i andra verktyg:</strong> ${escapeHtml(opt.singleSourceInfo.actionOtherTools)}
+            </div>
+          </div>
+        `;
+      }
 
       if (isTextareaField) {
+        const impactScore = opt.criticalLevel === "critical" ? "+15p Stabilitet (Kassaskydd)" : "+10p Prestanda";
+        const impactColor = isMatches ? "var(--color-success)" : "var(--color-warning)";
         card.innerHTML = `
           <div class="setting-info" style="grid-column: span 2;">
             <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+              ${toolBadgeHtml}
               <h4 class="setting-title">${opt.title}</h4>
               ${criticalTagHtml}
               ${riskBadge}
+              ${activeRiskBadge}
               ${matchBadge}
               <span class="info-label" style="font-size:0.75rem;">(ID: ${opt.id})</span>
             </div>
             <p class="setting-desc" style="margin-bottom: 0.75rem;">${opt.desc}</p>
+            ${singleSourceHtml}
             ${citationsHtml}
-            <textarea id="textarea-${opt.id}" class="glass-card" style="width:100%; min-height:100px; font-family: monospace; font-size:0.8rem; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); color: var(--text-main); padding: 0.75rem; border-radius:8px; resize:vertical; margin-top: 0.75rem;">${activeUserVal || ""}</textarea>
+            <div style="margin-top: 0.5rem; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.75rem; color: var(--text-main); white-space: pre-wrap; word-break: break-all;">
+              <div style="color: var(--text-muted); font-size: 0.7rem; margin-bottom: 0.35rem; font-family: var(--font-sans); font-weight: 600;">Aktiva exkluderingar på sajten:</div>
+              ${escapeHtml(activeUserVal || "(Inga aktiva exkluderingar inlästa)")}
+            </div>
+            <div style="margin-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: ${impactColor}; font-weight: 600; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.2); border-radius: 6px;">
+              <span>${isMatches ? '✓ Alla rekommenderade mönster är exkluderade' : '⚠️ Vissa nödvändiga skyddsmönster saknas i nuläget'}</span>
+              <span>${isMatches ? '✓ Optimalt' : `Påverkan: ${impactScore}`}</span>
+            </div>
             ${diffHtml}
           </div>
         `;
-        
-        const textarea = card.querySelector(`#textarea-${opt.id}`);
-        textarea.addEventListener("input", (e) => {
-          state.editedSettings[opt.id] = e.target.value;
-          updateActionBar();
-          
-          // Live optimal badge update in title row
-          const titleRow = card.querySelector(".setting-title-row");
-          if (titleRow) {
-            let missing = window.checkMissingExclusions ? window.checkMissingExclusions(e.target.value, opt.recommendedRaw) : [];
-            if (opt.id === "drop_uri") {
-              const cleanVal = e.target.value.toString().toLowerCase();
-              const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
-              const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
-              if (hasCheckout && hasCart) {
-                missing = [];
-              }
-            }
-            const innerIsMatch = missing.length === 0;
-
-            const existingBadges = titleRow.querySelectorAll(".badge-risk");
-            if (existingBadges.length >= 2) {
-              const badgeToReplace = existingBadges[1];
-              if (innerIsMatch) {
-                badgeToReplace.outerHTML = `<span class="badge-risk safe" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3);">✓ Optimal</span>`;
-              } else {
-                badgeToReplace.outerHTML = `<span class="badge-risk high" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.3);">⚠️ Avvikelse</span>`;
-              }
-            }
-          }
-        });
       } else {
-        const labelText = isChecked ? 'PÅ' : 'AV';
-        const labelColor = isMatches ? 'var(--color-success)' : 'var(--color-warning)';
-        
+        const impactScore = opt.criticalLevel === "critical" ? "+15p Stabilitet" : opt.criticalLevel === "high" ? "+10p Prestanda" : "+2p Konfiguration";
+        const impactColor = isMatches ? "var(--color-success)" : "var(--color-warning)";
+
         card.innerHTML = `
-          <div class="setting-info">
+          <div class="setting-info" style="flex: 1;">
             <div class="setting-title-row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+              ${toolBadgeHtml}
               <h4 class="setting-title">${opt.title}</h4>
               ${criticalTagHtml}
               ${riskBadge}
+              ${activeRiskBadge}
               ${matchBadge}
               <span class="info-label" style="font-size:0.75rem;">(ID: ${opt.id})</span>
             </div>
             <p class="setting-desc">${opt.desc}</p>
+            ${singleSourceHtml}
             ${citationsHtml}
             ${diffHtml}
           </div>
-          <div class="toggle-interactive">
-            <span class="switch-label" style="color: ${labelColor}; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;">
-              ${isMatches ? '✓' : '⚠️'} ${labelText} ${isMatches ? '(Optimalt)' : '(Avvikelse)'}
-            </span>
-            <label class="switch">
-              <input type="checkbox" id="toggle-${opt.id}" ${isChecked ? 'checked' : ''}>
-              <span class="slider"></span>
-            </label>
+          <div class="score-impact-box">
+            <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; justify-content: space-between; gap: 0.5rem;">
+              <span>Nuläge på sajt:</span>
+              <strong style="color: ${isMatches ? 'var(--color-success)' : 'var(--color-warning)'};">${comp.currentDisplay}</strong>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; justify-content: space-between; gap: 0.5rem;">
+              <span>Rekommendation:</span>
+              <strong style="color: #c7d2fe;">${comp.recommendedDisplay}</strong>
+            </div>
+            <div style="font-size: 0.72rem; margin-top: 0.2rem; padding-top: 0.3rem; border-top: 1px solid rgba(255,255,255,0.06); color: ${impactColor}; font-weight: 600;">
+              ${isMatches ? '✓ Optimal poäng' : `⚠️ Påverkan: ${impactScore}`}
+            </div>
           </div>
         `;
-
-        const toggle = card.querySelector(`#toggle-${opt.id}`);
-        toggle.addEventListener("change", (e) => {
-          const newVal = e.target.checked ? 1 : 0;
-          state.editedSettings[opt.id] = newVal;
-          
-          renderSettingsPanel();
-          updateActionBar();
-        });
       }
 
       settingsContainer.appendChild(card);
@@ -1985,20 +3049,20 @@ document.addEventListener("DOMContentLoaded", () => {
       comparisonSummaryCard.style.display = "block";
       comparisonSummaryCard.style.background = "rgba(16, 185, 129, 0.05)";
       comparisonSummaryCard.style.borderColor = "rgba(16, 185, 129, 0.25)";
-      btnFixAll.style.display = "none";
+      if (btnFixAll) btnFixAll.style.display = "none";
       
-      comparisonSummaryDesc.innerHTML = "✨ <strong>Ny optimeringsprofil skapad från scratch:</strong> Eftersom du inte laddat upp någon befintlig LSCWP-fil (ruta 6), har vi genererat en helt ren och optimal profil anpassad för din sajt. Klicka på flikarna nedan för att se reglerna, eller ladda ner `.data`-filen direkt för att importera i din nya WordPress!";
+      comparisonSummaryDesc.innerHTML = "✨ <strong>Ny optimeringsprofil skapad från scratch:</strong> Eftersom du inte laddat upp någon befintlig LSCWP-fil (ruta 6), har vi genererat en helt ren och optimal profil anpassad för din sajt. Klicka på flikarna nedan för att se guldstandarden för din WordPress-version!";
       
       comparisonDiffsList.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.6rem; padding: 0.5rem 0;">
           <div style="display:flex; align-items:center; gap:0.5rem; color:var(--color-success); font-size:0.875rem;">
-            <span>🛡️</span> <strong>WooCommerce- & Elementor-skydd:</strong> drop_uri och exkluderingar är fullt förkonfigurerade.
+            <span>🛡️</span> <strong>WooCommerce- & Elementor-skydd:</strong> drop_uri och kassaexkluderingar är fullt förkonfigurerade.
           </div>
           <div style="display:flex; align-items:center; gap:0.5rem; color:var(--color-success); font-size:0.875rem;">
             <span>⚡</span> <strong>Säkra prestandaförbättringar:</strong> CSS/JS Minify & Defer är aktiva (CSS/JS Combine är inaktiverat för stabilitet).
           </div>
           <div style="display:flex; align-items:center; gap:0.5rem; color:var(--color-success); font-size:0.875rem;">
-            <span>⚙️</span> <strong>Förberedd för import:</strong> Ladda ner filen och importera under <em>LiteSpeed Cache ➔ Verktygslåda ➔ Import/Export</em>.
+            <span>⚙️</span> <strong>Optimerad för LiteSpeed Server:</strong> HTTP/3, Crawler och ESI-stöd är förberedda.
           </div>
         </div>
       `;
@@ -2008,7 +3072,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Restore default card styling if a settings file is uploaded:
     comparisonSummaryCard.style.background = "rgba(99, 102, 241, 0.05)";
     comparisonSummaryCard.style.borderColor = "rgba(99, 102, 241, 0.2)";
-    btnFixAll.style.display = "block";
+    if (btnFixAll) btnFixAll.style.display = "none";
 
     comparisonDiffsList.innerHTML = "";
     
@@ -2018,49 +3082,26 @@ document.addEventListener("DOMContentLoaded", () => {
       finetuning: []
     };
 
+    const compFn = window.getOptionComparison || getOptionComparison;
+
     state.analysisResults.recommendations.forEach(tab => {
       tab.options.forEach(opt => {
-        const orig = state.uploadedSettings.hasOwnProperty(opt.id) ? state.uploadedSettings[opt.id] : "";
-        const rec = opt.recommendedRaw;
+        if (opt.id === "optm_css_custom") return;
 
-        const origNorm = (orig === "1" || orig === 1 || orig === "on" || orig === true) ? 1 : 0;
-        const recNorm = (rec === "1" || rec === 1 || rec === "on" || rec === true) ? 1 : 0;
+        const comp = compFn ? compFn(opt, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false };
+        if (comp.isDeviant) {
+          const devData = {
+            id: opt.id,
+            title: opt.title,
+            origVal: comp.currentDisplay,
+            recVal: comp.recommendedDisplay,
+            recRaw: opt.recommendedRaw
+          };
 
-        let isDeviant = false;
-        let devData = {
-          id: opt.id,
-          title: opt.title,
-          origVal: orig ? (origNorm === 1 ? "PÅ" : "AV") : "Ej angivet",
-          recVal: recNorm === 1 ? "PÅ" : "AV",
-          recRaw: rec
-        };
-
-        const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri";
-
-        if (isTextareaField) {
-          let missing = window.checkMissingExclusions ? window.checkMissingExclusions(orig, rec) : [];
-          if (opt.id === "drop_uri") {
-            const cleanVal = (orig || "").toString().toLowerCase();
-            const hasCheckout = cleanVal.includes("checkout") || cleanVal.includes("kassa");
-            const hasCart = cleanVal.includes("cart") || cleanVal.includes("varukorg");
-            if (hasCheckout && hasCart) {
-              missing = [];
-            }
-          }
-          if (missing.length > 0) {
-            isDeviant = true;
-            devData.origVal = orig ? "Saknar exkluderingar" : "Ej angivet";
-            devData.recVal = "ANPASSAD";
-            devData.recRaw = window.mergeExclusions ? window.mergeExclusions(orig, rec) : rec;
-          }
-        } else if (origNorm !== recNorm) {
-          isDeviant = true;
-        }
-
-        if (isDeviant) {
-          const category = opt.category === "security" ? "stability" : (opt.category || "finetuning");
-          if (tiers[category]) {
-            tiers[category].push(devData);
+          if (comp.isCritical || opt.id.includes("woo") || opt.id.includes("drop_uri")) {
+            tiers.stability.push(devData);
+          } else if (opt.criticalLevel === "high" || opt.id.includes("css") || opt.id.includes("js") || opt.id.includes("media")) {
+            tiers.performance.push(devData);
           } else {
             tiers.finetuning.push(devData);
           }
@@ -2072,8 +3113,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (totalDeviations === 0) {
       comparisonSummaryCard.style.display = "block";
-      comparisonSummaryDesc.innerHTML = "✨ <strong>Analys klar:</strong> Din nuvarande LiteSpeed-fil matchar vår rekommenderade prestandaprofil till 100%! Alla audit-portar är fullt gröna.";
-      btnFixAll.style.display = "none";
+      comparisonSummaryCard.style.background = "rgba(16, 185, 129, 0.05)";
+      comparisonSummaryCard.style.borderColor = "rgba(16, 185, 129, 0.25)";
+      if (btnFixAll) btnFixAll.style.display = "none";
+      
+      comparisonSummaryDesc.innerHTML = "🎉 <strong>100% Guldstandard!</strong> Din uppladdade LiteSpeed-konfiguration matchar alla våra rekommenderade inställningar och kassaskyddsregler.";
       
       comparisonDiffsList.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.6rem; padding: 0.5rem 0;">
@@ -2092,181 +3136,135 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     comparisonSummaryCard.style.display = "block";
-    comparisonSummaryDesc.innerHTML = `⚠️ Hittade totalt <strong>${totalDeviations}</strong> avvikelser uppdelade på tre säkerhetsportar.`;
-    btnFixAll.style.display = "block";
+    comparisonSummaryDesc.innerHTML = `⚠️ Hittade totalt <strong>${totalDeviations}</strong> avvikelser uppdelade på tre säkerhetsportar:`;
+    if (btnFixAll) btnFixAll.style.display = "none";
 
     function renderTierSection(title, list, badgeClass, color, emptyMsg) {
-      const header = document.createElement("div");
-      header.style.margin = "0.75rem 0 0.4rem 0";
-      header.style.fontSize = "0.85rem";
-      header.style.fontWeight = "700";
-      header.style.color = color;
-      header.style.display = "flex";
-      header.style.justify = "space-between";
-      header.style.alignItems = "center";
-      
-      header.innerHTML = `
-        <span>${title} (${list.length} st)</span>
-        <span class="badge-risk ${badgeClass}" style="font-size:0.65rem; padding: 0.05rem 0.35rem;">
-          ${list.length > 0 ? 'Åtgärd rekommenderas' : 'Verifierad OK'}
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.justify = "space-between";
+      row.style.alignItems = "center";
+      row.style.background = list.length > 0 ? "rgba(0,0,0,0.25)" : "rgba(16, 185, 129, 0.05)";
+      row.style.border = list.length > 0 ? `1px solid rgba(255,255,255,0.06)` : "1px solid rgba(16, 185, 129, 0.15)";
+      row.style.borderLeft = `4px solid ${color}`;
+      row.style.padding = "0.6rem 0.85rem";
+      row.style.borderRadius = "8px";
+      row.style.fontSize = "0.82rem";
+
+      row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <strong style="color: #fff;">${title}:</strong>
+          <span style="color: var(--text-muted); font-size: 0.75rem;">${list.length > 0 ? `${list.length} avvikelser att justera` : emptyMsg}</span>
+        </div>
+        <span class="badge-risk ${badgeClass}" style="font-size:0.7rem; padding: 0.1rem 0.45rem;">
+          ${list.length > 0 ? `${list.length} Avvikelser` : 'Optimalt ✓'}
         </span>
       `;
-      comparisonDiffsList.appendChild(header);
 
-      if (list.length === 0) {
-        const row = document.createElement("div");
-        row.style.background = "rgba(16, 185, 129, 0.05)";
-        row.style.border = "1px solid rgba(16, 185, 129, 0.15)";
-        row.style.padding = "0.5rem 0.85rem";
-        row.style.borderRadius = "8px";
-        row.style.fontSize = "0.8rem";
-        row.style.color = "#a7f3d0";
-        row.innerHTML = `✓ ${emptyMsg}`;
-        comparisonDiffsList.appendChild(row);
-        return;
-      }
-
-      list.forEach(dev => {
-        const row = document.createElement("div");
-        row.style.display = "flex";
-        row.style.justify = "space-between";
-        row.style.alignItems = "center";
-        row.style.background = "rgba(0,0,0,0.15)";
-        row.style.padding = "0.5rem 0.85rem";
-        row.style.borderRadius = "8px";
-        row.style.fontSize = "0.8rem";
-        row.style.borderLeft = `3px solid ${color}`;
-
-        row.innerHTML = `
-          <div style="flex:1; padding-right: 0.5rem;">
-            <span style="font-weight:600; color:var(--text-main);">${dev.title}</span> 
-            <span style="color:#94a3b8; font-size:0.75rem;">(${dev.id})</span>
-          </div>
-          <div style="display:flex; align-items:center; gap:0.5rem;">
-            <span style="color:var(--color-danger); text-decoration:line-through; font-size:0.75rem;">${dev.origVal}</span>
-            <span style="color:var(--text-muted); font-size:0.75rem;">→</span>
-            <span style="color:var(--color-success); font-weight:700; font-size:0.75rem;">${dev.recVal}</span>
-            <button class="btn-primary" style="padding:0.2rem 0.5rem; font-size:0.7rem; background:rgba(16, 185, 129, 0.15); border:1px solid rgba(16, 185, 129, 0.3); color:var(--color-success); box-shadow:none; margin-left:0.4rem;">
-              Åtgärda
-            </button>
-          </div>
-        `;
-
-        row.querySelector("button").addEventListener("click", () => {
-          state.editedSettings[dev.id] = dev.recRaw;
-          triggerAnalysis();
-        });
-
-        comparisonDiffsList.appendChild(row);
-      });
+      comparisonDiffsList.appendChild(row);
     }
 
     renderTierSection(
       "⚠️ Kritiska stabilitetsändringar", 
       tiers.stability, 
-      "high", 
+      tiers.stability.length > 0 ? "high" : "safe", 
       "var(--color-danger)", 
-      "Kompatibel och stabil! Alla sidbyggar- och e-handelsinställningar skyddade."
+      "100% skyddad (Elementor & WooCommerce)"
     );
     
     renderTierSection(
       "⚡ Säkra prestandaförbättringar", 
       tiers.performance, 
-      "safe", 
+      tiers.performance.length > 0 ? "high" : "safe", 
       "var(--accent-cyan)", 
-      "Fullt optimerad prestanda! Säkra medier- och minifieringar är korrekt aktiverade."
+      "Fullt optimerad (CSS/JS/Media)"
     );
     
     renderTierSection(
       "🔧 Miljö-finjusteringar", 
       tiers.finetuning, 
-      "safe", 
+      tiers.finetuning.length > 0 ? "high" : "safe", 
       "var(--accent-indigo)", 
-      "Finjusterad! Miljön är perfekt kalibrerad för din LiteSpeed Server."
+      "Optimalt konfigurerad för LiteSpeed Server"
     );
-
-    btnFixAll.onclick = function() {
-      Object.keys(tiers).forEach(t => {
-        tiers[t].forEach(dev => {
-          state.editedSettings[dev.id] = dev.recRaw;
-        });
-      });
-      triggerAnalysis();
-    };
   }
 
   function updateActionBar() {
-    let diffCount = 0;
-    
-    if (state.uploadedSettings) {
-      state.analysisResults.recommendations.forEach(tab => {
-        tab.options.forEach(opt => {
-          if (state.uploadedSettings.hasOwnProperty(opt.id)) {
-            const orig = state.uploadedSettings[opt.id];
-            const current = state.editedSettings[opt.id];
+    if (statsChangesCount) {
+      if (state.uploadedSettings) {
+        let diffCount = 0;
+        state.analysisResults.recommendations.forEach(tab => {
+          tab.options.forEach(opt => {
+            if (state.uploadedSettings.hasOwnProperty(opt.id)) {
+              const orig = state.uploadedSettings[opt.id];
+              const current = state.editedSettings[opt.id];
 
-            const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exclude" || opt.id === "drop_uri";
+              const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri";
 
-            if (isTextareaField) {
-              if (orig !== current) diffCount++;
-            } else {
-              const origNorm = (orig === "1" || orig === 1 || orig === "on" || orig === true) ? 1 : 0;
-              const curNorm = (current === "1" || current === 1 || current === "on" || current === true) ? 1 : 0;
-              if (origNorm !== curNorm) {
-                diffCount++;
+              if (isTextareaField) {
+                if (orig !== current) diffCount++;
+              } else {
+                const origNorm = (orig === "1" || orig === 1 || orig === "on" || orig === true) ? 1 : 0;
+                const curNorm = (current === "1" || current === 1 || current === "on" || current === true) ? 1 : 0;
+                if (origNorm !== curNorm) {
+                  diffCount++;
+                }
               }
             }
-          }
+          });
         });
-      });
-      statsChangesCount.innerHTML = `Hittade <strong>${diffCount}</strong> inställningar som kommer att ändras i din exporterade profil.`;
-    } else {
-      let activeCount = 0;
-      let totalCount = 0;
-      Object.keys(state.editedSettings).forEach(k => {
-        totalCount++;
-        const val = state.editedSettings[k];
-        if (val === 1 || val === "on" || val === true || (typeof val === "string" && val.length > 5)) activeCount++;
-      });
-      statsChangesCount.innerHTML = `Optimeringsprofil redo: <strong>${activeCount}</strong> av <strong>${totalCount}</strong> inställningar aktiverade.`;
+        statsChangesCount.innerHTML = `Hittade <strong>${diffCount}</strong> avvikelser i din aktiva LiteSpeed-konfiguration.`;
+      } else {
+        let activeCount = 0;
+        let totalCount = 0;
+        Object.keys(state.editedSettings).forEach(k => {
+          totalCount++;
+          const val = state.editedSettings[k];
+          if (val === 1 || val === "on" || val === true || (typeof val === "string" && val.length > 5)) activeCount++;
+        });
+        statsChangesCount.innerHTML = `Optimeringsprofil redo: <strong>${activeCount}</strong> av <strong>${totalCount}</strong> inställningar analyserade.`;
+      }
     }
 
-    btnExport.disabled = false;
+    if (btnExport) btnExport.disabled = false;
     if (btnExportPhp) btnExportPhp.disabled = false;
     if (btnExportJson) btnExportJson.disabled = false;
+    if (btnCopyAiSecondOpinion) btnCopyAiSecondOpinion.disabled = false;
+    if (btnDownloadAiSecondOpinion) btnDownloadAiSecondOpinion.disabled = false;
   }
 
   // --- TRIGGER FILE EXPORT ---
+  if (btnExport) {
+    btnExport.addEventListener("click", () => {
+      try {
+        let exportObj = {};
+        if (state.uploadedSettings) {
+          exportObj = JSON.parse(JSON.stringify(state.uploadedSettings));
+        }
 
-  btnExport.addEventListener("click", () => {
-    try {
-      let exportObj = {};
-      if (state.uploadedSettings) {
-        exportObj = JSON.parse(JSON.stringify(state.uploadedSettings));
+        Object.keys(state.editedSettings).forEach(key => {
+          exportObj[key] = state.editedSettings[key];
+        });
+
+        // Translate all internal keys back to the real LSCWP database keys
+        const finalExportObj = translateKeysToLscwp(exportObj);
+        const serializedData = php_serialize(finalExportObj);
+
+        const blob = new Blob([serializedData], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `arewee-optimizer-${new Date().toISOString().slice(0, 10)}.data`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert(`Exporteringsfel: ${err.message}`);
       }
-
-      Object.keys(state.editedSettings).forEach(key => {
-        exportObj[key] = state.editedSettings[key];
-      });
-
-      // Translate all internal keys back to the real LSCWP database keys
-      const finalExportObj = translateKeysToLscwp(exportObj);
-      const serializedData = php_serialize(finalExportObj);
-
-      const blob = new Blob([serializedData], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `arewee-wp-optimizer-export-${new Date().toISOString().slice(0, 10)}.data`;
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(`Exporteringsfel: ${err.message}`);
-    }
-  });
+    });
+  }
 
   // --- CREDENTIALS RESTORATION ---
   if (apiSiteUrl && localStorage.getItem("wp_optimizer_api_url")) {
@@ -2279,11 +3277,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (state.apiUrl && apiSyncStatusText) {
     apiSyncStatusText.textContent = `Status: Sparad anslutning till ${state.apiUrl.replace(/^https?:\/\//, "")}`;
-    if (btnApiPush) {
-      btnApiPush.disabled = false;
-      btnApiPush.style.background = "linear-gradient(135deg, #10b981, #059669)";
-      btnApiPush.style.color = "#fff";
-    }
   }
 
   // --- DOWNLOAD SYNC PLUGIN EVENT ---
@@ -2295,7 +3288,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = "wp-optimizer-sync.php";
+        link.download = "arewee-optimizer-sync.php";
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2383,18 +3376,13 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.1.0";
+        const targetVersion = "2.3.2";
         if (companionVersion !== targetVersion) {
-          apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${url.replace(/^https?:\/\//, "")} (Plugin v${companionVersion} är föråldrad! Ladda ner v${targetVersion})`;
+          apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
         } else {
           apiSyncStatusText.textContent = `✓ Ansluten live till ${url.replace(/^https?:\/\//, "")}`;
           apiSyncStatusText.style.color = "var(--color-success)";
-        }
-        if (btnApiPush) {
-          btnApiPush.disabled = false;
-          btnApiPush.style.background = "linear-gradient(135deg, #10b981, #059669)";
-          btnApiPush.style.color = "#fff";
         }
 
       } catch (err) {
@@ -2409,98 +3397,52 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (btnApiPush) {
-    btnApiPush.addEventListener("click", async () => {
-      const url = localStorage.getItem("wp_optimizer_api_url") || apiSiteUrl.value.trim().replace(/\/$/, "");
-      const token = localStorage.getItem("wp_optimizer_api_token") || apiSyncToken.value.trim();
-
-      if (!url || !token) {
-        alert("Ingen aktiv koppling hittades. Hämta data live först.");
-        return;
-      }
-
-      btnApiPush.disabled = true;
-      btnApiPush.textContent = "Skickar...";
-
+  // --- AI SECOND OPINION EXPORTERS (GROK / CLAUDE / CHATGPT) ---
+  if (btnCopyAiSecondOpinion) {
+    btnCopyAiSecondOpinion.addEventListener("click", async () => {
       try {
-        let exportObj = {};
-        if (state.uploadedSettings) {
-          exportObj = JSON.parse(JSON.stringify(state.uploadedSettings));
-        }
-        Object.keys(state.editedSettings).forEach(key => {
-          exportObj[key] = state.editedSettings[key];
-        });
-
-        // Compile option updates
-        const lscwpConf = translateKeysToLscwp(exportObj);
-        
-        const payload = {
-          "litespeed-cache-conf": lscwpConf
-        };
-
-        // WooCommerce HPOS
-        if (state.editedSettings['woo_hpos'] !== undefined) {
-          payload["woocommerce_custom_orders_table_enabled"] = 
-            (state.editedSettings['woo_hpos'] === 1 || state.editedSettings['woo_hpos'] === "1" || state.editedSettings['woo_hpos'] === "yes") ? 'yes' : 'no';
-        }
-
-        // Elementor External CSS print method
-        if (state.editedSettings['elem_css_print_method'] !== undefined) {
-          payload["elementor_css_print_method"] = state.editedSettings['elem_css_print_method'] || 'external';
-        }
-
-        // Elementor active experiments compilation
-        const activeExps = {};
-        if (state.elemInfo && state.elemInfo.experiments) {
-          state.elemInfo.experiments.forEach(exp => {
-            activeExps[exp] = 'active';
-          });
-        }
-        if (state.editedSettings['elem_dom_optimization'] !== undefined) {
-          const status = (state.editedSettings['elem_dom_optimization'] === 1) ? 'active' : 'inactive';
-          activeExps['container'] = status;
-          activeExps['e_dom_optimization'] = status;
-        }
-        if (state.editedSettings['elem_asset_loading'] !== undefined) {
-          const status = (state.editedSettings['elem_asset_loading'] === 1) ? 'active' : 'inactive';
-          activeExps['e_optimized_assets_loading'] = status;
-        }
-        if (state.editedSettings['elem_css_loading'] !== undefined) {
-          const status = (state.editedSettings['elem_css_loading'] === 1) ? 'active' : 'inactive';
-          activeExps['e_optimized_css_loading'] = status;
-        }
-        payload["elementor_active_experiments"] = activeExps;
-
-        // Wordfence Live Traffic
-        if (state.editedSettings['wf_live_traffic'] !== undefined) {
-          payload["wf_live_traffic"] = (state.editedSettings['wf_live_traffic'] === 1 || state.editedSettings['wf_live_traffic'] === true) ? 1 : 0;
-        }
-        // Wordfence IP Header
-        if (state.editedSettings['wf_ip_header'] !== undefined) {
-          payload["wf_ip_header"] = state.editedSettings['wf_ip_header'];
-        }
-
-        const response = await fetch(`${url}/wp-json/wp-optimizer-sync/v1/settings`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-WP-Optimizer-Token": token
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || `HTTP fel! Status: ${response.status}`);
-        }
-
-        alert("✓ Inställningar har skickats och tillämpats live på din WordPress-sajt!");
+        const md = window.generateSecondOpinionMarkdown(state);
+        await navigator.clipboard.writeText(md);
+        alert("✓ AI Second Opinion rapporten har kopierats till urklipp!\n\nKlistra in direkt i Grok, Claude eller ChatGPT för att få en oberoende granskning.");
       } catch (err) {
-        console.error("Push error:", err);
-        alert(`Misslyckades att skicka inställningar live: ${err.message}`);
-      } finally {
-        btnApiPush.disabled = false;
-        btnApiPush.textContent = "🚀 Skicka inställningar live";
+        alert("Kunde inte kopiera automatiskt: " + err.message);
+      }
+    });
+  }
+
+  if (btnDownloadAiSecondOpinion) {
+    btnDownloadAiSecondOpinion.addEventListener("click", () => {
+      try {
+        const md = window.generateSecondOpinionMarkdown(state);
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `arewee-optimizer-second-opinion-${new Date().toISOString().slice(0, 10)}.md`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert(`Nedladdningsfel: ${err.message}`);
+      }
+    });
+  }
+
+  if (btnBatchAiSecondOpinion) {
+    btnBatchAiSecondOpinion.addEventListener("click", async () => {
+      try {
+        const raw = localStorage.getItem("wp_optimizer_history") || localStorage.getItem("wp_optimizer_profiles_library");
+        const library = (historyLibrary && historyLibrary.length > 0) ? historyLibrary : (raw ? JSON.parse(raw) : []);
+        if (!library || library.length === 0) {
+          alert("Ingen sparad historik finns ännu att sammanställa. Spara en eller flera sajtprofiler först!");
+          return;
+        }
+        const md = window.generateBatchSecondOpinionMarkdown(library);
+        await navigator.clipboard.writeText(md);
+        alert(`✓ AI Batch-rapport för ${library.length} sparade sajter har kopierats till urklipp!\n\nKlistra in direkt i Grok eller Claude.`);
+      } catch (err) {
+        alert("Kunde inte skapa batch-rapport: " + err.message);
       }
     });
   }
@@ -2514,13 +3456,25 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `wp-auto-optimizer-${new Date().toISOString().slice(0, 10)}.php`;
+        link.download = `arewee-optimizer-helper-${new Date().toISOString().slice(0, 10)}.php`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
       } catch (err) {
         alert(`Fel vid generering av PHP: ${err.message}`);
+      }
+    });
+  }
+
+  if (btnCopyPhp) {
+    btnCopyPhp.addEventListener("click", async () => {
+      try {
+        const phpSnippet = generateAutoOptimizerSnippet(state.editedSettings);
+        await navigator.clipboard.writeText(phpSnippet);
+        alert("✓ AreWee-Optimizer PHP-koden har kopierats till urklipp!\n\nKlistra in direkt i functions.php, Code Snippets eller WPCode.");
+      } catch (err) {
+        alert("Kunde inte kopiera automatiskt: " + err.message);
       }
     });
   }
@@ -2533,7 +3487,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `scm-snippets-optimizer-${new Date().toISOString().slice(0, 10)}.json`;
+        link.download = `arewee-optimizer-snippets-${new Date().toISOString().slice(0, 10)}.json`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2741,7 +3695,6 @@ document.addEventListener("DOMContentLoaded", () => {
       uploadedSettings: state.uploadedSettings,
       editedSettings: state.editedSettings,
       apiUrl: state.apiUrl,
-      apiToken: state.apiToken,
       uploadMetadata: state.uploadMetadata
     };
 
@@ -2803,7 +3756,6 @@ document.addEventListener("DOMContentLoaded", () => {
       state.uploadedSettings = profile.uploadedSettings;
       state.editedSettings = JSON.parse(JSON.stringify(profile.editedSettings || {}));
       state.apiUrl = profile.apiUrl || "";
-      state.apiToken = profile.apiToken || "";
       state.uploadMetadata = profile.uploadMetadata || {
         sysInfo: { name: profile.name + " (Historik WP)", timestamp: profile.timestamp },
         wooInfo: profile.wooInfo ? { name: "Historik WC", timestamp: profile.timestamp } : { name: "", timestamp: "" },
@@ -2814,7 +3766,6 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       if (state.apiUrl && apiSiteUrl) apiSiteUrl.value = state.apiUrl;
-      if (state.apiToken && apiSyncToken) apiSyncToken.value = state.apiToken;
 
       const mainBox = document.getElementById("app-custom-css-pastebox");
       if (mainBox) mainBox.value = state.customCss;
@@ -2831,10 +3782,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!badge) return;
       if (info) {
         badge.className = "file-status loaded";
-        badge.textContent = `✓ ${state.uploadMetadata[key]?.name || 'Inläst'}`;
+        badge.textContent = "✓ Inläst";
+        badge.title = state.uploadMetadata[key]?.name || 'Inläst';
       } else {
         badge.className = "file-status";
-        badge.textContent = key === "sysInfo" ? "Krävs *" : "Valfritt";
+        badge.title = "";
+        if (key === "sysInfo") badge.textContent = "Krävs *";
+        else if (key === "customCodeInfo") badge.textContent = "SCM JSON / PHP";
+        else if (key === "uploadedSettings") badge.textContent = "Jämför .data";
+        else badge.textContent = "Valfritt";
       }
     };
     checkSet(state.sysInfo, sysInfoStatus, "sysInfo");
@@ -2926,7 +3882,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "wp-optimizer-history.json";
+    link.download = "arewee-optimizer-history.json";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2942,12 +3898,12 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const imported = JSON.parse(evt.target.result);
         if (!Array.isArray(imported)) {
-          throw new Error("Historikfilen måste vara en JSON-matris av profiler.");
+          throw new Error("Historikfilen måste vara en giltig JSON-matris med sajtprofiler.");
         }
         
-        const isValid = imported.every(p => p.hasOwnProperty("id") && p.hasOwnProperty("name") && p.hasOwnProperty("healthScore") && p.hasOwnProperty("sysInfo"));
-        if (!isValid) {
-          throw new Error("JSON innehåller inte giltiga sajtprofiler.");
+        const invalidIndex = imported.findIndex(p => !p.hasOwnProperty("id") || !p.hasOwnProperty("name") || !p.hasOwnProperty("healthScore") || !p.hasOwnProperty("sysInfo"));
+        if (invalidIndex !== -1) {
+          throw new Error(`Profil #${invalidIndex + 1} saknar nödvändiga fält (id, name, healthScore eller sysInfo).`);
         }
 
         if (confirm(`Hittade ${imported.length} profiler i filen. Vill du slå ihop dem med dina nuvarande sparade profiler? (Profiler med samma namn skrivs över)`)) {
@@ -3117,6 +4073,70 @@ document.addEventListener("DOMContentLoaded", () => {
       comparisonResultTableWrapper.innerHTML = tableHtml;
       comparisonResultTableWrapper.style.display = "block";
     }
+  }
+
+  // Bind Datakällor top action buttons
+  const btnSaveProfileInputs = document.getElementById("btn-save-profile-inputs");
+  const btnClearInputs = document.getElementById("btn-clear-inputs");
+
+  if (btnSaveProfileInputs) {
+    btnSaveProfileInputs.addEventListener("click", saveCurrentProfile);
+  }
+
+  if (btnClearInputs) {
+    btnClearInputs.addEventListener("click", () => {
+      if (confirm("Vill du rensa all inläst data och återställa analysen?")) {
+        state.sysInfo = null;
+        state.wooInfo = null;
+        state.wfInfo = null;
+        state.elemInfo = null;
+        state.customCodeInfo = null;
+        state.customCss = "";
+        state.uploadedSettings = null;
+        state.editedSettings = {};
+        state.analysisResults = null;
+        state.uploadMetadata = {};
+        state.apiUrl = "";
+
+        // Reset file inputs and badges
+        ["sysinfo", "woocommerce", "wordfence", "elementor", "customcode", "settings", "customcss"].forEach(slot => {
+          const input = document.getElementById(`${slot}-input`);
+          if (input) input.value = "";
+          const dropzone = document.getElementById(`${slot}-dropzone`);
+          if (dropzone) dropzone.classList.remove("has-file");
+          const summary = document.getElementById(`${slot}-summary`);
+          if (summary) summary.innerHTML = "";
+          const status = document.getElementById(`${slot}-status`);
+          if (status) {
+            status.textContent = slot === "sysinfo" ? "Krävs *" : "Valfri";
+            status.className = "file-status";
+          }
+        });
+
+        if (btnStartAnalysis) {
+          btnStartAnalysis.disabled = true;
+          btnStartAnalysis.style.background = "rgba(255, 255, 255, 0.05)";
+          btnStartAnalysis.style.color = "var(--text-muted)";
+          btnStartAnalysis.style.boxShadow = "none";
+        }
+        if (analysisReadyText) {
+          analysisReadyText.textContent = "Väntar på WP-systemfil (ruta 1)...";
+          analysisReadyText.style.color = "var(--text-muted)";
+        }
+
+        // Hide analyzed views, show placeholders
+        document.querySelectorAll(".view-section").forEach(sec => {
+          const placeholder = sec.querySelector(".empty-state-placeholder");
+          const content = sec.querySelector(".view-content");
+          if (placeholder) placeholder.style.display = "block";
+          if (content) content.style.display = "none";
+        });
+
+        updateActiveSiteStatusBar();
+        renderSourcesTab();
+        alert("✓ All inläst data har rensats.");
+      }
+    });
   }
 
   // Bind History buttons event listeners

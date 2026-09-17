@@ -64,7 +64,13 @@ function php_deserialize(str) {
         const byteLen = parseInt(str.substring(offset, colon), 10);
         offset = colon + 2; // skip ': "'
         
-        const charLen = getCharLengthForBytes(str, offset, byteLen);
+        let charLen = getCharLengthForBytes(str, offset, byteLen);
+        if (str.substring(offset + charLen, offset + charLen + 2) !== '";') {
+          const nextQuoteSemi = str.indexOf('";', offset);
+          if (nextQuoteSemi !== -1 && nextQuoteSemi >= offset) {
+            charLen = nextQuoteSemi - offset;
+          }
+        }
         const val = str.substring(offset, offset + charLen);
         offset += charLen + 2; // skip string content and '";'
         return val;
@@ -221,6 +227,12 @@ const KEY_MAPPING_TO_INTERNAL = {
   "domain_key": "domain_key",
   "guest": "guest_mode",
   "guest_mode": "guest_mode",
+  "guest_optm": "guest_optm",
+  "server_ip": "server_ip",
+  "cache": "cache",
+  "cache-cache": "cache",
+  "cache_cache": "cache",
+  "cache_type": "cache",
   "cache-priv": "cache_priv",
   "cache_priv": "cache_priv",
   "cache-commenter": "cache_commenter",
@@ -232,32 +244,51 @@ const KEY_MAPPING_TO_INTERNAL = {
   "cache-mobile": "cache_mobile",
   "cache_mobile": "cache_mobile",
   "cache-exc": "drop_uri",
+  "cache_exc": "drop_uri",
+  "cache-uri_exc": "drop_uri",
+  "cache_uri_exc": "drop_uri",
+  "cache-drop_uri": "drop_uri",
+  "cache_drop_uri": "drop_uri",
   "drop_uri": "drop_uri",
-  "esi": "esi_enabled",
-  "esi_enabled": "esi_enabled",
-  "object": "object_cache",
-  "object_cache": "object_cache",
+  "drop-uri": "drop_uri",
+  "exc_uri": "drop_uri",
+  "esi": "esi",
+  "esi_enabled": "esi",
+  "object": "cache_object",
+  "cache-object": "cache_object",
+  "cache_object": "cache_object",
+  "object_cache": "cache_object",
   "cache-browser": "cache_browser",
   "cache_browser": "cache_browser",
-  "optm-css_min": "css_minify",
-  "css_minify": "css_minify",
-  "optm-css_comb": "css_combine",
-  "css_combine": "css_combine",
+  "optm-css_min": "optm_css_min",
+  "optm_css_min": "optm_css_min",
+  "css_minify": "optm_css_min",
+  "optm-css_comb": "optm_css_comb",
+  "optm_css_comb": "optm_css_comb",
+  "css_combine": "optm_css_comb",
+  "optm-css_async": "optm_css_async",
+  "optm_css_async": "optm_css_async",
   "optm-css_comb_priority": "css_combined_priority",
   "css_combined_priority": "css_combined_priority",
   "optm-css_exc": "css_exclude",
+  "optm_css_exc": "css_exclude",
   "css_exclude": "css_exclude",
   "optm-css_preload": "css_preload",
   "css_preload": "css_preload",
-  "optm-font_display": "font_display",
-  "font_display": "font_display",
-  "optm-js_min": "js_minify",
-  "js_minify": "js_minify",
-  "optm-js_comb": "js_combine",
-  "js_combine": "js_combine",
-  "optm-js_defer": "js_defer",
-  "js_defer": "js_defer",
+  "optm-font_display": "optm_font_display",
+  "optm_font_display": "optm_font_display",
+  "font_display": "optm_font_display",
+  "optm-js_min": "optm_js_min",
+  "optm_js_min": "optm_js_min",
+  "js_minify": "optm_js_min",
+  "optm-js_comb": "optm_js_comb",
+  "optm_js_comb": "optm_js_comb",
+  "js_combine": "optm_js_comb",
+  "optm-js_defer": "optm_js_defer",
+  "optm_js_defer": "optm_js_defer",
+  "js_defer": "optm_js_defer",
   "optm-js_exc": "js_exclude",
+  "optm_js_exc": "js_exclude",
   "js_exclude": "js_exclude",
   "media-lazy": "media_lazy",
   "media_lazy": "media_lazy",
@@ -265,11 +296,25 @@ const KEY_MAPPING_TO_INTERNAL = {
   "media_lazy_native": "media_lazy_native",
   "media-lazy_placeholder": "media_lazy_placeholder",
   "media_lazy_placeholder": "media_lazy_placeholder",
-  "media-lazy_exc": "media_lazy_exclude",
-  "media_lazy_exclude": "media_lazy_exclude",
+  "media-lazy_exc": "media_lazy_exc",
+  "media_lazy_exc": "media_lazy_exc",
+  "media_lazy_exclude": "media_lazy_exc",
   "media-iframe_lazy": "media_iframe_lazy",
   "media_iframe_lazy": "media_iframe_lazy",
+  "media-webp": "media_webp",
+  "media_webp": "media_webp",
+  "media-optm_webp": "media_webp",
+  "media_optm_webp": "media_webp",
+  "media-webp_dec": "media_webp",
+  "media_webp_dec": "media_webp",
+  "media-webp_attribute": "media_webp_attribute",
+  "media-webp_replace": "media_webp_replace",
+  "media-webp_rep": "media_webp_replace",
+  "media_webp_rep": "media_webp_replace",
+  "optm-emojis_rm": "optm_emojis_rm",
+  "optm_emojis_rm": "optm_emojis_rm",
   "crawler": "crawler",
+  "crawler_usleep": "crawler_usleep",
   
   // Custom CSS key mapping
   "optm-css_custom": "optm_css_custom",
@@ -278,33 +323,40 @@ const KEY_MAPPING_TO_INTERNAL = {
 
 const KEY_MAPPING_TO_LSCWP = {
   "auto_upgrade": "auto_upgrade",
-  "domain_key": "hash",
+  "domain_key": "domain_key",
   "guest_mode": "guest",
+  "guest_optm": "guest_optm",
+  "server_ip": "server_ip",
+  "cache": "cache",
   "cache_priv": "cache-priv",
   "cache_commenter": "cache-commenter",
   "cache_rest": "cache-rest",
   "cache_page_login": "cache-page_login",
   "cache_mobile": "cache-mobile",
   "drop_uri": "cache-exc",
-  "esi_enabled": "esi",
-  "object_cache": "object",
+  "esi": "esi",
+  "cache_object": "cache-object",
   "cache_browser": "cache-browser",
-  "css_minify": "optm-css_min",
-  "css_combine": "optm-css_comb",
+  "optm_css_min": "optm-css_min",
+  "optm_css_comb": "optm-css_comb",
+  "optm_css_async": "optm-css_async",
   "css_combined_priority": "optm-css_comb_priority",
   "css_exclude": "optm-css_exc",
   "css_preload": "optm-css_preload",
-  "font_display": "optm-font_display",
-  "js_minify": "optm-js_min",
-  "js_combine": "optm-js_comb",
-  "js_defer": "optm-js_defer",
+  "optm_font_display": "optm-font_display",
+  "optm_js_min": "optm-js_min",
+  "optm_js_comb": "optm-js_comb",
+  "optm_js_defer": "optm-js_defer",
   "js_exclude": "optm-js_exc",
   "media_lazy": "media-lazy",
   "media_lazy_native": "media-lazy_native",
   "media_lazy_placeholder": "media-lazy_placeholder",
-  "media_lazy_exclude": "media-lazy_exc",
+  "media_lazy_exc": "media-lazy_exc",
   "media_iframe_lazy": "media-iframe_lazy",
+  "media_webp": "media-webp",
+  "optm_emojis_rm": "optm-emojis_rm",
   "crawler": "crawler",
+  "crawler_usleep": "crawler_usleep",
   
   // Custom CSS key mapping
   "optm_css_custom": "optm-css_custom"
@@ -318,7 +370,7 @@ function translateKeysToInternal(obj) {
     let val = obj[key];
     
     // Convert LSCWP array-stored options to newline strings for internal use
-    if (internalKey === "drop_uri" || internalKey === "js_exclude" || internalKey === "css_exclude" || internalKey === "media_lazy_exclude") {
+    if (internalKey === "drop_uri" || internalKey === "js_exclude" || internalKey === "css_exclude" || internalKey === "media_lazy_exc") {
       if (val && typeof val === "object") {
         val = Object.values(val).join("\n");
       }
@@ -334,14 +386,24 @@ function translateKeysToLscwp(obj) {
   const newObj = {};
   Object.keys(obj).forEach(key => {
     // Filter out tool-specific custom option keys so LSCWP settings are kept clean
-    if (key.startsWith("woo_") || key.startsWith("elem_") || key.startsWith("wf_") || key.startsWith("cc_")) {
+    if (key.startsWith("woo_") || key.startsWith("elem_") || key.startsWith("wf_") || key.startsWith("cc_") || key.startsWith("wp_")) {
       return;
     }
+    
+    // Safety check: Never output domain_key as integer 1 or 0
+    if (key === "domain_key" || key === "hash") {
+      if (typeof obj[key] === "string" && obj[key].length > 5 && obj[key] !== "1" && obj[key] !== "0") {
+        newObj["hash"] = obj[key];
+        newObj["domain_key"] = obj[key];
+      }
+      return;
+    }
+
     const lscwpKey = KEY_MAPPING_TO_LSCWP[key] || key;
     let val = obj[key];
     
     // Convert internal newline strings back to indexed objects (representing PHP arrays)
-    if (key === "drop_uri" || key === "js_exclude" || key === "css_exclude" || key === "media_lazy_exclude") {
+    if (key === "drop_uri" || key === "js_exclude" || key === "css_exclude" || key === "media_lazy_exc" || key === "media_lazy_exclude") {
       if (typeof val === "string") {
         const lines = val.split("\n").map(x => x.trim()).filter(Boolean);
         const arrayObj = {};
@@ -363,10 +425,10 @@ function translateKeysToLscwp(obj) {
 function generateAutoOptimizerSnippet(editedSettings) {
   let phpCode = `<?php
 /**
- * Plugin Name: WordPress Performance & Compatibility Auto-Optimizer
- * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee WP-Optimizer analysis.
- * Version: 2.1.0
- * Author: AreWee WP-Optimizer
+ * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
+ * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
+ * Version: 2.3.2
+ * Author: AreWee-Optimizer
  * License: GPL2
  */
 
@@ -375,9 +437,12 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * 1. AUTOMATED SETTINGS CONFIGURATION (Runs on init)
+ * 1. AUTOMATED SETTINGS CONFIGURATION (Runs safely in admin_init to avoid frontend DB writes)
  */
-add_action('init', function() {
+add_action('admin_init', function() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
 `;
 
   if (editedSettings.elem_css_print_method === 'external') {
@@ -387,20 +452,23 @@ add_action('init', function() {
   phpCode += `    // Configure Elementor active experiments/features
     if (class_exists('\\\\Elementor\\\\Plugin')) {
         $elem_experiments = get_option('elementor_active_experiments', array());
+        $elem_changed = false;
 `;
   if (editedSettings.elem_dom_optimization === 1) {
-    phpCode += `        $elem_experiments['e_dom_optimization'] = 'active';\n`;
+    phpCode += `        if (!isset($elem_experiments['e_dom_optimization']) || $elem_experiments['e_dom_optimization'] !== 'active') { $elem_experiments['e_dom_optimization'] = 'active'; $elem_changed = true; }\n`;
   }
   if (editedSettings.elem_asset_loading === 1) {
-    phpCode += `        $elem_experiments['e_optimized_assets_loading'] = 'active';\n`;
+    phpCode += `        if (!isset($elem_experiments['e_optimized_assets_loading']) || $elem_experiments['e_optimized_assets_loading'] !== 'active') { $elem_experiments['e_optimized_assets_loading'] = 'active'; $elem_changed = true; }\n`;
   }
   if (editedSettings.elem_css_loading === 1) {
-    phpCode += `        $elem_experiments['e_optimized_css_loading'] = 'active';\n`;
+    phpCode += `        if (!isset($elem_experiments['e_optimized_css_loading']) || $elem_experiments['e_optimized_css_loading'] !== 'active') { $elem_experiments['e_optimized_css_loading'] = 'active'; $elem_changed = true; }\n`;
   }
   if (editedSettings.elem_lazy_load === 0) {
-    phpCode += `        $elem_experiments['e_lazy_load_images'] = 'inactive';\n`;
+    phpCode += `        if (!isset($elem_experiments['e_lazy_load_images']) || $elem_experiments['e_lazy_load_images'] !== 'inactive') { $elem_experiments['e_lazy_load_images'] = 'inactive'; $elem_changed = true; }\n`;
   }
-  phpCode += `        update_option('elementor_active_experiments', $elem_experiments);
+  phpCode += `        if ($elem_changed) {
+            update_option('elementor_active_experiments', $elem_experiments);
+        }
     }
 
 `;
@@ -416,13 +484,13 @@ add_action('init', function() {
     if (class_exists('wfConfig')) {
 `;
   if (editedSettings.wf_live_traffic === 0) {
-    phpCode += `        wfConfig::set('liveTrafficEnabled', false);\n`;
+    phpCode += `        if (wfConfig::get('liveTrafficEnabled', true)) { wfConfig::set('liveTrafficEnabled', false); }\n`;
   }
   if (editedSettings.wf_ip_header) {
-    phpCode += `        wfConfig::set('howGetIPs', '${editedSettings.wf_ip_header}');\n`;
+    phpCode += `        if (wfConfig::get('howGetIPs') !== '${editedSettings.wf_ip_header}') { wfConfig::set('howGetIPs', '${editedSettings.wf_ip_header}'); }\n`;
   }
   if (editedSettings.wf_low_resource === 1) {
-    phpCode += `        wfConfig::set('lowResourceScanSelection', true);\n`;
+    phpCode += `        if (!wfConfig::get('lowResourceScanSelection')) { wfConfig::set('lowResourceScanSelection', true); }\n`;
   }
   phpCode += `    }\n});\n\n`;
 
@@ -591,15 +659,15 @@ function generateCodeSnippetsJson(editedSettings) {
 }
 
 /**
- * Generates the complete PHP code for the wp-optimizer-sync.php companion WordPress plugin.
+ * Generates the complete PHP code for the arewee-optimizer-sync.php companion WordPress plugin.
  */
 function generateSyncPluginPhp() {
   return `<?php
 /**
- * Plugin Name: AreWee WP-Optimizer REST API Sync Helper
- * Description: Enables secure, token-authenticated, whitelisted REST API connection between your site and the WordPress Multi-Tool Optimizer dashboard.
- * Version: 2.1.0
- * Author: AreWee WP-Optimizer
+ * Plugin Name: AreWee-Optimizer REST API Sync Helper
+ * Description: Enables secure, token-authenticated, read-only REST API connection between your WordPress site and AreWee-Optimizer.
+ * Version: 2.3.2
+ * Author: AreWee-Optimizer
  * License: GPL2
  */
 
@@ -610,230 +678,436 @@ if (!defined('ABSPATH')) {
 // Generate connection token on activation
 register_activation_hook(__FILE__, function() {
     if (!get_option('wp_optimizer_sync_token')) {
-        $token = bin2hex(random_bytes(16)); // Cryptographically secure token
+        $token = bin2hex(random_bytes(24)); // Cryptographically secure 48-char token
         update_option('wp_optimizer_sync_token', $token);
     }
 });
 
-// Admin notice showing token in WordPress
-add_action('admin_notices', function() {
-    $token = get_option('wp_optimizer_sync_token');
-    if ($token) {
-        echo '<div class="notice notice-info is-dismissible">
-            <p><strong>⚡ AreWee WP-Optimizer Sync Aktivt!</strong> Din anslutnings-token är: <code>' . esc_html($token) . '</code> - Kopiera denna och ange i din Optimizer Dashboard för att koppla upp din sajt live.</p>
-        </div>';
-    }
+// Register Dedicated Settings Submenu (No permanent public admin notice)
+add_action('admin_menu', function() {
+    add_options_page(
+        'AreWee-Optimizer Sync',
+        'AreWee Sync',
+        'manage_options',
+        'arewee-optimizer-sync',
+        'wp_optimizer_sync_render_settings_page'
+    );
 });
 
-// Register REST API routes
+function wp_optimizer_sync_render_settings_page() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    // Regenerate Token handler
+    if (isset($_POST['wp_optimizer_regen_token']) && check_admin_referer('wp_optimizer_sync_action', 'wp_optimizer_sync_nonce')) {
+        $new_token = bin2hex(random_bytes(24));
+        update_option('wp_optimizer_sync_token', $new_token);
+        echo '<div class="notice notice-success is-dismissible"><p>✓ Ny anslutnings-token genererades framgångsrikt!</p></div>';
+    }
+    
+    $token = get_option('wp_optimizer_sync_token');
+    $site_url = site_url();
+    ?>
+    <div class="wrap">
+        <h1>⚡ AreWee-Optimizer Sync Inställningar (v2.3.2)</h1>
+        <div class="card" style="max-width: 700px; margin-top: 1.5rem; padding: 1.5rem;">
+            <h2>Säker Anslutningstoken</h2>
+            <p>Använd denna token i AreWee-Optimizer för att koppla upp din sajt säkert via krypterad REST API.</p>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">REST API Endpoint</th>
+                    <td><code><?php echo esc_url($site_url); ?>/wp-json/wp-optimizer-sync/v1/diagnostics</code></td>
+                </tr>
+                <tr>
+                    <th scope="row">Din Token</th>
+                    <td>
+                        <input type="text" readonly value="<?php echo esc_attr($token); ?>" class="regular-text code" style="font-family: monospace; font-size: 14px; width: 420px;" onclick="this.select();">
+                        <p class="description">Kopiera denna token och klistra in i AreWee-Optimizer.</p>
+                    </td>
+                </tr>
+            </table>
+            
+            <form method="post" style="margin-top: 1.5rem;">
+                <?php wp_nonce_field('wp_optimizer_sync_action', 'wp_optimizer_sync_nonce'); ?>
+                <button type="submit" name="wp_optimizer_regen_token" class="button button-secondary" onclick="return confirm('Är du säker på att du vill generera en ny token? Den gamla tokenen slutar fungera direkt.');">🔄 Generera ny token</button>
+            </form>
+        </div>
+    </div>
+    <?php
+}
+
+// Register Read-Only REST API Route
 add_action('rest_api_init', function() {
-    // 1. Fetch Diagnostics Route
     register_rest_route('wp-optimizer-sync/v1', '/diagnostics', array(
         'methods' => 'GET',
         'callback' => 'wp_optimizer_sync_get_diagnostics',
-        'permission_callback' => 'wp_optimizer_sync_check_auth'
-    ));
-    
-    // 2. Apply Settings Route
-    register_rest_route('wp-optimizer-sync/v1', '/apply-settings', array(
-        'methods' => 'POST',
-        'callback' => 'wp_optimizer_sync_apply_settings',
-        'permission_callback' => 'wp_optimizer_sync_check_auth'
+        'permission_callback' => 'wp_optimizer_sync_verify_token'
     ));
 });
 
-// Authentication callback
-function wp_optimizer_sync_check_auth($request) {
-    $header_token = $request->get_header('X-WP-Optimizer-Token');
+function wp_optimizer_sync_verify_token($request) {
+    // Basic Rate Limiting: Max 60 requests per minute per IP
+    $ip = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
+    $transient_key = 'wp_sync_rate_' . md5($ip);
+    $requests = (int) get_transient($transient_key);
+    if ($requests > 60) {
+        return new WP_Error('rate_limited', 'För många förfrågningar. Försök igen senare.', array('status' => 429));
+    }
+    set_transient($transient_key, $requests + 1, 60);
+
+    $header_token = $request->get_header('X-Optimizer-Token');
+    $query_token = $request->get_param('token');
+    $token = $header_token ?: $query_token;
+    
     $saved_token = get_option('wp_optimizer_sync_token');
-    return ($saved_token && hash_equals($saved_token, $header_token));
+    if (!$saved_token || !$token || !hash_equals($saved_token, $token)) {
+        return new WP_Error('unauthorized', 'Ogiltig eller saknad anslutningstoken', array('status' => 403));
+    }
+    return true;
 }
 
-// GET Diagnostics Callback
 function wp_optimizer_sync_get_diagnostics() {
-    // Collect WP Core data
-    $wp_version = get_bloginfo('version');
+    if (!function_exists('get_plugins')) {
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    }
     
-    // Get Active Plugins
+    // 1. Gather System Health Info (100% Read-Only)
     $active_plugins = get_option('active_plugins', array());
-    $plugins_data = array();
-    foreach ($active_plugins as $plugin) {
-        $data = get_plugin_data(WP_PLUGIN_DIR . '/' . $plugin);
-        $plugins_data[$plugin] = array(
-            'version' => $data['Version'],
-            'name' => $data['Name']
+    $all_plugins = get_plugins();
+    $plugins_active_data = array();
+    foreach ($active_plugins as $plugin_path) {
+        if (isset($all_plugins[$plugin_path])) {
+            $slug = dirname($plugin_path) !== '.' ? dirname($plugin_path) : basename($plugin_path, '.php');
+            $plugins_active_data[$slug] = array(
+                'name' => $all_plugins[$plugin_path]['Name'],
+                'version' => $all_plugins[$plugin_path]['Version'],
+                'author' => $all_plugins[$plugin_path]['Author']
+            );
+        }
+    }
+    
+    $sysinfo = array(
+        'wp-core' => array(
+            'version' => get_bloginfo('version'),
+            'site_url' => site_url(),
+            'home_url' => home_url(),
+            'language' => get_locale(),
+            'permalink_structure' => get_option('permalink_structure')
+        ),
+        'wp-server' => array(
+            'httpd_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+            'php_version' => phpversion(),
+            'php_memory_limit' => ini_get('memory_limit'),
+            'php_max_execution_time' => ini_get('max_execution_time')
+        ),
+        'wp-active-theme' => array(
+            'name' => wp_get_theme()->get('Name'),
+            'version' => wp_get_theme()->get('Version')
+        ),
+        'wp-plugins-active' => $plugins_active_data
+    );
+    
+    // 2. Gather WooCommerce Info (Read-Only)
+    $woo_data = null;
+    if (class_exists('WooCommerce')) {
+        $woo_data = array(
+            'version' => WC()->version,
+            'hpos_enabled' => class_exists('\\Automattic\\WooCommerce\\Utilities\\OrderUtil') && \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled(),
+            'cart_page_id' => wc_get_page_id('cart'),
+            'checkout_page_id' => wc_get_page_id('checkout'),
+            'gateways' => array()
+        );
+        $available_gateways = WC()->payment_gateways ? WC()->payment_gateways->get_available_payment_gateways() : array();
+        foreach ($available_gateways as $id => $gw) {
+            $woo_data['gateways'][] = array('id' => $id, 'title' => $gw->get_title());
+        }
+    }
+    
+    // 3. Gather Wordfence Info (Read-Only)
+    $wf_data = null;
+    if (class_exists('wfConfig')) {
+        $wf_data = array(
+            'firewall_mode' => wfConfig::get('firewallMode', 'disabled'),
+            'live_traffic_disabled' => !wfConfig::get('liveTrafficEnabled', true),
+            'low_resource_scan' => (bool) wfConfig::get('lowResourceScanEnable', false)
         );
     }
     
-    // Active Theme
-    $theme = wp_get_theme();
-    $theme_data = array(
-        'name' => $theme->get('Name'),
-        'version' => $theme->get('Version')
-    );
-    
-    // Server Software
-    $server_software = isset($_SERVER['SERVER_SOFTWARE']) ? $_SERVER['SERVER_SOFTWARE'] : 'Unknown';
-    $php_version = phpversion();
-    
-    // Dropins
-    $object_cache_active = file_exists(WP_CONTENT_DIR . '/object-cache.php');
-    
-    // Compile System Info payload format (mocking standard WordPress health check dump)
-    $sysinfo = array(
-        'wp-core' => array('version' => $wp_version),
-        'wp-server' => array(
-            'httpd_software' => $server_software,
-            'php_version' => $php_version,
-            'php_sapi' => php_sapi_name(),
-            'imagick_availability' => class_exists('Imagick') ? 'true' : 'false'
-        ),
-        'wp-active-theme' => array('name' => $theme_data['name']),
-        'wp-dropins' => array('object-cache.php' => $object_cache_active ? 'true' : 'false'),
-        'wp-plugins-active' => $plugins_data
-    );
-    
-    // WooCommerce Status Info
-    $woo_data = array('gateways' => array(), 'overrides' => array(), 'hpos_enabled' => false);
-    if (class_exists('WooCommerce')) {
-        // HPOS check
-        if (class_exists('\\\\Automattic\\\\WooCommerce\\\\Internal\\\\DataStores\\\\Orders\\\\CustomOrdersTableController')) {
-            $hpos_enabled = \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled();
-            $woo_data['hpos_enabled'] = $hpos_enabled;
-        }
-        
-        // Gateways
-        $gateways = WC()->payment_gateways->payment_gateways();
-        foreach ($gateways as $gateway) {
-            if ($gateway->enabled === 'yes') {
-                $woo_data['gateways'][] = $gateway->title;
+    // 4. Gather Elementor Info (Read-Only)
+    $elem_data = null;
+    if (defined('ELEMENTOR_VERSION')) {
+        $elem_data = array(
+            'version' => ELEMENTOR_VERSION,
+            'experiments' => array(),
+            'hasLazyLoad' => false,
+            'css_print_method' => get_option('elementor_css_print_method', 'external')
+        );
+        $features_manager = \\Elementor\\Plugin::$instance->experiments ?? null;
+        if ($features_manager && method_exists($features_manager, 'get_features')) {
+            foreach ($features_manager->get_features() as $feature_name => $feature_data) {
+                if ($features_manager->is_feature_active($feature_name)) {
+                    $elem_data['experiments'][] = $feature_name;
+                }
             }
         }
-        
-        // Template overrides (mock check)
-        if (is_dir(get_stylesheet_directory() . '/woocommerce')) {
-            $woo_data['overrides'][] = 'Active theme woocommerce directory override detected';
-        }
-    }
-    
-    // Wordfence
-    $wf_data = array('firewall_mode' => 'Unknown', 'ip_header' => 'Unknown', 'live_traffic_disabled' => false, 'low_resource_scan' => false, 'crawler_whitelisted' => false);
-    if (class_exists('wfConfig')) {
-        $wf_data['firewall_mode'] = wfConfig::get('firewallMode', 'Unknown');
-        $wf_data['ip_header'] = wfConfig::get('howGetIPs', 'Unknown');
-        $wf_data['live_traffic_disabled'] = !wfConfig::get('liveTrafficEnabled', true);
-        $wf_data['low_resource_scan'] = wfConfig::get('lowResourceScanSelection', false);
-    }
-    
-    // Elementor
-    $elem_data = array('experiments' => array(), 'hasLazyLoad' => false, 'css_print_method' => 'external');
-    if (class_exists('\\\\Elementor\\\\Plugin')) {
-        $elem_data['css_print_method'] = get_option('elementor_css_print_method', 'external');
-        $experiments = get_option('elementor_active_experiments', array());
-        foreach ($experiments as $exp => $status) {
-            if ($status === 'active') {
-                $elem_data['experiments'][] = $exp;
-            }
-        }
-        if (in_array('e_lazy_load_images', $elem_data['experiments']) || get_option('elementor_lazy_load_images') === 'yes') {
+        if (in_array('e_lazy_load_images', $elem_data['experiments'])) {
             $elem_data['hasLazyLoad'] = true;
         }
     }
     
-    // Custom Code checks
-    $custom_code = array(
-        'hasXmlRpcDisabled' => !wp_is_xmlrpc_enabled() || !apply_filters('xmlrpc_enabled', true),
-        'hasEmojisDisabled' => !has_action('wp_head', 'print_emoji_detection_script')
-    );
-    
-    // LiteSpeed Config (LSCWP settings array)
     $lscwp_conf = get_option('litespeed-cache-conf', array());
     
     return array(
-        'syncPluginVersion' => '2.1.0',
+        'syncPluginVersion' => '2.3.2',
         'sysInfo' => $sysinfo,
         'wooInfo' => $woo_data,
         'wfInfo' => $wf_data,
         'elemInfo' => $elem_data,
-        'customCode' => $custom_code,
         'uploadedSettings' => $lscwp_conf
     );
 }
-
-// POST Apply Settings Callback
-function wp_optimizer_sync_apply_settings($request) {
-    $params = $request->get_json_params();
-    if (empty($params)) {
-        return new WP_REST_Response(array('success' => false, 'message' => 'Inga inställningar mottogs'), 400);
-    }
-    
-    $applied = array();
-    
-    // Apply options directly (Strict Option Whitelist)
-    foreach ($params as $key => $value) {
-        // 1. LiteSpeed Cache Config Option (litespeed-cache-conf)
-        if ($key === 'litespeed-cache-conf' || $key === 'litespeed_cache_conf') {
-            if (is_array($value)) {
-                $sanitized_lscwp = array();
-                foreach ($value as $k => $v) {
-                    $sanitized_lscwp[sanitize_key($k)] = is_array($v) ? array_map('sanitize_text_field', $v) : sanitize_text_field($v);
-                }
-                update_option('litespeed-cache-conf', $sanitized_lscwp);
-                $applied[] = 'litespeed-cache-conf';
-            }
-        }
-        
-        // 2. Elementor Options
-        if ($key === 'elementor_css_print_method') {
-            $val = sanitize_text_field($value);
-            if (in_array($val, array('external', 'internal'))) {
-                update_option('elementor_css_print_method', $val);
-                $applied[] = 'elementor_css_print_method';
-            }
-        }
-        if ($key === 'elementor_active_experiments') {
-            if (is_array($value)) {
-                $sanitized_experiments = array();
-                foreach ($value as $exp => $status) {
-                    $sanitized_experiments[sanitize_key($exp)] = sanitize_text_field($status);
-                }
-                update_option('elementor_active_experiments', $sanitized_experiments);
-                $applied[] = 'elementor_active_experiments';
-            }
-        }
-        
-        // 3. WooCommerce HPOS Options
-        if ($key === 'woocommerce_custom_orders_table_enabled') {
-            $val = sanitize_text_field($value);
-            if (in_array($val, array('yes', 'no'))) {
-                update_option('woocommerce_custom_orders_table_enabled', $val);
-                $applied[] = 'woocommerce_custom_orders_table_enabled';
-            }
-        }
-        
-        // 4. Wordfence Config Updates via wfConfig class
-        if (class_exists('wfConfig')) {
-            if ($key === 'wf_live_traffic') {
-                wfConfig::set('liveTrafficEnabled', (bool)$value);
-                $applied[] = 'wordfence_liveTrafficEnabled';
-            }
-            if ($key === 'wf_ip_header') {
-                wfConfig::set('howGetIPs', sanitize_text_field($value));
-                $applied[] = 'wordfence_howGetIPs';
-            }
-            if ($key === 'wf_low_resource') {
-                wfConfig::set('lowResourceScanSelection', (bool)$value);
-                $applied[] = 'wordfence_lowResourceScanSelection';
-            }
-        }
-    }
-    
-    return array(
-        'success' => true,
-        'applied_settings' => $applied
-    );
-}
 `;
+}
+
+/**
+ * Generates structured Markdown prompt for AI review (Grok, Claude, ChatGPT) for a single site.
+ * Organized 1:1 by component tool, ensuring 100% Single Source of Truth consistency.
+ */
+function generateSecondOpinionMarkdown(state) {
+  if (!state || !state.sysInfo) {
+    return "# AreWee WP-Optimizer: Ingen aktiv sajt inläst för analys.";
+  }
+
+  const sys = state.sysInfo;
+  const analysis = state.analysisResults || {};
+  const env = analysis.environment || {};
+  
+  // Extract site URL reliably
+  const siteUrl = state.detectedSiteUrl || 
+    (sys["wp-core"] && (sys["wp-core"].site_url || sys["wp-core"].home_url || sys["wp-core"].url)) || 
+    (sys["wp-paths-sizes"] && sys["wp-paths-sizes"].url) || 
+    "https://example.com (URL ej detekterad i systemfil)";
+
+  const wpVer = (sys["wp-core"] && sys["wp-core"].version) || env.wpVersion || "Okänd";
+  const server = (sys["wp-server"] && sys["wp-server"].httpd_software) || env.server || "Okänd";
+  const phpVer = (sys["wp-server"] && sys["wp-server"].php_version) || env.phpVersion || "Okänd";
+  const phpMem = (sys["wp-server"] && sys["wp-server"].php_memory_limit) || env.phpMemoryLimit || "Ej angivet i serverdump";
+  const wpMem = (sys["wp-constants"] && sys["wp-constants"].WP_MEMORY_LIMIT) || env.wpMemoryLimit || "40M (WP standard)";
+  const wpMaxMem = (sys["wp-constants"] && sys["wp-constants"].WP_MAX_MEMORY_LIMIT) || env.wpMaxMemoryLimit || "256M (WP standard)";
+  const disableCron = (sys["wp-constants"] && sys["wp-constants"].DISABLE_WP_CRON) === "true" || env.disableWpCron;
+  const theme = (sys["wp-active-theme"] && sys["wp-active-theme"].name) || env.activeTheme || "Okänt tema";
+  
+  const pluginsObj = sys["wp-plugins-active"] || {};
+  const plugins = Object.keys(pluginsObj);
+
+  const rawAlerts = [
+    ...(analysis.alerts || []),
+    ...(analysis.customCodeAlerts || []),
+    ...(analysis.customCssAlerts || [])
+  ];
+
+  // Helper to normalize measured user value from uploaded settings
+  function getMeasuredVal(key, fallback) {
+    if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(key)) {
+      return state.uploadedSettings[key];
+    }
+    return fallback;
+  }
+
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.3.9)\n\n`;
+  md += `**Sajt:** \`${siteUrl}\`\n`;
+  md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
+  md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM och CTM.\n\n`;
+
+  // --- 1. SYSTEMMILJÖ & CORE ---
+  md += `## 1. 🌐 Systemmiljö & WordPress Core\n`;
+  md += `- **Webbplats URL:** \`${siteUrl}\`\n`;
+  md += `- **WordPress Core:** ${wpVer}\n`;
+  md += `- **Webbserver:** ${server} (${env.isLiteSpeedServer ? "LiteSpeed Enterprise / OpenLiteSpeed aktiv" : "Ej LiteSpeed-server"})\n`;
+  md += `- **PHP Version:** ${phpVer}\n`;
+  md += `- **Minnesallokering (Trefaldig separation):**\n`;
+  md += `  - **PHP Server \`memory_limit\`:** \`${phpMem}\`\n`;
+  md += `  - **Frontend \`WP_MEMORY_LIMIT\`:** \`${wpMem}\`\n`;
+  md += `  - **Admin / Cron \`WP_MAX_MEMORY_LIMIT\`:** \`${wpMaxMem}\`\n`;
+  md += `- **Aktivt Tema:** ${theme}\n`;
+  md += `- **System-Cron (\`DISABLE_WP_CRON\`):** ${disableCron ? "PÅ (Kräver aktivt server-cronjobb via crontab/systemd)" : "AV (Körs via besöksanrop / WP default)"}\n`;
+  md += `- **Aktiva Plugins (${plugins.length} st):** ${plugins.map(p => `\`${p}\``).join(", ") || "Inga listade"}\n\n`;
+
+  // Helper to format alerts for a component
+  function renderComponentAlerts(compKey) {
+    const compAlerts = rawAlerts.filter(a => {
+      if (a.components && Array.isArray(a.components)) return a.components.includes(compKey);
+      return a.component === compKey;
+    });
+
+    if (compAlerts.length === 0) {
+      return `*Inga aktiva stabilitetsrisker eller varningar identifierade för denna modul (Status: 🟢 OK).* \n\n`;
+    }
+
+    let out = `**Identifierade risker & avvikelser (${compAlerts.length} st):**\n\n`;
+    compAlerts.forEach((a, i) => {
+      out += `#### ${i + 1}. [${a.type.toUpperCase()}] ${a.title}\n`;
+      out += `- **Beskrivning:** ${a.desc}\n`;
+      if (a.source) out += `- **Källa:** ${a.source}\n`;
+      if (a.compatibility) out += `- **Kompatibilitet:** ${a.compatibility}\n`;
+      if (a.wpPath) out += `- **Sökväg i WordPress:** \`${a.wpPath}\`\n`;
+      if (a.singleSourceInfo) {
+        out += `- **Single Source of Truth:** ${a.singleSourceInfo.recommendedTool || a.singleSourceInfo.primaryTool}\n`;
+        out += `  - *Motivering:* ${a.singleSourceInfo.whyRecommended || a.singleSourceInfo.reason}\n`;
+        out += `  - *Åtgärd i andra verktyg:* ${a.singleSourceInfo.actionOtherTools || a.singleSourceInfo.actionForSecondary}\n`;
+      }
+      out += `\n`;
+    });
+    return out;
+  }
+
+  // Helper to format settings table for specific tab IDs using Single Source of Truth
+  function renderSettingsSection(tabIds) {
+    if (!analysis.recommendations) return "";
+    const matchedTabs = analysis.recommendations.filter(t => tabIds.includes(t.id));
+    if (matchedTabs.length === 0) return "";
+
+    const comparisonFn = (typeof getOptionComparison === "function") 
+      ? getOptionComparison 
+      : (typeof window !== "undefined" && window.getOptionComparison) 
+        ? window.getOptionComparison 
+        : null;
+
+    let out = "";
+    matchedTabs.forEach(tab => {
+      out += `#### Inställningsparitet: ${tab.title}\n\n`;
+      out += `| Inställning | Faktiskt Nuläge | Rekommenderat | Status | Riktlinje & Påverkan |\n`;
+      out += `| :--- | :--- | :--- | :--- | :--- |\n`;
+
+      tab.options.forEach(opt => {
+        if (opt.id === "optm_css_custom") return;
+
+        let comp = null;
+        if (comparisonFn) {
+          comp = comparisonFn(opt, state.uploadedSettings, env);
+        } else {
+          const hasMeas = state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id);
+          comp = {
+            currentDisplay: hasMeas ? String(state.uploadedSettings[opt.id]) : "Ej inläst (Kräver Slot 6)",
+            recommendedDisplay: String(opt.recommendedRaw),
+            statusLabel: hasMeas ? "🟢 Optimal" : "⚪ Ej uppmätt"
+          };
+        }
+
+        const descClean = (opt.desc || "").replace(/\|/g, "/");
+        out += `| \`${opt.id}\` (${opt.title}) | ${comp.currentDisplay} | ${comp.recommendedDisplay} | ${comp.statusLabel} | ${descClean} |\n`;
+      });
+      out += `\n`;
+    });
+    return out;
+  }
+
+  // --- 2. LITESPEED CACHE ---
+  md += `## 2. ⚡ LiteSpeed Cache (LSCWP)\n`;
+  md += `- **Installerad pluginversion:** ${env.lscwpVersion || "Okänd"}\n`;
+  md += `- **Granskad mot benchmark:** LiteSpeed Cache v7.9.1 Official Best Practice\n\n`;
+  md += renderComponentAlerts("litespeed");
+  md += renderSettingsSection(["general", "cache", "purge", "page_optimization_css", "page_optimization_js", "page_optimization_media", "crawler", "tuning"]);
+  
+  // Full un-truncated exclusion blocks
+  const curDropUri = getMeasuredVal("drop_uri", "(Inga aktiva drop_uri-regler inlästa)");
+  const curJsExc = getMeasuredVal("js_exclude", "(Inga aktiva js_exclude-regler inlästa)");
+  const curCssExc = getMeasuredVal("css_exclude", "(Inga aktiva css_exclude-regler inlästa)");
+  const curMediaExc = getMeasuredVal("media_lazy_exc", "(Inga aktiva media_lazy_exc-regler inlästa)");
+
+  md += `#### 📋 Oavkortade Aktiva Exkluderingsregler i LiteSpeed\n\n`;
+  md += `**Exkluderade URL-sökvägar (\`drop_uri\`):**\n\`\`\`text\n${curDropUri}\n\`\`\`\n\n`;
+  md += `**Exkluderade JavaScript-filer (\`js_exclude\`):**\n\`\`\`text\n${curJsExc}\n\`\`\`\n\n`;
+  md += `**Exkluderade CSS-filer (\`css_exclude\`):**\n\`\`\`text\n${curCssExc}\n\`\`\`\n\n`;
+  md += `**Exkluderade Lazy Load-bilder (\`media_lazy_exc\`):**\n\`\`\`text\n${curMediaExc}\n\`\`\`\n\n`;
+
+  // --- 3. WOOCOMMERCE ---
+  md += `## 3. 🛒 WooCommerce\n`;
+  md += `- **Installerad version:** ${env.hasWooCommerce ? env.wooVersion : "Ej installerad"}\n`;
+  md += `- **Kassaskydd & Sessionsintegritet:** ${env.hasWooCommerce ? (String(curDropUri).toLowerCase().includes("checkout") || String(curDropUri).toLowerCase().includes("kassa") ? "🟢 Skyddad i drop_uri" : "🚨 Risk för sessionsläckor") : "N/A"}\n\n`;
+  md += renderComponentAlerts("woocommerce");
+  md += renderSettingsSection(["woocommerce"]);
+
+  // --- 4. ELEMENTOR ---
+  md += `## 4. 🎨 Elementor Sidbyggare\n`;
+  md += `- **Installerad version:** ${env.hasElementor ? env.elemVersion : "Ej installerad"}\n`;
+  md += `- **DOM & Lazyload-status:** ${env.hasElementor ? "Granskad mot Elementor Core experiments" : "N/A"}\n\n`;
+  md += renderComponentAlerts("elementor");
+  md += renderSettingsSection(["elementor"]);
+
+  // --- 5. WORDFENCE SECURITY ---
+  md += `## 5. 🔒 Wordfence Security\n`;
+  md += `- **Installerad version:** ${env.hasWordfence ? env.wfVersion : "Ej installerad"}\n`;
+  md += `- **IP-header bakom proxy/LiteSpeed:** \`${getMeasuredVal("wf_ip_header", "HTTP_X_FORWARDED_FOR")}\`\n\n`;
+  md += renderComponentAlerts("wordfence");
+  md += renderSettingsSection(["wordfence"]);
+
+  // --- 6. CTM (CONSENT & TRACKING MANAGER) ---
+  md += `## 6. 🏷️ CTM (Consent & Tracking Manager)\n`;
+  md += `- **Version:** v2.3.6\n`;
+  md += `- **Status i LiteSpeed JS-exkludering:** ${(String(curJsExc).toLowerCase().includes("ctm") || String(curJsExc).toLowerCase().includes("cookieconsent") || String(curJsExc).toLowerCase().includes("datalayer")) ? "🟢 Fullt exkluderad (GDPR-säkrad)" : "🚨 Saknas i js_exclude"}\n\n`;
+  md += renderComponentAlerts("ctm");
+
+  // --- 7. SCM (SITE CODE MANAGER) ---
+  md += `## 7. 💻 SCM (Site Code Manager / Server & Kod)\n`;
+  md += `- **Version:** v2.3.6\n`;
+  md += `- **Redis Object Cache:** ${env.hasRedis ? (env.isRedisConnected ? "🟢 Redis ansluten och aktiv" : "🟡 Redis installerad men ej ansluten") : "⚪ Ej aktiv (Rekommenderas för Woo/dynamiska sajter)"}\n`;
+  md += `- **Anpassad CSS:** ${state.customCss ? `\`\`\`css\n${state.customCss}\n\`\`\`` : "*Ingen anpassad CSS inläst.*"}\n\n`;
+  md += renderComponentAlerts("scm");
+  md += renderComponentAlerts("server");
+
+  // --- 8. SECOND OPINION AI QUESTIONS ---
+  md += `## 8. ❓ Riktade Frågor för Second Opinion (AI-granskning)\n`;
+  md += `1. **Kassa- & Betalningsstabilitet:** Granska \`drop_uri\`-kodblocket i §2 ovan — är alla nödvändiga vägar för varukorg, kassa, my-account och eventuella Klarna/Stripe/Kustom callbacks fullt säkrade mot cachning?\n`;
+  md += `2. **JS/CSS Optimering & Samtycke:** Granska \`js_exclude\`-kodblocket i §2 ovan — är CTM (\`ctm-init\`, \`cookieconsent\`, \`dataLayer\`) och Elementor-skript tillräckligt isolerade från Defer/Combine för att förhindra brutna widgets eller spårningsbortfall?\n`;
+  md += `3. **Minne & Resursdimensionering:** Är \`memory_limit\` (PHP Server) och \`WP_MEMORY_LIMIT\` (WordPress) optimalt dimensionerade för den aktiva stacken (${plugins.join(", ")})?\n`;
+  md += `4. **Ytterligare Stabilitets- och Prestandavinster:** Finns det specifika flaskhalsar eller förbättringar du noterar i konfigurationen utan att tumma på driftsäkerheten?\n`;
+
+  return md;
+}
+
+/**
+ * Generates batch Markdown report for all sites in history.
+ */
+function generateBatchSecondOpinionMarkdown(historyList) {
+  if (!historyList || !Array.isArray(historyList) || historyList.length === 0) {
+    return "# AreWee WP-Optimizer: Ingen sparad historik tillgänglig.";
+  }
+
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.3.6)\n\n`;
+  md += `**Antal analyserade sajter:** ${historyList.length}\n`;
+  md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
+
+  md += `| Sajt / Domän | WP | PHP | Server | WooCommerce | Elementor | Health Score |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  historyList.forEach(item => {
+    const siteName = item.siteName || "Okänd";
+    const wp = item.wpVersion || "-";
+    const php = item.phpVersion || "-";
+    const srv = item.server || "-";
+    const woo = item.hasWoo ? "Ja" : "Nej";
+    const elem = item.hasElem ? "Ja" : "Nej";
+    const score = item.healthScore ? `${item.healthScore}/100` : "-";
+    md += `| **${siteName}** | ${wp} | ${php} | ${srv} | ${woo} | ${elem} | ${score} |\n`;
+  });
+
+  md += `\n\n---\n\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.3.6*\n`;
+
+  return md;
+}
+
+// Global browser window attachment
+if (typeof window !== "undefined") {
+  window.generateSecondOpinionMarkdown = generateSecondOpinionMarkdown;
+  window.generateBatchSecondOpinionMarkdown = generateBatchSecondOpinionMarkdown;
+  window.KEY_MAPPING_TO_INTERNAL = KEY_MAPPING_TO_INTERNAL;
+  window.KEY_MAPPING_TO_LSCWP = KEY_MAPPING_TO_LSCWP;
+  window.parseSettingsFile = parseSettingsFile;
+  window.php_serialize = php_serialize;
+  window.php_deserialize = php_deserialize;
 }
 
 // Node.js export support
@@ -846,6 +1120,10 @@ if (typeof module !== "undefined" && module.exports) {
     translateKeysToLscwp,
     generateAutoOptimizerSnippet,
     generateCodeSnippetsJson,
-    generateSyncPluginPhp
+    generateSyncPluginPhp,
+    generateSecondOpinionMarkdown,
+    generateBatchSecondOpinionMarkdown,
+    KEY_MAPPING_TO_INTERNAL,
+    KEY_MAPPING_TO_LSCWP
   };
 }
