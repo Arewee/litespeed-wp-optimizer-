@@ -1,15 +1,18 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.6.8)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
- * PHP serialized format (.data), and JSON.
+ * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
 
 /**
  * Parses a serialized PHP array string and returns a JavaScript object.
- * @param {string} str Serialized PHP string
+ * @param {string} rawStr Serialized PHP string
  * @returns {Object} Deserialized key-value pairs
  */
-function php_deserialize(str) {
+function php_deserialize(rawStr) {
+  if (!rawStr || typeof rawStr !== "string") return null;
+
+  const str = rawStr.trim();
   let offset = 0;
 
   function getCharLengthForBytes(s, start, targetByteLen) {
@@ -38,15 +41,20 @@ function php_deserialize(str) {
     offset += 2; // skip type and colon (e.g., 's:')
 
     switch (type) {
-      case 'i': { // Integer: i:123;
+      case 'i': { // Integer: i:123; or i:-123;
         const end = str.indexOf(';', offset);
         const val = parseInt(str.substring(offset, end), 10);
         offset = end + 1;
         return val;
       }
-      case 'd': { // Double/Float: d:12.34;
+      case 'd': { // Double/Float: d:12.34; or d:INF; or d:NAN;
         const end = str.indexOf(';', offset);
-        const val = parseFloat(str.substring(offset, end));
+        const rawNumStr = str.substring(offset, end).trim();
+        let val;
+        if (rawNumStr === "INF") val = Infinity;
+        else if (rawNumStr === "-INF") val = -Infinity;
+        else if (rawNumStr === "NAN") val = NaN;
+        else val = parseFloat(rawNumStr);
         offset = end + 1;
         return val;
       }
@@ -99,17 +107,15 @@ function php_deserialize(str) {
   }
 
   try {
-    // Basic clean up of input string (remove leading/trailing spaces)
-    const cleaned = str.trim();
-    if (cleaned.startsWith("a:")) {
+    if (str.startsWith("a:")) {
       return parse();
     }
     // Check if it's actually JSON
-    if (cleaned.startsWith("{") || cleaned.startsWith("[")) {
-      return JSON.parse(cleaned);
+    if (str.startsWith("{") || str.startsWith("[")) {
+      return JSON.parse(str);
     }
-  } catch (e) {
-    console.error("Deserialization error:", e);
+  } catch (err) {
+    console.error("Fel vid deserialisering av PHP data:", err);
   }
   return null;
 }
@@ -167,7 +173,7 @@ function php_serialize(obj) {
 }
 
 /**
- * Analyzes and decodes any uploaded settings file (detecting JSON, base64 or raw serialized PHP).
+ * Analyzes and decodes any uploaded settings file (detecting JSON, JSON tuples, base64 or raw serialized PHP).
  * @param {string} rawContent Raw uploaded file string
  * @returns {Object} Parsed settings object (translated to internal keys)
  */
@@ -175,7 +181,7 @@ function parseSettingsFile(rawContent) {
   let content = rawContent.trim();
   
   // Try decoding base64 if it looks like it
-  if (!content.startsWith("a:") && !content.startsWith("{") && /^[A-Za-z0-9+/=\s]+$/.test(content)) {
+  if (!content.startsWith("a:") && !content.startsWith("{") && !content.startsWith("[") && /^[A-Za-z0-9+/=\s]+$/.test(content)) {
     try {
       content = atob(content.replace(/\s/g, ''));
     } catch (e) {
@@ -184,36 +190,111 @@ function parseSettingsFile(rawContent) {
     }
   }
 
-  // Parse PHP serialized
-  if (content.startsWith("a:")) {
-    const parsed = php_deserialize(content);
-    if (parsed) return translateKeysToInternal(parsed);
+  let parsed = null;
+
+  // 1. Parse PHP serialized
+  if (content.startsWith("a:") || content.includes("a:")) {
+    const aIndex = content.indexOf("a:");
+    const phpStr = aIndex >= 0 ? content.substring(aIndex) : content;
+    parsed = php_deserialize(phpStr);
   }
 
-  // Try JSON
-  try {
-    const parsed = JSON.parse(content);
-    return translateKeysToInternal(parsed);
-  } catch (e) {
-    // Not JSON
-  }
-
-  // Fallback pattern matching for very simple files (key=value or key:value lines)
-  const fallbackObj = {};
-  const lines = content.split(/\r?\n/);
-  lines.forEach(line => {
-    const parts = line.split(/[=:]/);
-    if (parts.length >= 2) {
-      const key = parts[0].trim().replace(/^['"]|['"]$/g, '');
-      const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
-      if (key && val) {
-        fallbackObj[key] = val;
+  // 2. Try JSON object
+  if (!parsed) {
+    try {
+      parsed = JSON.parse(content);
+      // If parsed as single 2D array of tuples [[k, v], [k, v]]
+      if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
+        const tupleMap = {};
+        parsed.forEach(tuple => {
+          if (Array.isArray(tuple) && tuple.length >= 2) {
+            let k = tuple[0];
+            let v = tuple[1];
+            if (Array.isArray(v)) {
+              v = v.map(item => (typeof item === "string" ? item.replace(/\\\//g, "/") : item)).join("\n");
+            } else if (typeof v === "boolean") {
+              v = v ? "1" : "0";
+            }
+            tupleMap[k] = v;
+          }
+        });
+        parsed = tupleMap;
       }
+    } catch (e) {
+      // Not single JSON object
     }
-  });
+  }
 
-  if (Object.keys(fallbackObj).length > 0) {
-    return translateKeysToInternal(fallbackObj);
+  // 3. Parse line-delimited JSON tuples (LiteSpeed Cache v6.x/v7.x export format: ["key", value])
+  if (!parsed && (content.includes('["') || content.includes("['"))) {
+    try {
+      const tupleObj = {};
+      const lines = content.split(/\r?\n/);
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          try {
+            const parsedTuple = JSON.parse(trimmed);
+            if (Array.isArray(parsedTuple) && parsedTuple.length >= 2) {
+              const k = parsedTuple[0];
+              let v = parsedTuple[1];
+              if (Array.isArray(v)) {
+                v = v.map(item => (typeof item === "string" ? item.replace(/\\\//g, "/") : item)).join("\n");
+              } else if (typeof v === "boolean") {
+                v = v ? "1" : "0";
+              }
+              tupleObj[k] = v;
+            }
+          } catch (lineErr) {
+            // ignore non-JSON line
+          }
+        }
+      });
+      if (Object.keys(tupleObj).length > 0) {
+        parsed = tupleObj;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 4. Fallback pattern matching for very simple files (key=value or key:value lines)
+  if (!parsed) {
+    const fallbackObj = {};
+    const lines = content.split(/\r?\n/);
+    lines.forEach(line => {
+      const parts = line.split(/[=:]/);
+      if (parts.length >= 2) {
+        const key = parts[0].trim().replace(/^['"]|['"]$/g, '');
+        const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+        if (key && val) {
+          fallbackObj[key] = val;
+        }
+      }
+    });
+    if (Object.keys(fallbackObj).length > 0) {
+      parsed = fallbackObj;
+    }
+  }
+
+  if (parsed && typeof parsed === "object") {
+    // UNWRAP LiteSpeed exported structure:
+    // LiteSpeed export format is: ['options' => [...], 'version' => '...', 'site_url' => '...']
+    let flatObj = { ...parsed };
+    if (parsed.options && typeof parsed.options === "object") {
+      flatObj = { ...flatObj, ...parsed.options };
+    }
+    if (parsed.data && typeof parsed.data === "object") {
+      flatObj = { ...flatObj, ...parsed.data };
+    }
+    if (parsed.settings && typeof parsed.settings === "object") {
+      flatObj = { ...flatObj, ...parsed.settings };
+    }
+    if (parsed.conf && typeof parsed.conf === "object") {
+      flatObj = { ...flatObj, ...parsed.conf };
+    }
+    return translateKeysToInternal(flatObj);
   }
 
   throw new Error("Kunde inte tolka inställningsfilen. Kontrollera filformatet.");
@@ -249,17 +330,39 @@ const KEY_MAPPING_TO_INTERNAL = {
   "cache_uri_exc": "drop_uri",
   "cache-drop_uri": "drop_uri",
   "cache_drop_uri": "drop_uri",
+  "cache-exc_uri": "drop_uri",
+  "cache_exc_uri": "drop_uri",
+  "_lscache_exc": "drop_uri",
+  "lscache_exc": "drop_uri",
+  "lscache-exc": "drop_uri",
   "drop_uri": "drop_uri",
   "drop-uri": "drop_uri",
   "exc_uri": "drop_uri",
+  "exc-uri": "drop_uri",
   "esi": "esi",
   "esi_enabled": "esi",
   "object": "cache_object",
+  "object-cache": "cache_object",
+  "object_cache": "cache_object",
   "cache-object": "cache_object",
   "cache_object": "cache_object",
-  "object_cache": "cache_object",
+  "cache_object_status": "cache_object",
+  "cache-object_kind": "cache_object_kind",
+  "cache_object_kind": "cache_object_kind",
+  "object-kind": "cache_object_kind",
+  "cache-object_host": "cache_object_host",
+  "cache_object_host": "cache_object_host",
+  "object-host": "cache_object_host",
+  "cache-object_port": "cache_object_port",
+  "cache_object_port": "cache_object_port",
+  "object-port": "cache_object_port",
   "cache-browser": "cache_browser",
   "cache_browser": "cache_browser",
+  "browser": "cache_browser",
+  "browser-cache": "cache_browser",
+  "browser_cache": "cache_browser",
+  "cache-browser_ttl": "cache_browser_ttl",
+  "cache_browser_ttl": "cache_browser_ttl",
   "optm-css_min": "optm_css_min",
   "optm_css_min": "optm_css_min",
   "css_minify": "optm_css_min",
@@ -277,6 +380,8 @@ const KEY_MAPPING_TO_INTERNAL = {
   "css_preload": "css_preload",
   "optm-font_display": "optm_font_display",
   "optm_font_display": "optm_font_display",
+  "optm-css_font_display": "optm_font_display",
+  "optm_css_font_display": "optm_font_display",
   "font_display": "optm_font_display",
   "optm-js_min": "optm_js_min",
   "optm_js_min": "optm_js_min",
@@ -290,6 +395,13 @@ const KEY_MAPPING_TO_INTERNAL = {
   "optm-js_exc": "js_exclude",
   "optm_js_exc": "js_exclude",
   "js_exclude": "js_exclude",
+  "optm-js_delayed_exc": "js_delayed_exclude",
+  "optm_js_delayed_exc": "js_delayed_exclude",
+  "js_delayed_exc": "js_delayed_exclude",
+  "js_delayed_exclude": "js_delayed_exclude",
+  "optm-js_defer_exc": "optm_js_defer_exc",
+  "optm_js_defer_exc": "optm_js_defer_exc",
+  "optm-js_delay_inc": "optm_js_delay_inc",
   "media-lazy": "media_lazy",
   "media_lazy": "media_lazy",
   "media-lazy_native": "media_lazy_native",
@@ -298,13 +410,23 @@ const KEY_MAPPING_TO_INTERNAL = {
   "media_lazy_placeholder": "media_lazy_placeholder",
   "media-lazy_exc": "media_lazy_exc",
   "media_lazy_exc": "media_lazy_exc",
+  "media-lazy-exc": "media_lazy_exc",
   "media_lazy_exclude": "media_lazy_exc",
+  "media-lazy_img_exc": "media_lazy_exc",
+  "media_lazy_img_exc": "media_lazy_exc",
+  "media-lazy-img-exc": "media_lazy_exc",
+  "media-lazy_class_exc": "media_lazy_exc",
+  "media_lazy_class_exc": "media_lazy_exc",
+  "media-lazy_uri_exc": "media_lazy_exc",
+  "media_lazy_uri_exc": "media_lazy_exc",
   "media-iframe_lazy": "media_iframe_lazy",
   "media_iframe_lazy": "media_iframe_lazy",
   "media-webp": "media_webp",
   "media_webp": "media_webp",
   "media-optm_webp": "media_webp",
   "media_optm_webp": "media_webp",
+  "img_optm-webp": "media_webp",
+  "img_optm_webp": "media_webp",
   "media-webp_dec": "media_webp",
   "media_webp_dec": "media_webp",
   "media-webp_attribute": "media_webp_attribute",
@@ -313,8 +435,22 @@ const KEY_MAPPING_TO_INTERNAL = {
   "media_webp_rep": "media_webp_replace",
   "optm-emojis_rm": "optm_emojis_rm",
   "optm_emojis_rm": "optm_emojis_rm",
+  "optm-emoji_rm": "optm_emojis_rm",
+  "optm_emoji_rm": "optm_emojis_rm",
+  "optm-qs_rm": "optm_qs_rm",
+  "optm_qs_rm": "optm_qs_rm",
+  "optm-ggfonts_rm": "optm_ggfonts_rm",
+  "optm_ggfonts_rm": "optm_ggfonts_rm",
   "crawler": "crawler",
   "crawler_usleep": "crawler_usleep",
+  "crawler_load_limit": "crawler_load_limit",
+  "db_optm_revisions": "db_optm_revisions",
+  "db_optm_auto_draft": "db_optm_auto_draft",
+  "db_optm_trash_post": "db_optm_trash_post",
+  "db_optm_spam_comment": "db_optm_spam_comment",
+  "db_optm_trash_comment": "db_optm_trash_comment",
+  "db_optm_trackbacks": "db_optm_trackbacks",
+  "db_optm_transient": "db_optm_transient",
   
   // Custom CSS key mapping
   "optm-css_custom": "optm_css_custom",
@@ -336,7 +472,11 @@ const KEY_MAPPING_TO_LSCWP = {
   "drop_uri": "cache-exc",
   "esi": "esi",
   "cache_object": "cache-object",
+  "cache_object_kind": "cache-object_kind",
+  "cache_object_host": "cache-object_host",
+  "cache_object_port": "cache-object_port",
   "cache_browser": "cache-browser",
+  "cache_browser_ttl": "cache-browser_ttl",
   "optm_css_min": "optm-css_min",
   "optm_css_comb": "optm-css_comb",
   "optm_css_async": "optm-css_async",
@@ -347,33 +487,76 @@ const KEY_MAPPING_TO_LSCWP = {
   "optm_js_min": "optm-js_min",
   "optm_js_comb": "optm-js_comb",
   "optm_js_defer": "optm-js_defer",
+  "optm_js_defer_exc": "optm-js_defer_exc",
+  "optm_js_delay_inc": "optm-js_delay_inc",
   "js_exclude": "optm-js_exc",
+  "js_delayed_exclude": "optm-js_delayed_exc",
+  "optm_js_delayed_exc": "optm-js_delayed_exc",
+  "optm_js_delay_exc": "optm-js_delayed_exc",
   "media_lazy": "media-lazy",
   "media_lazy_native": "media-lazy_native",
   "media_lazy_placeholder": "media-lazy_placeholder",
   "media_lazy_exc": "media-lazy_exc",
   "media_iframe_lazy": "media-iframe_lazy",
   "media_webp": "media-webp",
+  "media_webp_replace": "media-webp_replace",
+  "media_webp_attribute": "media-webp_attribute",
   "optm_emojis_rm": "optm-emojis_rm",
+  "optm_qs_rm": "optm-qs_rm",
+  "optm_ggfonts_rm": "optm-ggfonts_rm",
   "crawler": "crawler",
   "crawler_usleep": "crawler_usleep",
+  "crawler_load_limit": "crawler_load_limit",
+  "db_optm_revisions": "db_optm_revisions",
+  "db_optm_auto_draft": "db_optm_auto_draft",
+  "db_optm_trash_post": "db_optm_trash_post",
+  "db_optm_spam_comment": "db_optm_spam_comment",
+  "db_optm_trash_comment": "db_optm_trash_comment",
+  "db_optm_trackbacks": "db_optm_trackbacks",
+  "db_optm_transient": "db_optm_transient",
   
   // Custom CSS key mapping
   "optm_css_custom": "optm-css_custom"
 };
 
+if (typeof window !== "undefined") {
+  window.KEY_MAPPING_TO_INTERNAL = KEY_MAPPING_TO_INTERNAL;
+  window.KEY_MAPPING_TO_LSCWP = KEY_MAPPING_TO_LSCWP;
+}
+
+const KNOWN_TEXTAREA_KEYS = new Set([
+  "drop_uri", "cache-exc", "cache_exc", "cache-uri_exc", "cache_uri_exc", "cache-drop_uri", "cache_drop_uri", "exc_uri", "exc-uri",
+  "js_exclude", "optm-js_exc", "optm_js_exc", "optm-js_exclude", "optm_js_exclude",
+  "css_exclude", "optm-css_exc", "optm_css_exc",
+  "media_lazy_exc", "media-lazy_exc", "media-lazy-exc", "media_lazy_exclude", "media-lazy_img_exc", "media_lazy_img_exc", "media-lazy_class_exc", "media_lazy_class_exc", "media-lazy_uri_exc", "media_lazy_uri_exc",
+  "js_delayed_exclude", "optm-js_delayed_exc", "optm_js_delayed_exc", "js_delayed_exc",
+  "optm_js_defer_exc", "optm-js_defer_exc", "optm_js_delay_inc", "optm-js_delay_inc",
+  "css_preload", "optm-css_preload", "optm_css_preload",
+  "optm_css_custom", "optm-css_custom"
+]);
+
 function translateKeysToInternal(obj) {
   if (!obj || typeof obj !== "object") return obj;
   const newObj = {};
   Object.keys(obj).forEach(key => {
-    const internalKey = KEY_MAPPING_TO_INTERNAL[key] || key;
+    const cleanKey = key.replace(/^(?:litespeed[\._-]conf[\._-]|litespeed[\._-]|_lscache[\._-]|lscwp[\._-]|conf[\._-])/i, "");
+    const internalKey = KEY_MAPPING_TO_INTERNAL[cleanKey] || KEY_MAPPING_TO_INTERNAL[key] || cleanKey;
     let val = obj[key];
     
-    // Convert LSCWP array-stored options to newline strings for internal use
-    if (internalKey === "drop_uri" || internalKey === "js_exclude" || internalKey === "css_exclude" || internalKey === "media_lazy_exc") {
-      if (val && typeof val === "object") {
-        val = Object.values(val).join("\n");
+    // Convert array- or indexed object-stored options to newline strings ONLY for known textarea/exclusion keys or simple string lists
+    if (val !== null && val !== undefined) {
+      const isKnownTextarea = KNOWN_TEXTAREA_KEYS.has(internalKey) || KNOWN_TEXTAREA_KEYS.has(cleanKey) || KNOWN_TEXTAREA_KEYS.has(key);
+      if (isKnownTextarea) {
+        if (Array.isArray(val)) {
+          val = val.map(item => (typeof item === "string" ? item.replace(/\\\//g, "/") : item)).join("\n");
+        } else if (typeof val === "object") {
+          val = Object.values(val).map(item => (typeof item === "string" ? item.replace(/\\\//g, "/") : item)).join("\n");
+        }
+      } else if (Array.isArray(val) && val.every(item => typeof item === "string" || typeof item === "number")) {
+        // Simple primitive array
+        val = val.join("\n");
       }
+      // General complex nested objects (e.g. CDN mappings) remain untouched
     }
     
     newObj[internalKey] = val;
@@ -390,7 +573,7 @@ function translateKeysToLscwp(obj) {
       return;
     }
     
-    // Safety check: Never output domain_key as integer 1 or 0
+    // Safety check: Never output domain_key/hash as integer 1 or 0
     if (key === "domain_key" || key === "hash") {
       if (typeof obj[key] === "string" && obj[key].length > 5 && obj[key] !== "1" && obj[key] !== "0") {
         newObj["hash"] = obj[key];
@@ -403,7 +586,7 @@ function translateKeysToLscwp(obj) {
     let val = obj[key];
     
     // Convert internal newline strings back to indexed objects (representing PHP arrays)
-    if (key === "drop_uri" || key === "js_exclude" || key === "css_exclude" || key === "media_lazy_exc" || key === "media_lazy_exclude") {
+    if (key === "drop_uri" || key === "js_exclude" || key === "css_exclude" || key === "media_lazy_exc" || key === "media_lazy_exclude" || key === "js_delayed_exclude" || key === "optm_js_delayed_exc") {
       if (typeof val === "string") {
         const lines = val.split("\n").map(x => x.trim()).filter(Boolean);
         const arrayObj = {};
@@ -427,7 +610,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.3.2
+ * Version: 2.6.8
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -475,7 +658,7 @@ add_action('admin_init', function() {
 
   if (editedSettings.woo_hpos === 1) {
     phpCode += `    // Enable WooCommerce High-Performance Order Storage (HPOS)
-    if (get_option('woocommerce_custom_orders_table_enabled') !== 'yes') {
+    if (class_exists('WooCommerce') && get_option('woocommerce_custom_orders_table_enabled') !== 'yes') {
         update_option('woocommerce_custom_orders_table_enabled', 'yes');
     }\n\n`;
   }
@@ -664,9 +847,9 @@ function generateCodeSnippetsJson(editedSettings) {
 function generateSyncPluginPhp() {
   return `<?php
 /**
- * Plugin Name: AreWee-Optimizer REST API Sync Helper
- * Description: Enables secure, token-authenticated, read-only REST API connection between your WordPress site and AreWee-Optimizer.
- * Version: 2.3.2
+ * Plugin Name: AreWee-Optimizer REST Sync Bridge
+ * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
+ * Version: 2.6.8
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -676,48 +859,57 @@ if (!defined('ABSPATH')) {
 }
 
 // Generate connection token on activation
-register_activation_hook(__FILE__, function() {
+register_activation_hook(__FILE__, 'wp_optimizer_sync_activate');
+function wp_optimizer_sync_activate() {
     if (!get_option('wp_optimizer_sync_token')) {
         $token = bin2hex(random_bytes(24)); // Cryptographically secure 48-char token
         update_option('wp_optimizer_sync_token', $token);
     }
-});
+}
 
-// Register Dedicated Settings Submenu (No permanent public admin notice)
-add_action('admin_menu', function() {
-    add_options_page(
-        'AreWee-Optimizer Sync',
-        'AreWee Sync',
+// Admin menu to view token
+add_action('admin_menu', 'wp_optimizer_sync_menu');
+function wp_optimizer_sync_menu() {
+    add_management_page(
+        'AreWee Optimizer Sync',
+        'Optimizer Sync',
         'manage_options',
         'arewee-optimizer-sync',
-        'wp_optimizer_sync_render_settings_page'
+        'wp_optimizer_sync_page'
     );
-});
+}
 
-function wp_optimizer_sync_render_settings_page() {
+function wp_optimizer_sync_page() {
     if (!current_user_can('manage_options')) {
         return;
     }
-    
+
     // Regenerate Token handler
     if (isset($_POST['wp_optimizer_regen_token']) && check_admin_referer('wp_optimizer_sync_action', 'wp_optimizer_sync_nonce')) {
         $new_token = bin2hex(random_bytes(24));
         update_option('wp_optimizer_sync_token', $new_token);
         echo '<div class="notice notice-success is-dismissible"><p>✓ Ny anslutnings-token genererades framgångsrikt!</p></div>';
     }
-    
+
     $token = get_option('wp_optimizer_sync_token');
-    $site_url = site_url();
+    $api_url = rest_url('arewee-optimizer/v1/diagnostics');
     ?>
     <div class="wrap">
-        <h1>⚡ AreWee-Optimizer Sync Inställningar (v2.3.2)</h1>
-        <div class="card" style="max-width: 700px; margin-top: 1.5rem; padding: 1.5rem;">
+        <div style="background: #fff; border: 1px solid #ccd0d4; border-radius: 8px; padding: 20px; max-width: 750px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <h1 style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">⚡ AreWee-Optimizer REST API Sync</h1>
+            <p style="color: #646970; font-size: 14px; margin-bottom: 20px;">Säker, krypterad och skrivskyddad synkronisering med din AreWee-Optimizer panel.</p>
+            
+            <hr style="border: 0; border-top: 1px solid #f0f0f1; margin: 20px 0;">
+
             <h2>Säker Anslutningstoken</h2>
             <p>Använd denna token i AreWee-Optimizer för att koppla upp din sajt säkert via krypterad REST API.</p>
-            <table class="form-table">
+            
+            <table class="form-table" style="margin-top: 10px;">
                 <tr>
                     <th scope="row">REST API Endpoint</th>
-                    <td><code><?php echo esc_url($site_url); ?>/wp-json/wp-optimizer-sync/v1/diagnostics</code></td>
+                    <td>
+                        <input type="text" readonly value="<?php echo esc_url($api_url); ?>" class="regular-text code" style="font-family: monospace; font-size: 13px; width: 420px;" onclick="this.select();">
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row">Din Token</th>
@@ -727,8 +919,8 @@ function wp_optimizer_sync_render_settings_page() {
                     </td>
                 </tr>
             </table>
-            
-            <form method="post" style="margin-top: 1.5rem;">
+
+            <form method="post" style="margin-top: 20px;">
                 <?php wp_nonce_field('wp_optimizer_sync_action', 'wp_optimizer_sync_nonce'); ?>
                 <button type="submit" name="wp_optimizer_regen_token" class="button button-secondary" onclick="return confirm('Är du säker på att du vill generera en ny token? Den gamla tokenen slutar fungera direkt.');">🔄 Generera ny token</button>
             </form>
@@ -737,9 +929,19 @@ function wp_optimizer_sync_render_settings_page() {
     <?php
 }
 
-// Register Read-Only REST API Route
-add_action('rest_api_init', function() {
-    register_rest_route('wp-optimizer-sync/v1', '/diagnostics', array(
+// Add CORS headers for REST API requests to support web UI synchronization
+add_action('rest_api_init', function () {
+    add_filter('rest_pre_serve_request', function ($value) {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, OPTIONS');
+        header('Access-Control-Allow-Headers: X-Optimizer-Token, X-WP-Optimizer-Token, Authorization, Content-Type');
+        return $value;
+    });
+}, 15);
+
+// Register secure REST API route
+add_action('rest_api_init', function () {
+    register_rest_route('arewee-optimizer/v1', '/diagnostics', array(
         'methods' => 'GET',
         'callback' => 'wp_optimizer_sync_get_diagnostics',
         'permission_callback' => 'wp_optimizer_sync_verify_token'
@@ -747,7 +949,7 @@ add_action('rest_api_init', function() {
 });
 
 function wp_optimizer_sync_verify_token($request) {
-    // Basic Rate Limiting: Max 60 requests per minute per IP
+    // 1. Strict IP Rate Limiting (max 60 requests/minute per IP)
     $ip = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
     $transient_key = 'wp_sync_rate_' . md5($ip);
     $requests = (int) get_transient($transient_key);
@@ -756,13 +958,19 @@ function wp_optimizer_sync_verify_token($request) {
     }
     set_transient($transient_key, $requests + 1, 60);
 
-    $header_token = $request->get_header('X-Optimizer-Token');
-    $query_token = $request->get_param('token');
-    $token = $header_token ?: $query_token;
+    // 2. Strict Header-only Token Verification (No URL query parameter leakage)
+    $header_token = $request->get_header('X-Optimizer-Token') ?: ($request->get_header('X-WP-Optimizer-Token') ?: $request->get_header('x_optimizer_token'));
+    if (!$header_token) {
+        $auth_header = $request->get_header('Authorization');
+        if ($auth_header && preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+            $header_token = trim($matches[1]);
+        }
+    }
+    $token = $header_token;
     
     $saved_token = get_option('wp_optimizer_sync_token');
     if (!$saved_token || !$token || !hash_equals($saved_token, $token)) {
-        return new WP_Error('unauthorized', 'Ogiltig eller saknad anslutningstoken', array('status' => 403));
+        return new WP_Error('unauthorized', 'Ogiltig eller saknad anslutningstoken (Token måste skickas via HTTP-header)', array('status' => 403));
     }
     return true;
 }
@@ -809,103 +1017,130 @@ function wp_optimizer_sync_get_diagnostics() {
     );
     
     // 2. Gather WooCommerce Info (Read-Only)
-    $woo_data = null;
+    $wooinfo = null;
     if (class_exists('WooCommerce')) {
-        $woo_data = array(
-            'version' => WC()->version,
-            'hpos_enabled' => class_exists('\\Automattic\\WooCommerce\\Utilities\\OrderUtil') && \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled(),
-            'cart_page_id' => wc_get_page_id('cart'),
-            'checkout_page_id' => wc_get_page_id('checkout'),
-            'gateways' => array()
-        );
-        $available_gateways = WC()->payment_gateways ? WC()->payment_gateways->get_available_payment_gateways() : array();
-        foreach ($available_gateways as $id => $gw) {
-            $woo_data['gateways'][] = array('id' => $id, 'title' => $gw->get_title());
-        }
-    }
-    
-    // 3. Gather Wordfence Info (Read-Only)
-    $wf_data = null;
-    if (class_exists('wfConfig')) {
-        $wf_data = array(
-            'firewall_mode' => wfConfig::get('firewallMode', 'disabled'),
-            'live_traffic_disabled' => !wfConfig::get('liveTrafficEnabled', true),
-            'low_resource_scan' => (bool) wfConfig::get('lowResourceScanEnable', false)
-        );
-    }
-    
-    // 4. Gather Elementor Info (Read-Only)
-    $elem_data = null;
-    if (defined('ELEMENTOR_VERSION')) {
-        $elem_data = array(
-            'version' => ELEMENTOR_VERSION,
-            'experiments' => array(),
-            'hasLazyLoad' => false,
-            'css_print_method' => get_option('elementor_css_print_method', 'external')
-        );
-        $features_manager = \\Elementor\\Plugin::$instance->experiments ?? null;
-        if ($features_manager && method_exists($features_manager, 'get_features')) {
-            foreach ($features_manager->get_features() as $feature_name => $feature_data) {
-                if ($features_manager->is_feature_active($feature_name)) {
-                    $elem_data['experiments'][] = $feature_name;
+        $gateways = array();
+        if (WC()->payment_gateways()) {
+            foreach (WC()->payment_gateways()->payment_gateways() as $gw) {
+                if ($gw->enabled === 'yes') {
+                    $gateways[$gw->id] = $gw->title;
                 }
             }
         }
-        if (in_array('e_lazy_load_images', $elem_data['experiments'])) {
-            $elem_data['hasLazyLoad'] = true;
-        }
+        $wooinfo = array(
+            'version' => WC()->version,
+            'hpos_enabled' => class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') && Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled(),
+            'active_gateways' => $gateways
+        );
     }
     
-    $lscwp_conf = get_option('litespeed-cache-conf', array());
+    // 3. Gather Wordfence Info (Read-Only)
+    $wfinfo = null;
+    if (class_exists('wordfence')) {
+        $wfinfo = array(
+            'firewall_mode' => class_exists('wfConfig') ? wfConfig::get('wafStatus') : 'unknown',
+            'live_traffic' => class_exists('wfConfig') ? (wfConfig::get('liveTrafficEnabled') ? 'enabled' : 'disabled') : 'unknown',
+            'ip_header' => class_exists('wfConfig') ? wfConfig::get('howGetIPs') : 'REMOTE_ADDR'
+        );
+    }
     
+    // 4. Gather Elementor Experiments (Read-Only)
+    $eleminfo = null;
+    if (did_action('elementor/loaded')) {
+        $eleminfo = array(
+            'version' => ELEMENTOR_VERSION,
+            'css_print_method' => get_option('elementor_css_print_method', 'external'),
+            'experiments' => array(
+                'e_dom_optimization' => get_option('elementor_experiment-e_dom_optimization', 'default'),
+                'e_optimized_assets_loading' => get_option('elementor_experiment-e_optimized_assets_loading', 'default'),
+                'e_optimized_css_loading' => get_option('elementor_experiment-e_optimized_css_loading', 'default'),
+                'e_font_icon_svg' => get_option('elementor_experiment-e_font_icon_svg', 'default')
+            )
+        );
+    }
+    
+    // 5. Gather LiteSpeed Cache Raw Settings (Read-Only)
+    $lscwp_options = get_option('litespeed.conf', array());
+    if (empty($lscwp_options)) {
+        $lscwp_options = get_option('litespeed-cache-conf', array());
+    }
+
     return array(
-        'syncPluginVersion' => '2.3.2',
+        'status' => 'success',
+        'syncPluginVersion' => '2.6.8',
+        'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
-        'wooInfo' => $woo_data,
-        'wfInfo' => $wf_data,
-        'elemInfo' => $elem_data,
-        'uploadedSettings' => $lscwp_conf
+        'wooInfo' => $wooinfo,
+        'wfInfo' => $wfinfo,
+        'elemInfo' => $eleminfo,
+        'uploadedSettings' => $lscwp_options,
+        'data' => array(
+            'syncPluginVersion' => '2.6.8',
+            'sysInfo' => $sysinfo,
+            'sysinfo' => $sysinfo,
+            'wooInfo' => $wooinfo,
+            'woocommerce' => $wooinfo,
+            'wfInfo' => $wfinfo,
+            'wordfence' => $wfinfo,
+            'elemInfo' => $eleminfo,
+            'elementor' => $eleminfo,
+            'uploadedSettings' => $lscwp_options,
+            'lscwp_settings' => $lscwp_options
+        )
     );
 }
 `;
 }
 
 /**
- * Generates structured Markdown prompt for AI review (Grok, Claude, ChatGPT) for a single site.
- * Organized 1:1 by component tool, ensuring 100% Single Source of Truth consistency.
+ * Generates a comprehensive Markdown report (Second Opinion) detailing findings,
+ * active environment stats, measured vs recommended LiteSpeed settings, and source consensus.
+ * Supports both generateSecondOpinionMarkdown(state) and generateSecondOpinionMarkdown(analysis, state).
+ * 
+ * @param {Object} arg1 - Analysis results object or state object
+ * @param {Object} [arg2] - Global state object if analysis was passed first
+ * @returns {string} Markdown document formatted with clear headings, tables, and notes
  */
-function generateSecondOpinionMarkdown(state) {
-  if (!state || !state.sysInfo) {
-    return "# AreWee WP-Optimizer: Ingen aktiv sajt inläst för analys.";
+function generateSecondOpinionMarkdown(arg1, arg2) {
+  let analysis = null;
+  let state = null;
+
+  if (arg2) {
+    analysis = arg1;
+    state = arg2;
+  } else if (arg1) {
+    state = arg1;
+    if (state.analysisResults) {
+      analysis = state.analysisResults;
+    } else {
+      const analyzeFn = (typeof analyzeSystem === "function") 
+        ? analyzeSystem 
+        : (typeof window !== "undefined" && window.analyzeSystem) 
+          ? window.analyzeSystem 
+          : null;
+      if (analyzeFn) {
+        analysis = analyzeFn(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo);
+      } else {
+        analysis = {};
+      }
+    }
   }
 
-  const sys = state.sysInfo;
-  const analysis = state.analysisResults || {};
+  if (!state) return "# AreWee-Optimizer: Ingen data tillgänglig för rapport.";
+  if (!analysis) analysis = {};
+
   const env = analysis.environment || {};
-  
-  // Extract site URL reliably
-  const siteUrl = state.detectedSiteUrl || 
-    (sys["wp-core"] && (sys["wp-core"].site_url || sys["wp-core"].home_url || sys["wp-core"].url)) || 
-    (sys["wp-paths-sizes"] && sys["wp-paths-sizes"].url) || 
-    "https://example.com (URL ej detekterad i systemfil)";
-
-  const wpVer = (sys["wp-core"] && sys["wp-core"].version) || env.wpVersion || "Okänd";
-  const server = (sys["wp-server"] && sys["wp-server"].httpd_software) || env.server || "Okänd";
-  const phpVer = (sys["wp-server"] && sys["wp-server"].php_version) || env.phpVersion || "Okänd";
-  const phpMem = (sys["wp-server"] && sys["wp-server"].php_memory_limit) || env.phpMemoryLimit || "Ej angivet i serverdump";
-  const wpMem = (sys["wp-constants"] && sys["wp-constants"].WP_MEMORY_LIMIT) || env.wpMemoryLimit || "40M (WP standard)";
-  const wpMaxMem = (sys["wp-constants"] && sys["wp-constants"].WP_MAX_MEMORY_LIMIT) || env.wpMaxMemoryLimit || "256M (WP standard)";
-  const disableCron = (sys["wp-constants"] && sys["wp-constants"].DISABLE_WP_CRON) === "true" || env.disableWpCron;
-  const theme = (sys["wp-active-theme"] && sys["wp-active-theme"].name) || env.activeTheme || "Okänt tema";
-  
-  const pluginsObj = sys["wp-plugins-active"] || {};
-  const plugins = Object.keys(pluginsObj);
-
-  const rawAlerts = [
-    ...(analysis.alerts || []),
-    ...(analysis.customCodeAlerts || []),
-    ...(analysis.customCssAlerts || [])
-  ];
+  const rawAlerts = analysis.alerts || [];
+  const siteUrl = state.detectedSiteUrl || (state.sysInfo && state.sysInfo["wp-core"] && (state.sysInfo["wp-core"].site_url || state.sysInfo["wp-core"].home_url)) || "https://din-webbplats.se";
+  const wpVer = env.wpVersion || (state.sysInfo && state.sysInfo["wp-core"] && state.sysInfo["wp-core"].version) || "Okänd";
+  const phpVer = env.phpVersion || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].php_version) || "Okänd";
+  const server = env.server || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].httpd_software) || "Okänd";
+  const theme = env.theme || (state.sysInfo && state.sysInfo["wp-active-theme"] && state.sysInfo["wp-active-theme"].name) || "Okänt";
+  const phpMem = env.phpMemoryLimit || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].php_memory_limit) || "Ej uppmätt";
+  const wpMem = env.wpMemoryLimit || (state.sysInfo && state.sysInfo["wp-constants"] && state.sysInfo["wp-constants"].WP_MEMORY_LIMIT) || "Ej definierad (WP default: 40M)";
+  const wpMaxMem = env.wpMaxMemoryLimit || (state.sysInfo && state.sysInfo["wp-constants"] && state.sysInfo["wp-constants"].WP_MAX_MEMORY_LIMIT) || "Ej definierad (WP default: 256M)";
+  const disableCron = env.disableWpCron;
+  const plugins = env.activePlugins || [];
 
   // Helper to normalize measured user value from uploaded settings
   function getMeasuredVal(key, fallback) {
@@ -915,10 +1150,10 @@ function generateSecondOpinionMarkdown(state) {
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.3.9)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.6.8)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
-  md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM och CTM.\n\n`;
+  md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
 
   // --- 1. SYSTEMMILJÖ & CORE ---
   md += `## 1. 🌐 Systemmiljö & WordPress Core\n`;
@@ -964,7 +1199,7 @@ function generateSecondOpinionMarkdown(state) {
 
   // Helper to format settings table for specific tab IDs using Single Source of Truth
   function renderSettingsSection(tabIds) {
-    if (!analysis.recommendations) return "";
+    if (!analysis.recommendations || !Array.isArray(analysis.recommendations)) return "";
     const matchedTabs = analysis.recommendations.filter(t => tabIds.includes(t.id));
     if (matchedTabs.length === 0) return "";
 
@@ -987,11 +1222,12 @@ function generateSecondOpinionMarkdown(state) {
         if (comparisonFn) {
           comp = comparisonFn(opt, state.uploadedSettings, env);
         } else {
+          const hasSettings = !!(state.uploadedSettings && Object.keys(state.uploadedSettings).length > 0);
           const hasMeas = state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id);
           comp = {
-            currentDisplay: hasMeas ? String(state.uploadedSettings[opt.id]) : "Ej inläst (Kräver Slot 6)",
+            currentDisplay: hasMeas ? String(state.uploadedSettings[opt.id]) : (hasSettings ? "Standardvärde (ej modifierad i .data)" : "Ej inläst (Kräver Slot 7)"),
             recommendedDisplay: String(opt.recommendedRaw),
-            statusLabel: hasMeas ? "🟢 Optimal" : "⚪ Ej uppmätt"
+            statusLabel: hasMeas ? "🟢 Optimal" : (hasSettings ? "⚪ LSCWP Standard" : "⚪ Ej uppmätt")
           };
         }
 
@@ -1044,25 +1280,43 @@ function generateSecondOpinionMarkdown(state) {
   md += renderSettingsSection(["wordfence"]);
 
   // --- 6. CTM (CONSENT & TRACKING MANAGER) ---
+  let ctmVer = "Ej installerad (eller via tema/kod)";
+  if (state.sysInfo && state.sysInfo["wp-plugins-active"]) {
+    const ctmKey = Object.keys(state.sysInfo["wp-plugins-active"]).find(k => k.toLowerCase().includes("ctm") || k.toLowerCase().includes("consent"));
+    if (ctmKey) ctmVer = state.sysInfo["wp-plugins-active"][ctmKey].version || "Aktiv";
+  }
   md += `## 6. 🏷️ CTM (Consent & Tracking Manager)\n`;
-  md += `- **Version:** v2.3.6\n`;
+  md += `- **Installerad version:** ${ctmVer}\n`;
   md += `- **Status i LiteSpeed JS-exkludering:** ${(String(curJsExc).toLowerCase().includes("ctm") || String(curJsExc).toLowerCase().includes("cookieconsent") || String(curJsExc).toLowerCase().includes("datalayer")) ? "🟢 Fullt exkluderad (GDPR-säkrad)" : "🚨 Saknas i js_exclude"}\n\n`;
   md += renderComponentAlerts("ctm");
 
   // --- 7. SCM (SITE CODE MANAGER) ---
+  let scmVer = state.scmInfo ? (state.scmInfo.version || "Aktiv") : "Ej inläst";
+  if (state.sysInfo && state.sysInfo["wp-plugins-active"]) {
+    const scmKey = Object.keys(state.sysInfo["wp-plugins-active"]).find(k => k.toLowerCase().includes("scm") || k.toLowerCase().includes("site-code"));
+    if (scmKey) scmVer = state.sysInfo["wp-plugins-active"][scmKey].version || "Aktiv";
+  }
   md += `## 7. 💻 SCM (Site Code Manager / Server & Kod)\n`;
-  md += `- **Version:** v2.3.6\n`;
+  md += `- **Installerad version:** ${scmVer}\n`;
   md += `- **Redis Object Cache:** ${env.hasRedis ? (env.isRedisConnected ? "🟢 Redis ansluten och aktiv" : "🟡 Redis installerad men ej ansluten") : "⚪ Ej aktiv (Rekommenderas för Woo/dynamiska sajter)"}\n`;
   md += `- **Anpassad CSS:** ${state.customCss ? `\`\`\`css\n${state.customCss}\n\`\`\`` : "*Ingen anpassad CSS inläst.*"}\n\n`;
   md += renderComponentAlerts("scm");
   md += renderComponentAlerts("server");
 
-  // --- 8. SECOND OPINION AI QUESTIONS ---
-  md += `## 8. ❓ Riktade Frågor för Second Opinion (AI-granskning)\n`;
-  md += `1. **Kassa- & Betalningsstabilitet:** Granska \`drop_uri\`-kodblocket i §2 ovan — är alla nödvändiga vägar för varukorg, kassa, my-account och eventuella Klarna/Stripe/Kustom callbacks fullt säkrade mot cachning?\n`;
-  md += `2. **JS/CSS Optimering & Samtycke:** Granska \`js_exclude\`-kodblocket i §2 ovan — är CTM (\`ctm-init\`, \`cookieconsent\`, \`dataLayer\`) och Elementor-skript tillräckligt isolerade från Defer/Combine för att förhindra brutna widgets eller spårningsbortfall?\n`;
-  md += `3. **Minne & Resursdimensionering:** Är \`memory_limit\` (PHP Server) och \`WP_MEMORY_LIMIT\` (WordPress) optimalt dimensionerade för den aktiva stacken (${plugins.join(", ")})?\n`;
-  md += `4. **Ytterligare Stabilitets- och Prestandavinster:** Finns det specifika flaskhalsar eller förbättringar du noterar i konfigurationen utan att tumma på driftsäkerheten?\n`;
+  // --- 8. TEMA & MALLAR ---
+  md += `## 8. 🎭 Aktivt Tema & Mallar\n`;
+  md += `- **Aktivt tema:** ${theme}\n`;
+  md += renderComponentAlerts("theme");
+  md += renderSettingsSection(["theme_templates"]);
+
+  // --- 9. EXPERTKONSENSUS & KÄLLHÄNVISNINGAR ---
+  md += `## 9. 🤝 Konsensus & Källhänvisningar\n\n`;
+  md += `Alla rekommendationer baseras på 3-källors enhällig konsensus:\n`;
+  md += `1. **LiteSpeed Technologies:** Officiell dokumentation och Advanced Presets.\n`;
+  md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
+  md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
+
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.6.8*\n`;
 
   return md;
 }
@@ -1072,29 +1326,31 @@ function generateSecondOpinionMarkdown(state) {
  */
 function generateBatchSecondOpinionMarkdown(historyList) {
   if (!historyList || !Array.isArray(historyList) || historyList.length === 0) {
-    return "# AreWee WP-Optimizer: Ingen sparad historik tillgänglig.";
+    return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.3.6)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.6.8)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
-  md += `| Sajt / Domän | WP | PHP | Server | WooCommerce | Elementor | Health Score |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| Sajt / Domän | WP | PHP | Server | Tema | WooCommerce | Elementor | Wordfence | Health Score |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
   historyList.forEach(item => {
-    const siteName = item.siteName || "Okänd";
+    const siteName = (item.siteName || "Okänd").replace(/\|/g, "-");
     const wp = item.wpVersion || "-";
     const php = item.phpVersion || "-";
     const srv = item.server || "-";
+    const theme = (item.theme || item.themeName || "-").replace(/\|/g, "-");
     const woo = item.hasWoo ? "Ja" : "Nej";
     const elem = item.hasElem ? "Ja" : "Nej";
+    const wf = item.hasWordfence ? "Aktiv" : (item.wfVersion ? `v${item.wfVersion}` : "Nej");
     const score = item.healthScore ? `${item.healthScore}/100` : "-";
-    md += `| **${siteName}** | ${wp} | ${php} | ${srv} | ${woo} | ${elem} | ${score} |\n`;
+    md += `| **${siteName}** | ${wp} | ${php} | ${srv} | ${theme} | ${woo} | ${elem} | ${wf} | ${score} |\n`;
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.3.6*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.6.8*\n`;
 
   return md;
 }
@@ -1105,6 +1361,11 @@ if (typeof window !== "undefined") {
   window.generateBatchSecondOpinionMarkdown = generateBatchSecondOpinionMarkdown;
   window.KEY_MAPPING_TO_INTERNAL = KEY_MAPPING_TO_INTERNAL;
   window.KEY_MAPPING_TO_LSCWP = KEY_MAPPING_TO_LSCWP;
+  window.translateKeysToInternal = translateKeysToInternal;
+  window.translateKeysToLscwp = translateKeysToLscwp;
+  window.generateSyncPluginPhp = generateSyncPluginPhp;
+  window.generateAutoOptimizerSnippet = generateAutoOptimizerSnippet;
+  window.generateCodeSnippetsJson = generateCodeSnippetsJson;
   window.parseSettingsFile = parseSettingsFile;
   window.php_serialize = php_serialize;
   window.php_deserialize = php_deserialize;

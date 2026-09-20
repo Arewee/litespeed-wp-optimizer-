@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.6.8)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -29,8 +29,8 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 2. Klicka på **Exportera** för att ladda ner din nuvarande konfiguration. Du får en fil som heter något i stil med `litespeed.data`.
 
 ### 3. Kör analysen i Optimizer-appen
-1. Öppna denna app och ladda upp dina filer (källkodsanalys, WooCommerce-status, samt din nyligen exporterade `litespeed.data`-fil i slot 6).
-   - *Tips:* Om du startar en helt ny sajt och inte har någon `litespeed.data`-fil än, lämnar du bara Slot 6 tom. Appen kommer då automatiskt att generera en optimal profil från scratch!
+1. Öppna denna app och ladda upp dina filer (källkodsanalys, WooCommerce-status, samt din nyligen exporterade `litespeed.data`-fil i slot 7).
+   - *Tips:* Om du startar en helt ny sajt och inte har någon `litespeed.data`-fil än, lämnar du bara Slot 7 tom. Appen kommer då automatiskt att generera en optimal profil från scratch!
 2. Gå till fliken **LSCWP Inställningar** för att se rekommendationer skräddarsydda efter din sajts unika källkod.
 3. Anpassa inställningarna direkt i appen vid behov.
 

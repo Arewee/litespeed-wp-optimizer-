@@ -1,3 +1,8 @@
+/**
+ * AreWee WP-Optimizer - Stylesheet (v2.6.8)
+ * Modern Dark Mode Cockpit UI with Glassmorphism, Neon Accents, and Responsive Layouts
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
 
 :root {
@@ -329,6 +334,37 @@ body {
   transform: scale(1.12);
 }
 
+.btn-slot-clear {
+  position: absolute;
+  top: 0.45rem;
+  right: 2rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 0.65rem;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 15;
+  transition: all var(--transition-fast);
+  line-height: 1;
+}
+
+.btn-slot-clear:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: #ef4444;
+  color: #fff;
+  transform: scale(1.12);
+}
+
+.upload-zone.has-file .btn-slot-clear {
+  display: flex;
+}
+
 /* System Summary Dashboard */
 .summary-container {
   display: flex;
@@ -435,35 +471,36 @@ body {
 /* Dynamic Tab Bar */
 .tab-navigation {
   display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border-card);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
 }
 
 .tab-btn {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   color: var(--text-muted);
   font-family: var(--font-heading);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  padding: 0.6rem 1.1rem;
+  padding: 0.4rem 0.75rem;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6px;
   white-space: nowrap;
   transition: all var(--transition-fast);
 }
 
 .tab-btn:hover {
   color: var(--text-main);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .tab-btn.active {
   color: var(--accent-cyan);
-  background: rgba(6, 182, 212, 0.1);
+  background: rgba(6, 182, 212, 0.12);
+  border-color: rgba(6, 182, 212, 0.35);
   box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.25);
   font-weight: 600;
 }
@@ -481,20 +518,154 @@ body {
 
 /* Settings Item Layout */
 .setting-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-left: 3px solid rgba(99, 102, 241, 0.5);
   border-radius: 12px;
-  padding: 1.25rem;
+  padding: 1.35rem 1.45rem;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 1.5rem;
   align-items: center;
   transition: all var(--transition-fast);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  position: relative;
 }
 
 .setting-card:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.07);
+  background: rgba(23, 32, 54, 0.95);
+  border-color: rgba(148, 163, 184, 0.38);
+  border-left-color: var(--accent-indigo);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+/* Exclusion Collapsible Accordion Styles */
+.exclusion-accordion {
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.exclusion-accordion.rec {
+  background: rgba(6, 182, 212, 0.04);
+  border-color: rgba(6, 182, 212, 0.22);
+}
+
+.exclusion-accordion-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.74rem;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.2s ease;
+  list-style: none;
+}
+
+.exclusion-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+.exclusion-accordion-summary:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.exclusion-accordion-summary.rec {
+  color: #a5f3fc;
+  background: rgba(6, 182, 212, 0.06);
+}
+
+.exclusion-accordion-summary.rec:hover {
+  background: rgba(6, 182, 212, 0.1);
+}
+
+.accordion-arrow {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.exclusion-accordion[open] > .exclusion-accordion-summary .accordion-arrow {
+  transform: rotate(90deg);
+}
+
+.badge-count {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  border-radius: 4px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.badge-count.rec {
+  background: rgba(6, 182, 212, 0.2);
+  color: #67e8f9;
+}
+
+.btn-copy-compact {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-copy-compact:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.btn-copy-compact.rec {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: rgba(6, 182, 212, 0.4);
+  color: #cffafe;
+}
+
+.btn-copy-compact.rec:hover {
+  background: rgba(6, 182, 212, 0.3);
+}
+
+.exclusion-accordion-content {
+  padding: 0.65rem 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.exclusion-accordion-content.rec {
+  border-top-color: rgba(6, 182, 212, 0.15);
+  background: rgba(6, 182, 212, 0.02);
+}
+
+.exclusion-pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.exclusion-pre.rec {
+  color: #a5f3fc;
 }
 
 .setting-info {
@@ -518,21 +689,36 @@ body {
 
 .badge-risk {
   font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
+  padding: 0.15rem 0.45rem;
   border-radius: 4px;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
-.badge-risk.high {
+.badge-risk.critical {
   background: var(--color-danger-bg);
   color: var(--color-danger);
-  border: 1px solid rgba(244, 63, 94, 0.2);
+  border: 1px solid rgba(244, 63, 94, 0.25);
 }
 
-.badge-risk.safe {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+.badge-risk.warning, .badge-risk.high {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-risk.safe, .badge-risk.zero {
+  background: rgba(16, 185, 129, 0.08);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.badge-risk.info {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 .setting-desc {
@@ -885,6 +1071,56 @@ input:checked + .slider:before {
   margin-top: 0.25rem;
 }
 
+.health-summary-metrics {
+  width: 100%;
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.health-metric-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 0.55rem 0.85rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  min-height: 42px;
+  box-sizing: border-box;
+}
+
+.health-metric-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.health-metric-row .metric-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #e2e8f0;
+  font-weight: 500;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.health-metric-row .badge {
+  min-width: 52px;
+  text-align: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Findings Dashboard grid */
 .findings-grid {
   display: grid;
@@ -922,12 +1158,12 @@ input:checked + .slider:before {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.85);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   z-index: 5;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -935,45 +1171,73 @@ input:checked + .slider:before {
 
 .topology-node:hover {
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
   transform: translate(-50%, -50%) scale(1.1);
+  z-index: 12;
 }
 
-.topology-node.active {
-  border-color: var(--accent-cyan);
-  background: rgba(6, 182, 212, 0.15);
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+.topology-node.active,
+.topology-node.optimal {
+  border-color: var(--color-success);
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.35);
 }
 
-.topology-node.conflict {
+.topology-node.warning {
+  border-color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.18);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.45);
+}
+
+.topology-node.conflict,
+.topology-node.danger {
   border-color: var(--color-danger);
-  background: rgba(244, 63, 94, 0.15);
+  background: rgba(244, 63, 94, 0.18);
   animation: pulse-border 2s infinite;
 }
 
+.topology-node.inactive {
+  opacity: 0.45;
+  border-color: rgba(255, 255, 255, 0.08);
+  filter: grayscale(0.8);
+}
+
 .topology-node-icon {
-  font-size: 1.4rem;
+  font-size: 1.6rem;
 }
 
 .topology-node-label {
   position: absolute;
   top: 100%;
   margin-top: 6px;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: #e2e8f0;
   text-align: center;
   white-space: nowrap;
-  background: rgba(15, 23, 42, 0.85);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(15, 23, 42, 0.95);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   pointer-events: none;
+  z-index: 10;
 }
 
-.topology-node.conflict .topology-node-label {
+.topology-node.optimal .topology-node-label {
+  color: #a7f3d0;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.topology-node.warning .topology-node-label {
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.topology-node.conflict .topology-node-label,
+.topology-node.danger .topology-node-label {
   color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 @keyframes pulse-border {
@@ -997,14 +1261,31 @@ input:checked + .slider:before {
 }
 
 .topology-line.normal {
-  stroke: rgba(148, 163, 184, 0.35);
+  stroke: rgba(148, 163, 184, 0.25);
 }
 
-.topology-line.conflict {
+.topology-line.optimal {
+  stroke: rgba(16, 185, 129, 0.45);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  animation: dash 35s linear infinite;
+}
+
+.topology-line.warning {
+  stroke: var(--color-warning);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  animation: dash 20s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6));
+}
+
+.topology-line.conflict,
+.topology-line.danger {
   stroke: var(--color-danger);
   stroke-width: 2.5;
   stroke-dasharray: 6 3;
   animation: dash-conflict 15s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.8));
 }
 
 @keyframes dash {
@@ -1566,7 +1847,7 @@ input:checked + .slider:before {
   align-self: center;
 }
 
-/* Slot Hint Text */
+/* Slot Hint Text & Loaded File Badge */
 .slot-hint-text {
   font-size: 0.64rem;
   color: var(--text-muted);
@@ -1579,17 +1860,80 @@ input:checked + .slider:before {
   font-family: monospace;
 }
 
-/* Risk Component Overview Cards */
+.slot-hint-text.loaded-file {
+  opacity: 1;
+}
+
+.slot-file-badge {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  padding: 0.18rem 0.5rem;
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 0.72rem;
+  font-family: var(--font-main);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* Risk Component Overview Grids & Cards */
+.risk-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (min-width: 1100px) {
+  .risk-status-grid {
+    grid-template-columns: repeat(8, 1fr);
+  }
+}
+
+.risk-functions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (min-width: 1100px) {
+  .risk-functions-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
 .risk-component-card {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.6rem;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.15rem;
+}
+
+.risk-function-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  transition: all 0.2s ease;
+}
+
+.risk-function-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .risk-component-card:hover, .risk-component-card.active {
@@ -1664,10 +2008,204 @@ input:checked + .slider:before {
     flex-direction: column !important;
     align-items: flex-start !important;
   }
+}
+
+/* ==========================================================================
+   v2.6.8 Components: 3-Source Traffic Light, Status Pill, & Sorter
+   ========================================================================== */
+
+/* Right Column on Setting Cards (Housing Traffic Light & Comparison Box) */
+.setting-right-col {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1.15rem;
+  justify-content: flex-end;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* Left Status Activation Badge / Pill */
+.setting-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.setting-state-pill.status-on {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.setting-state-pill.status-off {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.setting-state-pill.status-unset {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+/* 3-Source Traffic Light Housing */
+.traffic-light-widget {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+.traffic-light-housing {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 6px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.traffic-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.traffic-dot:hover {
+  transform: scale(1.4);
+  z-index: 500;
+}
+
+.traffic-dot.dot-green {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+}
+
+.traffic-dot.dot-yellow {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+}
+
+.traffic-dot.dot-red {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+}
+
+.traffic-dot.dot-neutral,
+.traffic-dot.dot-gray {
+  background: #64748b;
+  box-shadow: 0 0 3px rgba(100, 116, 139, 0.5);
+}
+
+/* CSS Tooltip for Traffic Dots */
+.traffic-dot[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 50%;
+  transform: translateX(50%);
+  background: rgba(15, 23, 42, 0.98);
+  color: #f8fafc;
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: normal;
+  width: max-content;
+  max-width: 280px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+  z-index: 9999;
+  line-height: 1.35;
+}
+
+.traffic-dot:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Settings Toolbar, Search & Sort Selector */
+.settings-sort-select {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-sort-select:hover, .settings-sort-select:focus {
+  border-color: var(--accent-indigo);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.settings-sort-select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.settings-search-input {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-search-input:focus {
+  border-color: var(--accent-indigo) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Accessible Focus-Visible Styles for Dark Theme */
+button:focus-visible, 
+input:focus-visible, 
+select:focus-visible, 
+textarea:focus-visible, 
+summary:focus-visible, 
+[tabindex]:focus-visible {
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Mobile & Small Screen Tooltip & Tap Targets */
+@media (max-width: 768px) {
+  .traffic-dot[data-tooltip]::after {
+    left: auto;
+    right: 0;
+    transform: none;
+    max-width: 200px;
+    white-space: normal;
+    font-size: 0.65rem;
+  }
   
-  .score-impact-box {
-    width: 100% !important;
-    margin-top: 0.5rem;
+  .btn-copy-compact,
+  .btn-sync-action,
+  .action-btn {
+    min-height: 44px;
+    padding: 0.6rem 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
+
 
