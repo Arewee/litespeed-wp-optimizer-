@@ -41,3 +41,32 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 4. Välj den nya optimerade filen du laddade ner från appen och klicka på **Importera**.
 
 **Klart! Din sajt är nu maximalt optimerad och helt fri från kända källkodskonflikter!** 🌟
+
+---
+
+## 🗺️ Roadmap & Kommande Versioner
+
+### 🚀 Release v2.6.9: Inläsning, Modern Baseline & Källkorrigering
+- **Formatigenkänning:** Fullt stöd för LiteSpeed Cache 7.9.1+ JSON-tupler (`["_version","7.9.1"]`, `["media-lazy_exc", ...]`) i `detectPastedFormat()` och tvålager-validering i `routeAndProcessContent()`.
+- **Elementor Core Baseline:** Standardiserar *Förbättrad CSS-inläsning* och *Förbättrad resursladdning* som **🟢 Optimal (Inbyggd i Core)** för Elementor $\ge$ 3.16 / 4.x.
+- **Korrigerad `cache_priv`:** differentierad rekommendation (PÅ för medlems/B2B-portaler som `maximeraprofil.se` för att spara CPU; AV för vanliga sajter).
+- **SCM-notiser:** Låga poängavdrag för råa echo-varningar.
+
+### 🎨 Release v2.7.0: Dedikerad Bildoptimeringsmodul & QUIC.cloud Paritet
+- **Flik 5: Media & Bilder:** 1:1 paritet med LiteSpeed Cache 7.9.1 bildoptimeringsflik.
+- **Next-Gen Bildformat:** Val för WebP/AVIF ersättning (`img_optm-webp`).
+- **Mått & Layoutskydd:** Verifiering av *Lägg till saknade storlekar* (`media-add_missing_sizes`) för noll CLS (Cumulative Layout Shift).
+- **QUIC.cloud Tjänstestatus:** Tydlig separation mellan On-line Services (aktiv bildkonvertering) och externt CDN.
+
+### 🗄️ Release v2.8.0: Lagring & Mediahygien (Storage & Media Audit)
+- **Katalogstorlekar:** Automatisk kontroll av `wp-content/uploads` och databasstorlek från WordPress Site Health.
+- **Kontextkänsliga trösklar:** Separata varningsnivåer för standard innehållssajter vs WooCommerce/e-handel.
+- **Korsregel med LSCache Backup:** Varnar om originalbackup behålls på disken samtidigt som mediakatalogen är stor.
+
+### ⚡ Release v3.0.0: AreWee Sync Bridge (1-klicks API Sync: Push & Pull)
+- **1-klicks import:** Lättviktig WordPress MU-Plugin / snippet-brygga.
+- **Hybridstöd:**
+  - **Pull (i appen):** Ange sajtens URL och hämta alla 7 källor via REST API på under 1 sekund.
+  - **Push (i WP-Admin):** `[ ⚡ AreWee Check ]`-knapp i WordPress Admin Bar som öppnar appen förifylld.
+- **Noll manuell inmatning:** Eliminerar helt behovet av att kopiera data manuellt från 6–7 separata källor.
+
