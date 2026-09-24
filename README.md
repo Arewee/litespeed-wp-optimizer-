@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.6.10.3)
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.7.2.2)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -83,11 +83,73 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 
 
 
-### 🎨 Release v2.7.0: Dedikerad Bildoptimeringsmodul & QUIC.cloud Paritet
-- **Flik 5: Media & Bilder:** 1:1 paritet med LiteSpeed Cache 7.9.1 bildoptimeringsflik.
-- **Next-Gen Bildformat:** Val för WebP/AVIF ersättning (`img_optm-webp`).
-- **Mått & Layoutskydd:** Verifiering av *Lägg till saknade storlekar* (`media-add_missing_sizes`) för noll CLS (Cumulative Layout Shift).
-- **QUIC.cloud Tjänstestatus:** Tydlig separation mellan On-line Services (aktiv bildkonvertering) och externt CDN.
+### 🩹 Release v2.7.2.2: Riskdetektor Verktyg-layout & stale Elementor GF
+
+- **Layout:** Riskdetektor Verktyg-griden (`risk-status-grid`) tvingade `repeat(8, 1fr)` ≥1100px medan kort hade `min-width:auto` + nowrap-subtext → Wordfence (och övriga kort) klipptes av `body { overflow-x: hidden }`. Fix: `auto-fill` + `minmax(130–140px, 1fr)`, `min-width: 0` / `overflow: hidden` på `.risk-component-card`. WP-system-ikon `📝` → `🖥️`.
+- **Elementor GF PÅ false-positive:** skate fixtures parsear redan `google_fonts: false`, men historik/profiler från före v2.7.2 kunde ha `google_fonts: true` (gammal default) utan experiment-markör → cockpit **Elementor PÅ** + `optm_ggfonts_async` / `optm_dns_prefetch` 🟡 Avvikelse trots live `google_font-disabled`. Fix: `elementorSignalsExternalGoogleFonts` / `sanitizeElementorGoogleFonts` — kräver explicit Active (experiment `google_fonts`); **Custom Fonts-count räknas inte**. Soft-match oförändrad i path.
+- **Verifiering:** hard-reload `?v=2.7.2.2`, ladda om Elementor system-info (eller rensa historikprofil), kör om analys. Tester: `scratch/test-v2722.js`.
+
+### 🩹 Release v2.7.2.1: theme google_fonts:false false-positive (async/DNS)
+
+- **Root cause:** `hasExternalGoogleFonts` (och cockpit) använde `JSON.stringify(themeInfo).includes("google_fonts")`, vilket blev true även när temat hade `google_fonts: false` → `optm_ggfonts_async` + `optm_dns_prefetch` visade 🟡 Avvikelse och "Saknas … fonts.googleapis/gstatic" trots soft-match.
+- **Fix:** ny `themeSignalsExternalGoogleFonts` / `isActiveGoogleFontsValue` — bara explicita Active/ON-värden eller riktiga `fonts.googleapis.com` / `fonts.gstatic.com`-URL:er räknas. Soft-match i `getOptionComparison` oförändrad i path.
+- **Tester:** `scratch/test-v2721.js` (skate-lik fixture). Ingen commit utan OK.
+
+### 🩹 Release v2.7.2: GF-kontext, Crawler Policy & Alla avvikelser (default)
+
+- **A) Google Fonts-kontext:** Elementor-default `google_fonts` är nu `false` (sätts bara `true` vid explicit Active). Delad helper `hasExternalGoogleFonts` styr både `optm_ggfonts_async` och `optm_dns_prefetch` — Remove ON eller inga externa GF → Optimal/Inaktiv (inga falska Avvikelser för fonts.googleapis/gstatic).
+- **B) Crawler Policy:** På LiteSpeed-server + crawler AV → **🔵 Policy/Context** (valfri på shared; rekommenderas på VPS/dedicated om hosten tillåter), `isDeviant=false`, `scoreImpact: 0`. Crawler PÅ → Optimal. Non-LS AV oförändrat.
+- **C) Alla avvikelser (default):** Ny cross-tab-filter `all_deviations` (predikat `isDeviant && isMeasured`) är **default** `activeSettingsFilter`. Visar flik-badge + `jumpToSetting`. Flik-scoped "Endast avvikelser (flik)" behålls. Tomt tillstånd: sajt-övergripande copy.
+- **Tester:** `scratch/test-v272.js`. Ingen commit utan OK.
+
+### 🩹 Release v2.7.1.6: Versionsgranskning exact-match (Woo / Elementor)
+- **Bugfix:** `analyzeSystem` matchade alla tilläggsnamn som *innehåller* `woocommerce` / `elementor`. Sista träffen vann → t.ex. WooCommerce PayPal Payments **4.1.3** skrev över kärn-Woo (**11.1.2**).
+- **Fix:** exakt slug/namn via `isCoreWooCommercePlugin` / `isCoreElementorPlugin` (`woocommerce`, `WooCommerce`, `woocommerce/woocommerce.php`; samma för Elementor vs Pro).
+- **Tester:** `scratch/test-v2716.js`. Ingen commit utan OK.
+- **Parkerat:** quic.cloud live-edge (`x-qc-cache`) detektion → senare version.
+
+### 🩹 Release v2.7.1.5: audit remediation (crawl_interval, write maps, aliases)
+- **crawler_usleep ↔ crawler-crawl_interval:** INTERNAL `crawler-crawl_interval` → `crawler_usleep`; WRITE `crawler_usleep` → `crawler-crawl_interval` (LSCWP 7.x). Legacy `crawler-usleep` still read. Soft-cover när crawler AV behålls. UI-titel: Crawl Interval.
+- **WRITE maps (KEY_MAPPING_TO_LSCWP):** `optm_font_display` → `optm-css_font_display`; `optm_emojis_rm` → `optm-emoji_rm`; `cache_object` → `object`; `domain_key` → `hash` (export skriver endast `hash`).
+- **READ:** `api_key` → intern `domain_key` (överwrites inte befintlig längre `hash`).
+- **media_webp alias cleanup:** tog bort `media-optm_webp` / `media_optm_webp` / `media-webp_dec` / `media_webp_dec`. Kvar: `media-webp` / `media_webp`.
+- **Duplicate domain_key:** bort från Bildoptimering-fliken; kvar på General.
+- **Hyphen fallback:** första `_` → `-` (inte global), så `optm_css_min` → `optm-css_min` (inte `optm-css-min`).
+- **db_optm maps:** `db_optm_revisions` ↔ `db_optm-revisions_max`; `db_optm_revisions_age` ↔ `db_optm-revisions_age`; döda auto_draft/trash/spam/transient-maps borttagna.
+- **Backlog (ej UI i 2.7.1.5):** `crawler_load_limit`, `img_optm-jpg_quality`, `optm-html_lazy`, `drop_qs`/cdn-mapping satellites, media-lqip*, heartbeat/localize, full DB Optimizer UI.
+
+### 🩹 Release v2.7.1.4: crawler_usleep inactive-when-off + object-pswd mask
+- När `crawler` är AV (0/false) och `crawler_usleep` / `crawler-usleep` saknas → `crawler_usleep` räknas som **uppmätt** och UI visar `Inaktiv (Crawler AV)` (mirrors js_delayed_exclude / media_lazy_exc).
+- Crawler PÅ men usleep saknas → fortsatt ⚪ Ej uppmätt (ärligt). KEY_MAPPING alias `crawler-usleep` ↔ `crawler_usleep`.
+- `object-pswd` / `object_pswd` (Redis-lösenord) i secret-denylist — maskas alltid i UI/Second Opinion; export round-trip behåller råvärdet internt.
+
+### 🩹 Release v2.7.1.3: media_webp Next-Gen soft measure
+- När `media_webp` / `media-webp` saknas i .data men `img_optm-webp` (Next-Gen) finns → `media_webp` räknas som **uppmätt AV** och UI visar `AV (Next-Gen täcker)`.
+- Om varken media_webp eller img_optm_webp finns → fortsatt ⚪ Ej uppmätt (ärligt).
+- Saknar inte soft/Policy-score (`isMatches` oförändrad).
+
+### 🩹 Release v2.7.1.2: Bildopt. empty-key measurement
+- `img_optm_sizes_skipped` (tom lista `""`) och `img_optm_webp` (0/1/2/false) räknas som **uppmätta** när nyckeln finns i .data.
+- Key-hyphen för `img_optm_*`: mapping först, annars `img_optm-` + rest (aldrig fel `img_optm_sizes-skipped`).
+- Steps 4–6 / 6b `pick()` accepterar `""`, `0`, `"0"`, `false` när own-property finns.
+
+### 🩹 Release v2.7.1.1: Bildopt. Policy-UI + health-ikon
+- `img_optm_webp_attr` / `img_optm_sizes_skipped` är inte längre textarea/exclusion-kort (Policy / 0 p, ingen „skyddsmönster“-accordion).
+- Health-score-notis under gauge: endast antal + text (ingen ℹ️-ikon).
+- Robustare key-lookup för `img_optm-webp` / `img_optm_webp` (inkl. `uploadedSettings.options`).
+
+### 🖼️ Release v2.7.1: Bildoptimering [6] + CDN/QUIC-status + CTM/SCM-fix
+- **Ny flik [6] Bildoptimering** (`image_optimization`): CDN/QUIC/Cloudflare-status, Domain Key (maskad), samt Image Optimization-spakar (`img_optm-*`) med tydliga wpPath.
+- **Omnumrering:** Sidopt. HTML → `[7]`, Crawler → `[8]`. `media_webp` stannar på Media & LCP; `img_optm_webp` = QUIC Next-Gen (separata nycklar, soft match).
+- **Säkerhet:** `domain_key` / Cloudflare-nyckel maskas i UI och Second Opinion (första 4 + … + sista 4).
+- **Score:** img-opt Policy/`scoreImpact: 0`. `img_optm_rm_bkup` PÅ = info-alert 🚨 (ingen danger-kollaps). Saknad QUIC-nyckel + img opt PÅ = info.
+- **BENCHMARK_VERSIONS:** CTM/SCM `latestRelease` tillbaka till plugin-versioner (1.9.0 / 1.4.1) — slutar flagga falska uppdateringar mot Optimizer-version.
+
+### 🎨 Release v2.7.0: Media & LCP / Sidopt. HTML / Crawler [7]
+- **Flik [5] Media & LCP:** Dedikerad mediaflik (`page_optimization_media`) med endast `media_lazy`, `media_lazy_exc`, `media_webp` och `media_vpi`.
+- **Flik [6] Sidopt. HTML:** Ny flik (`page_optimization_html`) för `optm_qs_rm`, `optm_dns_prefetch` och `optm_emojis_rm` (flyttade från mediafliken).
+- **Flik [7] Crawler:** Tidigare [6] uppdaterad till `⚡ [7] Crawler`.
+- **Score-policy lazy/LCP:** WP Native Lazy (`media_lazy` AV) ger Optimal/Policy med `scoreImpact: 0`. LiteSpeed Lazy PÅ utan logo/hero/LCP-exclude ger max **en** samlad warning (−7). Dubbel lazy (LS + Elementor) behålls (−7). VPI soft Optimal när LS Lazy är AV.
 
 ### 🗄️ Release v2.8.0: Lagring & Mediahygien (Storage & Media Audit)
 - **Katalogstorlekar:** Automatisk kontroll av `wp-content/uploads` och databasstorlek från WordPress Site Health.

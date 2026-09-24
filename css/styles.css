@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Stylesheet (v2.6.10.3)
+ * AreWee WP-Optimizer - Stylesheet (v2.7.2.2)
  * Modern Dark Mode Cockpit UI with Glassmorphism, Neon Accents, and Responsive Layouts
  */
 
@@ -1572,6 +1572,36 @@ input:checked + .slider:before {
   color: #c7d2fe;
 }
 
+/* v2.7.2: cross-tab category badge on Alla avvikelser cards */
+.category-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  background: rgba(99, 102, 241, 0.14);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.category-tab-badge:hover {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(129, 140, 248, 0.55);
+  color: #e0e7ff;
+  transform: translateY(-1px);
+}
+.category-tab-badge::before {
+  content: "📂";
+  font-size: 0.7rem;
+}
+
+
 /* Critical & Impact Badges */
 .badge-critical-tag {
   font-size: 0.65rem;
@@ -1881,17 +1911,21 @@ input:checked + .slider:before {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
-/* Risk Component Overview Grids & Cards */
+/* Risk Component Overview Grids & Cards
+ * v2.7.2.2: auto-fill + min-width:0 so all Verktyg cards wrap/shrink —
+ * never clip Wordfence (or Tema/Elementor/SCM/CTM) off-screen via body overflow-x. */
 .risk-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 0.5rem;
   margin-bottom: 1.25rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (min-width: 1100px) {
   .risk-status-grid {
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   }
 }
 
@@ -1918,6 +1952,9 @@ input:checked + .slider:before {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  min-width: 0; /* allow grid shrink below nowrap subtext min-content */
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .risk-function-card {
@@ -2011,7 +2048,7 @@ input:checked + .slider:before {
 }
 
 /* ==========================================================================
-   v2.6.10.3 Components: 3-Source Traffic Light, Status Pill, & Sorter
+   v2.7.2 Components: 3-Source Traffic Light, Status Pill, & Sorter
    ========================================================================== */
 
 /* Right Column on Setting Cards (Housing Traffic Light & Comparison Box) */

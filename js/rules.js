@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.6.10.3)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.7.2.2)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -26,6 +26,56 @@ function compareVersions(v1, v2) {
     if (num1 < num2) return -1;
   }
   return 0;
+}
+
+/**
+ * Mask secrets for UI / Second Opinion (never show full domain_key / API keys).
+ * Shows first 4 + … + last 4 when length >= 10; shorter non-empty → ••••.
+ */
+function maskSecretKey(val) {
+  if (val === null || val === undefined) return "";
+  const s = String(val).trim();
+  if (!s || s === "0" || s === "1") return s;
+  if (s.length < 10) return "••••";
+  return s.slice(0, 4) + "…" + s.slice(-4);
+}
+
+
+
+/**
+ * Plugin identity helpers for Versionsgranskning (v2.7.1.6+).
+ * Prefer exact slug / bare display name so "WooCommerce PayPal Payments"
+ * and "Klarna for WooCommerce" never overwrite core WooCommerce.
+ * Supports keys shaped as:
+ *   "WooCommerce"
+ *   "WooCommerce (woocommerce)"
+ *   "woocommerce/woocommerce.php"
+ */
+function getPluginMatchTokens(pluginKey) {
+  const raw = String(pluginKey || "").trim();
+  const lower = raw.toLowerCase();
+  let slug = null;
+  const paren = raw.match(/\(([^)]+)\)\s*$/);
+  if (paren) slug = paren[1].trim().toLowerCase();
+  const pathMatch = lower.match(/^([a-z0-9._-]+)\/[a-z0-9._-]+\.php$/);
+  if (pathMatch) slug = pathMatch[1];
+  if (!slug && /^[a-z0-9._-]+$/.test(lower)) slug = lower;
+  const baseName = raw
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .replace(/\/[^/]+\.php$/i, "")
+    .trim()
+    .toLowerCase();
+  return { slug, baseName, lower };
+}
+
+function isCoreWooCommercePlugin(pluginKey) {
+  const { slug, baseName } = getPluginMatchTokens(pluginKey);
+  return slug === "woocommerce" || baseName === "woocommerce";
+}
+
+function isCoreElementorPlugin(pluginKey) {
+  const { slug, baseName } = getPluginMatchTokens(pluginKey);
+  return slug === "elementor" || baseName === "elementor";
 }
 
 function normalizeExclusionPattern(pattern) {
@@ -177,6 +227,156 @@ function mergeExclusions(currentExclusionsStr, requiredList) {
   const missing = checkMissingExclusions(currentExclusionsStr, list);
   if (missing.length === 0) return currentExclusionsStr;
   return currentExclusionsStr.trim() + "\n" + missing.join("\n");
+}
+
+
+// --- SHARED: external Google Fonts context (async + DNS Prefetch must agree) ---
+/**
+ * True only for explicit Active/ON theme Google Fonts signals.
+ * CRITICAL: never use JSON.stringify(...).includes("google_fonts") — that false-positives
+ * on google_fonts:false / "google_fonts":0 keys (skateyourname / Hello Elementor theme slots).
+ */
+function isActiveGoogleFontsValue(val) {
+  if (val === true || val === 1 || val === "1") return true;
+  if (typeof val !== "string") return false;
+  const s = val.toLowerCase().trim();
+  if (!s || s === "0" || s === "false" || s === "off" || s === "no" || s === "disabled" || s === "inactive" || s === "inaktiv" || s === "disable" || s === "av" || s === "avstängd") return false;
+  if (s === "active" || s === "aktiv" || s === "enabled" || s === "enable" || s === "on" || s === "yes" || s === "true" || s === "standard (aktiv)" || s === "active by default" || s === "default (active)") return true;
+  if (s.includes("fonts.googleapis.com") || s.includes("fonts.gstatic.com")) return true;
+  return false;
+}
+
+function isGoogleFontsKeyName(key) {
+  const k = String(key || "").toLowerCase();
+  return (
+    k === "google_fonts" || k === "google-fonts" || k === "googlefonts" ||
+    k === "use_google_fonts" || k === "use-google-fonts" ||
+    k === "ast_load_google_fonts" || k === "load_google_fonts" ||
+    k.includes("google_fonts") || k.includes("google-fonts") ||
+    k.includes("google_font") || k.includes("e_google_fonts")
+  );
+}
+
+/**
+ * Walk themeInfo for explicit Active GF flags or real fonts.googleapis/gstatic URL values.
+ * Keys named google_fonts with false/0/off are NOT a signal.
+ */
+function themeSignalsExternalGoogleFonts(themeInfo) {
+  if (!themeInfo || typeof themeInfo !== "object") return false;
+
+  if (typeof themeInfo.rawText === "string" && themeInfo.rawText) {
+    const t = themeInfo.rawText.toLowerCase();
+    if (t.includes("fonts.googleapis.com") || t.includes("fonts.gstatic.com")) return true;
+    if (/google[\s_-]*fonts?\s*:\s*(active|aktiv|enabled|enable|on|yes|true|1)\b/.test(t)) return true;
+  }
+
+  const stack = [themeInfo];
+  const seen = typeof WeakSet !== "undefined" ? new WeakSet() : null;
+  let guard = 0;
+  while (stack.length && guard < 5000) {
+    guard++;
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (seen) {
+      if (seen.has(node)) continue;
+      seen.add(node);
+    }
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) stack.push(node[i]);
+      continue;
+    }
+    const keys = Object.keys(node);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (key === "rawText") continue; // handled above with stricter patterns
+      const val = node[key];
+      if (isGoogleFontsKeyName(key) && isActiveGoogleFontsValue(val)) return true;
+      if (typeof val === "string" && (val.toLowerCase().includes("fonts.googleapis.com") || val.toLowerCase().includes("fonts.gstatic.com"))) return true;
+      if (val && typeof val === "object") stack.push(val);
+    }
+  }
+  return false;
+}
+
+/**
+ * True only when Elementor explicitly signals external Google Fonts.
+ * v2.7.2.2: Custom Fonts count is NOT Google Fonts. Stale pre-2.7.2 profiles with
+ * google_fonts:true but no explicit google_fonts experiment are treated as false
+ * (old default invented Active without a system-info line).
+ */
+function elementorSignalsExternalGoogleFonts(elemInfo) {
+  if (!elemInfo || typeof elemInfo !== "object") return false;
+
+  const exps = Array.isArray(elemInfo.experiments) ? elemInfo.experiments : [];
+  const hasExplicitExp = exps.some(e => {
+    const low = String(e).toLowerCase().trim();
+    if (!low || low.includes("custom font")) return false;
+    return (
+      low === "google_fonts" ||
+      low === "google fonts" ||
+      low === "e_google_fonts" ||
+      low === "google-typsnitt" ||
+      (low.includes("google") && (low.includes("font") || low.includes("typsnitt")))
+    );
+  });
+
+  const rawTrue = (
+    elemInfo.google_fonts === true ||
+    elemInfo.google_fonts === "1" ||
+    elemInfo.google_fonts === "active" ||
+    elemInfo.google_fonts === "enabled"
+  );
+
+  // Parser always pushes "google_fonts" into experiments when it sets true from an Active line.
+  // true without that mark = stale default from history / pre-2.7.2 — do not invent external GF.
+  if (rawTrue && !hasExplicitExp) return false;
+  if (rawTrue) return true;
+
+  // experiments-only Active signal (rare JSON imports)
+  if (hasExplicitExp && elemInfo.google_fonts !== false && elemInfo.google_fonts !== 0 && elemInfo.google_fonts !== "0") {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Sanitize elemInfo in place: clear stale google_fonts:true without explicit experiment.
+ * Prefer explicit system-info Active only; never treat Custom Fonts as GF.
+ */
+function sanitizeElementorGoogleFonts(elemInfo) {
+  if (!elemInfo || typeof elemInfo !== "object") return elemInfo;
+  if (!elementorSignalsExternalGoogleFonts(elemInfo)) {
+    elemInfo.google_fonts = false;
+  } else {
+    elemInfo.google_fonts = true;
+  }
+  return elemInfo;
+}
+
+/**
+ * True when LSCWP Remove Google Fonts is OFF and Elementor or theme signals external GF.
+ * Missing / unknown Elementor google_fonts must NOT invent Active (false/unset = no signal).
+ * Theme google_fonts:false must NOT invent Active (v2.7.2.1).
+ * Stale Elementor google_fonts:true without explicit experiment → no signal (v2.7.2.2).
+ */
+function hasExternalGoogleFonts(uploadedSettings, environment) {
+  const isLscwpGgFontsRm = uploadedSettings ? (
+    uploadedSettings.optm_ggfonts_rm === "1" || uploadedSettings.optm_ggfonts_rm === 1 ||
+    uploadedSettings["optm-ggfonts_rm"] === "1" || uploadedSettings["optm-ggfonts_rm"] === 1 ||
+    (uploadedSettings.options && (uploadedSettings.options.optm_ggfonts_rm === "1" || uploadedSettings.options["optm-ggfonts_rm"] === "1"))
+  ) : false;
+
+  const isElemGg = environment ? (
+    elementorSignalsExternalGoogleFonts(environment.elemInfo) ||
+    Boolean(environment.hasElementorGoogleFonts)
+  ) : false;
+
+  const isThemeGg = environment ? (
+    themeSignalsExternalGoogleFonts(environment.themeInfo) ||
+    Boolean(environment.hasThemeGoogleFonts)
+  ) : false;
+
+  return !isLscwpGgFontsRm && (isElemGg || isThemeGg);
 }
 
 // --- SINGLE SOURCE OF TRUTH: OPTION COMPARISON ENGINE ---
@@ -460,7 +660,8 @@ function getOptionComparison(opt, uploadedSettings, environment) {
   // Elementor/Woo/WF/Theme/Server status must NEVER be updated from LSCWP .data
   const isLitespeedTool = !opt.tool || opt.tool === "litespeed" || (opt.id && !opt.id.startsWith("elem_") && !opt.id.startsWith("woo_") && !opt.id.startsWith("wf_") && !opt.id.startsWith("theme_") && !opt.id.startsWith("php_") && !opt.id.startsWith("wp_") && opt.tool !== "elementor" && opt.tool !== "woocommerce" && opt.tool !== "wordfence" && opt.tool !== "theme" && opt.tool !== "server" && opt.tool !== "scm");
   if (!isMeasured && hasSettings && isLitespeedTool) {
-    const lscwpKey = (typeof KEY_MAPPING_TO_LSCWP !== "undefined" && KEY_MAPPING_TO_LSCWP[opt.id]) || opt.id.replace(/_/g, "-");
+    const lscwpKey = (typeof KEY_MAPPING_TO_LSCWP !== "undefined" && KEY_MAPPING_TO_LSCWP[opt.id])
+      || (opt.id && opt.id.startsWith("img_optm_") ? ("img_optm-" + opt.id.slice("img_optm_".length)) : opt.id.replace(/_/, "-"));
     
     // 1. Special direct alias & environment resolution for Object Cache
     if (opt.id === "cache_object") {
@@ -563,23 +764,101 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       rawMeasured = uploadedSettings["optm-js_defer"] !== undefined ? uploadedSettings["optm-js_defer"] : (uploadedSettings["optm_js_defer"] !== undefined ? uploadedSettings["optm_js_defer"] : (uploadedSettings["js_defer"] !== undefined ? uploadedSettings["js_defer"] : uploadedSettings["optm-js_delayed"]));
     }
     // 4. Direct match on opt.id
-    else if (uploadedSettings.hasOwnProperty(opt.id) && uploadedSettings[opt.id] !== undefined && uploadedSettings[opt.id] !== null && uploadedSettings[opt.id] !== "") {
+    else if (uploadedSettings.hasOwnProperty(opt.id) && uploadedSettings[opt.id] !== undefined && uploadedSettings[opt.id] !== null) {
+      // Present key counts as measured — "" / 0 / false are valid (e.g. empty sizes_skipped, AV)
       isMeasured = true;
       rawMeasured = uploadedSettings[opt.id];
     }
     // 5. Direct match on LiteSpeed native key alias (e.g., 'guest', 'cache-priv')
-    else if (uploadedSettings.hasOwnProperty(lscwpKey) && uploadedSettings[lscwpKey] !== undefined && uploadedSettings[lscwpKey] !== null && uploadedSettings[lscwpKey] !== "") {
+    else if (uploadedSettings.hasOwnProperty(lscwpKey) && uploadedSettings[lscwpKey] !== undefined && uploadedSettings[lscwpKey] !== null) {
       isMeasured = true;
       rawMeasured = uploadedSettings[lscwpKey];
     }
     // 6. Nested within uploadedSettings.options or uploadedSettings.data
     else if (uploadedSettings.options && typeof uploadedSettings.options === "object") {
-      if (uploadedSettings.options.hasOwnProperty(opt.id) && uploadedSettings.options[opt.id] !== undefined && uploadedSettings.options[opt.id] !== null && uploadedSettings.options[opt.id] !== "") {
+      if (uploadedSettings.options.hasOwnProperty(opt.id) && uploadedSettings.options[opt.id] !== undefined && uploadedSettings.options[opt.id] !== null) {
         isMeasured = true;
         rawMeasured = uploadedSettings.options[opt.id];
-      } else if (uploadedSettings.options.hasOwnProperty(lscwpKey) && uploadedSettings.options[lscwpKey] !== undefined && uploadedSettings.options[lscwpKey] !== null && uploadedSettings.options[lscwpKey] !== "") {
+      } else if (uploadedSettings.options.hasOwnProperty(lscwpKey) && uploadedSettings.options[lscwpKey] !== undefined && uploadedSettings.options[lscwpKey] !== null) {
         isMeasured = true;
         rawMeasured = uploadedSettings.options[lscwpKey];
+      }
+    }
+    // 6b. img_optm_* alias + options (runs if still unmeasured; accept "" / 0 / "0" / false)
+    if (!isMeasured && opt.id && opt.id.startsWith("img_optm_")) {
+      const hyphenForm = (typeof KEY_MAPPING_TO_LSCWP !== "undefined" && KEY_MAPPING_TO_LSCWP[opt.id])
+        || ("img_optm-" + opt.id.slice("img_optm_".length));
+      const candidates = [opt.id, hyphenForm];
+      const pick = (obj) => {
+        if (!obj || typeof obj !== "object") return undefined;
+        for (const k of candidates) {
+          // Key present (own property) → measured, even when value is "" / 0 / "0" / false
+          if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined && obj[k] !== null) {
+            return obj[k];
+          }
+        }
+        return undefined;
+      };
+      let v = pick(uploadedSettings);
+      if (v === undefined && uploadedSettings.options) v = pick(uploadedSettings.options);
+      if (v !== undefined) {
+        isMeasured = true;
+        rawMeasured = v;
+      }
+    }
+    // 6c. media_webp: if HTML-replace key absent but Next-Gen (img_optm-webp) exists → measure as AV (Next-Gen may cover)
+    if (!isMeasured && opt.id === "media_webp") {
+      const pickOwn = (obj, keys) => {
+        if (!obj || typeof obj !== "object") return undefined;
+        for (const k of keys) {
+          if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined && obj[k] !== null) {
+            return obj[k];
+          }
+        }
+        return undefined;
+      };
+      const imgKeys = ["img_optm_webp", "img_optm-webp"];
+      let imgVal = pickOwn(uploadedSettings, imgKeys);
+      if (imgVal === undefined && uploadedSettings.options) imgVal = pickOwn(uploadedSettings.options, imgKeys);
+      if (imgVal !== undefined) {
+        const mediaKeys = ["media_webp", "media-webp"];
+        let mediaVal = pickOwn(uploadedSettings, mediaKeys);
+        if (mediaVal === undefined && uploadedSettings.options) mediaVal = pickOwn(uploadedSettings.options, mediaKeys);
+        isMeasured = true;
+        // Absent HTML replacement = off; display branch shows "AV (Next-Gen täcker)" when nextGenOn
+        rawMeasured = mediaVal !== undefined ? mediaVal : "0";
+      }
+    }
+    // 6d. crawler_usleep: if usleep key absent but crawler is present and OFF → measure inactive
+    // Prefer inactive-when-crawler-off only; crawler ON + usleep absent → leave unmeasured (honest)
+    if (!isMeasured && opt.id === "crawler_usleep") {
+      const pickOwn = (obj, keys) => {
+        if (!obj || typeof obj !== "object") return undefined;
+        for (const k of keys) {
+          if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== undefined && obj[k] !== null) {
+            return obj[k];
+          }
+        }
+        return undefined;
+      };
+      const usleepKeys = ["crawler_usleep", "crawler-usleep", "crawler-crawl_interval", "crawler_crawl_interval"];
+      let usleepVal = pickOwn(uploadedSettings, usleepKeys);
+      if (usleepVal === undefined && uploadedSettings.options) usleepVal = pickOwn(uploadedSettings.options, usleepKeys);
+      if (usleepVal !== undefined) {
+        isMeasured = true;
+        rawMeasured = usleepVal;
+      } else {
+        const crawlerKeys = ["crawler"];
+        let cVal = pickOwn(uploadedSettings, crawlerKeys);
+        if (cVal === undefined && uploadedSettings.options) cVal = pickOwn(uploadedSettings.options, crawlerKeys);
+        if (cVal !== undefined) {
+          const crawlerOff = (cVal === "0" || cVal === 0 || cVal === false || cVal === "off" || cVal === "Off");
+          if (crawlerOff) {
+            isMeasured = true;
+            rawMeasured = "0";
+          }
+          // crawler ON but usleep absent → leave unmeasured
+        }
       }
     }
     // 7. v2.6.9: Do NOT invent measurements from LSCWP_NATIVE_DEFAULTS.
@@ -681,6 +960,20 @@ function getOptionComparison(opt, uploadedSettings, environment) {
         isMatches = true;
         currentDisplay = (rawMeasured && rawMeasured.toString().trim().length > 0) ? "Matchar LS-rek (Anpassad)" : "Standard (Ej e-handel)";
       }
+    } else if (opt.id === "optm_dns_prefetch") {
+      // Soft-match satellit: när Remove GF är PÅ eller inga externa GF bekräftats → Optimal/Inaktiv
+      // (samma hasExternalGoogleFonts-helper som optm_ggfonts_async).
+      const hasExternalGg = hasExternalGoogleFonts(uploadedSettings, environment);
+      if (!hasExternalGg) {
+        isMatches = true;
+        currentDisplay = "Inaktiv (inga externa Google Fonts)";
+        recommendedDisplay = "Inaktiv (inga externa Google Fonts)";
+        missingExclusions = [];
+      } else {
+        isMatches = missingExclusions.length === 0;
+        currentDisplay = isMatches ? "Matchar LS-rek" : "Avviker från LS-rek";
+        recommendedDisplay = "Komplett LS-rek (fonts.googleapis / fonts.gstatic)";
+      }
     } else {
       isMatches = missingExclusions.length === 0;
       currentDisplay = isMatches ? "Matchar LS-rek" : "Avviker från LS-rek";
@@ -766,6 +1059,21 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       recommendedDisplay = "AV (typisk admin-only)";
     }
 
+  } else if (opt.id === "media_lazy") {
+    // WP Native Lazy (media_lazy AV / 0): always Optimal/Policy — no score hit for intentional WP Native.
+    // LiteSpeed Lazy ON is evaluated against Elementor-aware recommendation (AV when Elementor present).
+    const measLazy = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    const targetLazy = (rec === "1" || rec === 1 || rec === "on" || rec === true) ? 1 : 0;
+    if (measLazy === 0) {
+      isMatches = true;
+      currentDisplay = "AV (WP Native Lazy)";
+      recommendedDisplay = "AV (WP Native) · eller PÅ med LCP-exclude";
+    } else {
+      isMatches = (measLazy === targetLazy);
+      currentDisplay = "PÅ (LiteSpeed Lazy)";
+      recommendedDisplay = targetLazy === 1 ? "PÅ (med LCP-exclude)" : "AV (WP Native / undvik dubbel lazy)";
+    }
+
   } else if (opt.id === "optm_ggfonts_rm") {
     // Policy setting: PÅ om sajten blockerar Google Fonts / kör lokala typsnitt (GDPR-säkert).
     // AV om Google Fonts används på sajten.
@@ -820,25 +1128,8 @@ function getOptionComparison(opt, uploadedSettings, environment) {
 
   } else if (opt.id === "optm_ggfonts_async") {
     // Ladda Google Fonts asynkront är endast relevant om externa Google Fonts faktiskt används på sajten.
-    // När sajten inte använder externa Google Fonts (antingen för att optm_ggfonts_rm är PÅ, eller för att
-    // varken Elementor eller temat flaggar Google Fonts-användning) utvärderas detta som Optimalt/inaktivt.
-    const isLscwpGgFontsRm = uploadedSettings ? (
-      uploadedSettings.optm_ggfonts_rm === "1" || uploadedSettings.optm_ggfonts_rm === 1 ||
-      uploadedSettings["optm-ggfonts_rm"] === "1" || uploadedSettings["optm-ggfonts_rm"] === 1 ||
-      (uploadedSettings.options && (uploadedSettings.options.optm_ggfonts_rm === "1" || uploadedSettings.options["optm-ggfonts_rm"] === "1"))
-    ) : false;
-
-    const isElemGg = environment ? (
-      (environment.elemInfo && (environment.elemInfo.google_fonts === true || environment.elemInfo.google_fonts === "1" || environment.elemInfo.google_fonts === "active" || environment.elemInfo.google_fonts === "enabled")) ||
-      Boolean(environment.hasElementorGoogleFonts)
-    ) : false;
-
-    const isThemeGg = environment ? (
-      (environment.themeInfo && (JSON.stringify(environment.themeInfo).toLowerCase().includes("google_fonts") || JSON.stringify(environment.themeInfo).toLowerCase().includes("fonts.googleapis.com"))) ||
-      Boolean(environment.hasThemeGoogleFonts)
-    ) : false;
-
-    const hasExternalGg = !isLscwpGgFontsRm && (isElemGg || isThemeGg);
+    // Delad helper med optm_dns_prefetch så satelliterna inte kan motsäga varandra.
+    const hasExternalGg = hasExternalGoogleFonts(uploadedSettings, environment);
     const measGgAsync = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
 
     if (!hasExternalGg) {
@@ -849,6 +1140,157 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       isMatches = (measGgAsync === 1);
       currentDisplay = measGgAsync === 1 ? "PÅ" : "AV";
       recommendedDisplay = "PÅ";
+    }
+
+  } else if (opt.id === "domain_key") {
+    const rawKey = String(rawMeasured !== null && rawMeasured !== undefined ? rawMeasured : "").trim();
+    const connected = rawKey.length > 5 && rawKey !== "0" && rawKey !== "1";
+    isMatches = true; // status/read-only — never score
+    currentDisplay = connected ? ("Ansluten (" + maskSecretKey(rawKey) + ")") : "Ej ansluten";
+    recommendedDisplay = "QUIC.cloud Domain Key (maskad)";
+
+  } else if (opt.id === "cdn" || opt.id === "cdn_quic" || opt.id === "cdn_cloudflare") {
+    const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    isMatches = true; // status/policy — no score hit
+    currentDisplay = meas === 1 ? "PÅ" : "AV";
+    recommendedDisplay = "Status (Policy/Context)";
+
+  } else if (opt.id === "img_optm_auto") {
+    const hasQuic = !!(uploadedSettings && (
+      (typeof uploadedSettings.domain_key === "string" && uploadedSettings.domain_key.length > 5) ||
+      (typeof uploadedSettings.hash === "string" && uploadedSettings.hash.length > 5)
+    ));
+    const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    if (hasQuic) {
+      isMatches = (meas === 1);
+      currentDisplay = meas === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "PÅ (QUIC ansluten)";
+    } else {
+      isMatches = true; // soft without key
+      currentDisplay = meas === 1 ? "PÅ (utan QUIC-nyckel)" : "AV (policy/context)";
+      recommendedDisplay = "Policy: PÅ när QUIC ansluten";
+    }
+
+  } else if (opt.id === "img_optm_rm_bkup") {
+    const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    // AV recommended; PÅ is informational (🚨 alert elsewhere), not score collapse
+    isMatches = true;
+    currentDisplay = meas === 1 ? "PÅ (🚨 oåterkalleligt)" : "AV";
+    recommendedDisplay = "AV (behåll säkerhetskopior)";
+
+  } else if (opt.id === "img_optm_lossless" || opt.id === "img_optm_exif" || opt.id === "img_optm_sizes_skipped" || opt.id === "img_optm_webp_attr") {
+    // Policy / soft — never hard deviation score
+    isMatches = true;
+    if (opt.id === "img_optm_sizes_skipped" || opt.id === "img_optm_webp_attr") {
+      const rawStr = String(rawMeasured !== null && rawMeasured !== undefined ? rawMeasured : "").trim();
+      const lines = rawStr ? rawStr.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean).length : 0;
+      currentDisplay = lines > 0 ? ("Lista (" + lines + " rader)") : "Tom / Standard";
+      recommendedDisplay = "Policy / LS-standardlista";
+    } else {
+      const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+      currentDisplay = meas === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "Policy/Context";
+    }
+
+  } else if (opt.id === "img_optm_webp") {
+    // Next-Gen format: 0=AV, 1=WebP, 2=AVIF — WebP (1) rek; soft/policy, avoid double yellow with media_webp
+    let measVal = 0;
+    if (rawMeasured === "2" || rawMeasured === 2) measVal = 2;
+    else if (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) measVal = 1;
+    const mediaWebpOn = !!(uploadedSettings && (
+      uploadedSettings.media_webp === "1" || uploadedSettings.media_webp === 1 ||
+      uploadedSettings["media-webp"] === "1" || uploadedSettings["media-webp"] === 1
+    ));
+    // Soft match: if WebP generation ON (1) OR media HTML replace ON with same intent → Optimal
+    if (measVal === 1 || (measVal === 0 && mediaWebpOn)) {
+      isMatches = true;
+    } else if (measVal === 2) {
+      isMatches = true; // AVIF intentional / paid — policy
+    } else {
+      isMatches = true; // policy default — no hard yellow; info alert if needed
+    }
+    currentDisplay = measVal === 2 ? "AVIF (2)" : (measVal === 1 ? "WebP (1)" : "AV (0)");
+    recommendedDisplay = "WebP (1) · Policy";
+
+  } else if (opt.id === "img_optm_ori" || opt.id === "img_optm_webp_replace_srcset") {
+    const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    const target = (rec === "1" || rec === 1 || rec === "on" || rec === true) ? 1 : 0;
+    // Soft/policy — scoreImpact 0 via isMatches true when aligned OR context
+    const nextGenOn = !!(uploadedSettings && (
+      uploadedSettings.img_optm_webp === "1" || uploadedSettings.img_optm_webp === 1 || uploadedSettings.img_optm_webp === "2" || uploadedSettings.img_optm_webp === 2 ||
+      uploadedSettings["img_optm-webp"] === "1" || uploadedSettings["img_optm-webp"] === 1 || uploadedSettings["img_optm-webp"] === "2" || uploadedSettings["img_optm-webp"] === 2
+    ));
+    if (opt.id === "img_optm_webp_replace_srcset" && !nextGenOn && meas === 0) {
+      isMatches = true;
+      currentDisplay = "AV (Inaktiv utan Next-Gen)";
+      recommendedDisplay = "PÅ om Next-Gen PÅ";
+    } else {
+      isMatches = true; // policy — avoid score collapse
+      currentDisplay = meas === 1 ? "PÅ" : "AV";
+      recommendedDisplay = target === 1 ? "PÅ (Policy)" : "AV (Policy)";
+    }
+
+  } else if (opt.id === "media_webp") {
+    // HTML replacement vs QUIC next-gen generation — soft match when either path fulfills intent
+    const meas = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    const _opts = uploadedSettings && uploadedSettings.options && typeof uploadedSettings.options === "object" ? uploadedSettings.options : null;
+    const imgOptmWebp = uploadedSettings ? (
+      uploadedSettings.img_optm_webp !== undefined && uploadedSettings.img_optm_webp !== null ? uploadedSettings.img_optm_webp :
+      (uploadedSettings["img_optm-webp"] !== undefined && uploadedSettings["img_optm-webp"] !== null ? uploadedSettings["img_optm-webp"] :
+      (_opts && _opts.img_optm_webp !== undefined && _opts.img_optm_webp !== null ? _opts.img_optm_webp :
+      (_opts && _opts["img_optm-webp"] !== undefined && _opts["img_optm-webp"] !== null ? _opts["img_optm-webp"] : null)))
+    ) : null;
+    const nextGenOn = (imgOptmWebp === "1" || imgOptmWebp === 1 || imgOptmWebp === "2" || imgOptmWebp === 2);
+    if (meas === 1 || nextGenOn) {
+      isMatches = true;
+      currentDisplay = meas === 1 ? "PÅ (HTML-ersättning)" : "AV (Next-Gen täcker)";
+    } else {
+      isMatches = true; // soft — prefer info over yellow double-flag
+      currentDisplay = "AV";
+    }
+    recommendedDisplay = "PÅ (HTML) · eller Next-Gen";
+
+  } else if (opt.id === "crawler") {
+    // LiteSpeed server + crawler OFF → Policy/Context (shared/unknown hosting; ingen tillförlitlig VPS-signal).
+    // Crawler ON → Optimal. Non-LS rekommenderar AV (befintligt beteende).
+    const measCrawl = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    const isLs = !!(environment && environment.isLiteSpeedServer);
+    if (isLs) {
+      if (measCrawl === 1) {
+        isMatches = true;
+        currentDisplay = "PÅ";
+        recommendedDisplay = "PÅ";
+      } else {
+        isMatches = true; // Policy — not hard Avvikelse; scoreImpact already 0
+        currentDisplay = "AV (Policy: valfri på shared)";
+        recommendedDisplay = "Policy: valfri på shared; rekommenderas på VPS/dedicated om hosten tillåter";
+      }
+    } else {
+      isMatches = (measCrawl === 0);
+      currentDisplay = measCrawl === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "AV";
+    }
+
+  } else if (opt.id === "crawler_usleep") {
+    const pickCrawler = (obj) => {
+      if (!obj || typeof obj !== "object") return undefined;
+      if (Object.prototype.hasOwnProperty.call(obj, "crawler") && obj.crawler !== undefined && obj.crawler !== null) return obj.crawler;
+      return undefined;
+    };
+    let cVal = uploadedSettings ? pickCrawler(uploadedSettings) : undefined;
+    if (cVal === undefined && uploadedSettings && uploadedSettings.options) cVal = pickCrawler(uploadedSettings.options);
+    const crawlerOn = (cVal === "1" || cVal === 1 || cVal === true || cVal === "on");
+    const crawlerOff = (cVal === "0" || cVal === 0 || cVal === false || cVal === "off" || cVal === "Off");
+    if (!crawlerOn && (crawlerOff || rawMeasured === "0" || rawMeasured === 0 || rawMeasured === "")) {
+      isMatches = true;
+      currentDisplay = "Inaktiv (Crawler AV)";
+      recommendedDisplay = "Inaktiv när Crawler AV";
+    } else {
+      currentDisplay = String(rawMeasured !== null && rawMeasured !== undefined ? rawMeasured : "Ej satt");
+      recommendedDisplay = String(rec) + " µs";
+      const n = Number(rawMeasured);
+      const r = Number(rec);
+      isMatches = (!isNaN(n) && !isNaN(r)) ? (n === r) : (String(rawMeasured) === String(rec));
     }
 
   } else if (typeof rec === "string" && rec !== "1" && rec !== "0") {
@@ -865,7 +1307,7 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     recommendedDisplay = targetNorm === 1 ? "PÅ" : "AV";
   }
 
-  const isPolicyContext = (opt.id === "cache_priv" && isMatches && String(currentDisplay).includes("policy")) || (opt.id === "optm_ggfonts_rm");
+  const isPolicyContext = (opt.id === "cache_priv" && isMatches && String(currentDisplay).includes("policy")) || (opt.id === "optm_ggfonts_rm") || (opt.id === "media_lazy" && isMatches && String(currentDisplay).includes("WP Native")) || (opt.id === "cdn" || opt.id === "cdn_quic" || opt.id === "cdn_cloudflare" || opt.id === "domain_key" || opt.id === "img_optm_lossless" || opt.id === "img_optm_exif" || opt.id === "img_optm_sizes_skipped" || opt.id === "img_optm_webp_attr" || opt.id === "img_optm_rm_bkup" || opt.id === "img_optm_webp" || opt.id === "img_optm_ori" || opt.id === "img_optm_webp_replace_srcset" || (opt.id === "img_optm_auto" && String(currentDisplay).toLowerCase().includes("policy")) || (opt.id === "media_webp" && isMatches) || (opt.id === "crawler" && isMatches && String(currentDisplay).includes("Policy")) || (opt.id === "crawler_usleep" && isMatches && String(currentDisplay).includes("Inaktiv")));
 
   return {
     id: opt.id,
@@ -925,16 +1367,16 @@ const BENCHMARK_VERSIONS = {
   },
   ctm: {
     name: "Consent & Tag Manager (CTM)",
-    benchmarkVersion: "2.6.10.3",
-    latestRelease: "2.6.10.3",
+    benchmarkVersion: "1.9.0",
+    latestRelease: "1.9.0",
     releaseDate: "2026-09-24",
     changelogSummary: "Egenutvecklad ersättare för GTM4WP, Complianz och PixelYourSite med noll externa beroenden.",
     docsUrl: "https://arewee.se/ctm-docs"
   },
   scm: {
     name: "SCM (Site Code Manager)",
-    benchmarkVersion: "2.6.10.3",
-    latestRelease: "2.6.10.3",
+    benchmarkVersion: "1.4.1",
+    latestRelease: "1.4.1",
     auditDate: "2026-09-24",
     source: "SCM Source Manual & Code Standards",
     url: "internal://site-code-manager"
@@ -1114,7 +1556,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     hasUploadedSettings: !!(uploadedSettings && Object.keys(uploadedSettings).length > 0),
     wooInfo: wooInfo || null,
     wfInfo: wfInfo || null,
-    elemInfo: elemInfo || null,
+    elemInfo: elemInfo ? sanitizeElementorGoogleFonts(elemInfo) : null,
     themeInfo: themeInfo || null,
     scmInfo: scmInfo || null
   };
@@ -1164,17 +1606,20 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       environment.lscwpVersion = pVer;
       if (pLatest) environment.lscwpLatestReported = pLatest;
     }
-    if (kLower.includes("woocommerce") && !kLower.includes("gateway") && !kLower.includes("addon")) {
+    // v2.7.1.6: exact core match only (slug/name), never substring "woocommerce"/"elementor"
+    if (isCoreWooCommercePlugin(k)) {
       environment.hasWooCommerce = true;
       environment.wooVersion = pVer;
       if (pLatest) environment.wooLatestReported = pLatest;
     }
-    if (kLower.includes("elementor")) {
+    if (isCoreElementorPlugin(k)) {
       environment.hasElementor = true;
-      if (!environment.elemVersion || !kLower.includes("pro")) {
-        environment.elemVersion = pVer;
-      }
+      environment.elemVersion = pVer;
       if (pLatest) environment.elemLatestReported = pLatest;
+    } else if (kLower.includes("elementor")) {
+      // Presence of Elementor Pro / addons still marks Elementor ecosystem active,
+      // but must not overwrite core Elementor version.
+      environment.hasElementor = true;
     }
     if (kLower.includes("wordfence")) {
       environment.hasWordfence = true;
@@ -1627,6 +2072,101 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       targetSettingId: "media_lazy",
       impactCategory: "stability",
       criticalLevel: "high"
+    });
+  }
+
+  // --- D1b. Single collective LCP/Hero exclude warning when LiteSpeed Lazy is ON ---
+  // Max ONE warning (−7) for missing logo/hero/LCP excludes — no overlapping media warnings for the same gap.
+  if (isLscwpLazy) {
+    const lazyExcRaw = uploadedSettings
+      ? (uploadedSettings.media_lazy_exc !== undefined ? uploadedSettings.media_lazy_exc
+        : (uploadedSettings["media-lazy_exc"] !== undefined ? uploadedSettings["media-lazy_exc"]
+          : (uploadedSettings["media-lazy-exc"] !== undefined ? uploadedSettings["media-lazy-exc"]
+            : (uploadedSettings.media_lazy_exclude !== undefined ? uploadedSettings.media_lazy_exclude : ""))))
+      : "";
+    const lazyExcStr = Array.isArray(lazyExcRaw) ? lazyExcRaw.join("\n") : String(lazyExcRaw || "");
+    const excLower = lazyExcStr.toLowerCase();
+    const hasMeaningfulLcpExclude = /logo/.test(excLower) || /hero|header|banner|lcp|above.?fold|site-branding|custom-logo/.test(excLower);
+    if (!hasMeaningfulLcpExclude) {
+      alerts.push({
+        id: "media_lazy_exc_missing",
+        type: "warning",
+        icon: "🖼️",
+        component: "litespeed",
+        components: ["litespeed"],
+        title: "LiteSpeed Lazy Load saknar LCP/Hero-exkludering",
+        desc: "LiteSpeed Lazy Load är PÅ men media_lazy_exc saknar meningsfulla undantag för logotyp, hero eller LCP-bild. Above-the-fold-bilder får inte lazy-loadas — lägg till logo/header/hero i exkluderingen (flik Media & LCP).",
+        source: "Google Core Web Vitals (LCP) & LiteSpeed Page Optimization",
+        compatibility: "En enda samlad varning (−7). Lägg till logo/header/hero i media_lazy_exc för omedelbar LCP-render.",
+        wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Sidoptimering ➔ [5] Media & LCP ➔ Lazy Load Excludes",
+        targetTabId: "page_optimization_media",
+        targetSettingId: "media_lazy_exc",
+        impactCategory: "performance",
+        criticalLevel: "high"
+      });
+    }
+  }
+
+  // --- D1c. Image Optimization info alerts (scoreImpact: 0) ---
+  const hasQuicDomainKey = !!(uploadedSettings && (
+    (typeof uploadedSettings.domain_key === "string" && uploadedSettings.domain_key.length > 5) ||
+    (typeof uploadedSettings.hash === "string" && uploadedSettings.hash.length > 5)
+  ));
+  const getImgVal = (us, underscore, hyphen) => {
+    if (!us) return null;
+    if (us[underscore] !== undefined) return us[underscore];
+    if (us[hyphen] !== undefined) return us[hyphen];
+    if (us.options && typeof us.options === "object") {
+      if (us.options[underscore] !== undefined) return us.options[underscore];
+      if (us.options[hyphen] !== undefined) return us.options[hyphen];
+    }
+    return null;
+  };
+  const imgAuto = getImgVal(uploadedSettings, "img_optm_auto", "img_optm-auto");
+  const imgOri = getImgVal(uploadedSettings, "img_optm_ori", "img_optm-ori");
+  const imgWebp = getImgVal(uploadedSettings, "img_optm_webp", "img_optm-webp");
+  const imgRmBkup = getImgVal(uploadedSettings, "img_optm_rm_bkup", "img_optm-rm_bkup");
+  const imgOptmOn = (
+    imgAuto === "1" || imgAuto === 1 ||
+    imgOri === "1" || imgOri === 1 ||
+    imgWebp === "1" || imgWebp === 1 || imgWebp === "2" || imgWebp === 2
+  );
+  if (imgRmBkup === "1" || imgRmBkup === 1) {
+    alerts.push({
+      id: "img_optm_rm_bkup_on",
+      type: "info",
+      icon: "🚨",
+      component: "litespeed",
+      components: ["litespeed"],
+      title: "🚨 Bildoptimering: Ta bort ursprungliga säkerhetskopior är PÅ",
+      desc: "img_optm-rm_bkup är aktiverat. Originalbilder raderas oåterkalleligt efter optimering. Rekommendation: AV på produktion. Detta är en info-alert — ingen danger-poängkollaps.",
+      source: "LiteSpeed Image Optimization & AreWee Media Policy",
+      compatibility: "scoreImpact: 0 — informativ varning om oåterkallelig dataförlust.",
+      wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Ta bort ursprungliga säkerhetskopior",
+      targetTabId: "image_optimization",
+      targetSettingId: "img_optm_rm_bkup",
+      impactCategory: "stability",
+      criticalLevel: "standard",
+      scoreImpact: 0
+    });
+  }
+  if (!hasQuicDomainKey && imgOptmOn) {
+    alerts.push({
+      id: "img_optm_without_quic_key",
+      type: "info",
+      icon: "🔑",
+      component: "litespeed",
+      components: ["litespeed"],
+      title: "Bildoptimering PÅ utan QUIC Domain Key",
+      desc: "En eller flera Image Optimization-spakar är PÅ men Domain Key saknas. Anslut QUIC.cloud under General ➔ Domain Key för att cron/next-gen ska fungera.",
+      source: "LiteSpeed QUIC.cloud Image Optimization",
+      compatibility: "scoreImpact: 0 — informativ; ingen poängkollaps.",
+      wpPath: "LiteSpeed Cache ➔ General ➔ Domain Key / Online Services",
+      targetTabId: "image_optimization",
+      targetSettingId: "img_optm_auto",
+      impactCategory: "performance",
+      criticalLevel: "standard",
+      scoreImpact: 0
     });
   }
 
@@ -2145,7 +2685,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     {
       id: "wp_system",
       name: "WP-system",
-      icon: "📝",
+      icon: "🖥️",
       version: environment.wpVersion !== "Okänd" ? `v${environment.wpVersion}` : "Inläst",
       status: "optimal",
       active: true,
@@ -2202,7 +2742,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       id: "scm",
       name: "SCM",
       icon: "🔌",
-      version: "v2.6.10.3",
+      version: `v${BENCHMARK_VERSIONS.scm.latestRelease}`,
       status: (environment.hasSCM || scmInfo) ? "optimal" : "neutral",
       active: Boolean(environment.hasSCM || scmInfo),
       subtext: scmInfo ? `${scmInfo.snippets ? scmInfo.snippets.length : 0} snippets granskade` : (environment.hasSCM ? "Aktiv källkod" : "Ej inläst")
@@ -2211,7 +2751,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       id: "ctm",
       name: "CTM",
       icon: "🛡️",
-      version: "v2.6.10.3",
+      version: `v${BENCHMARK_VERSIONS.ctm.latestRelease}`,
       status: environment.hasCTM ? "optimal" : "neutral",
       active: Boolean(environment.hasCTM),
       subtext: environment.hasCTM ? "Aktiv samtyckesmotor" : "Ej inläst"
@@ -2279,8 +2819,8 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     lsGgState = "PÅ (Async)";
   }
 
-  const isElemGgFonts = elemInfo ? (elemInfo.google_fonts === true || elemInfo.google_fonts === "1" || elemInfo.google_fonts === "active" || elemInfo.google_fonts === "enabled") : false;
-  const isThemeGgFonts = themeInfo ? (JSON.stringify(themeInfo).toLowerCase().includes("google_fonts") || JSON.stringify(themeInfo).toLowerCase().includes("fonts.googleapis.com")) : false;
+  const isElemGgFonts = elementorSignalsExternalGoogleFonts(elemInfo);
+  const isThemeGgFonts = themeSignalsExternalGoogleFonts(themeInfo) || Boolean(environment && environment.hasThemeGoogleFonts);
   
   let ggStatus = "optimal";
   let ggStatusText = "Optimal";
@@ -2396,7 +2936,7 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
     defaultCssExclude += "\nwp-content/uploads/elementor/css/*";
   }
 
-  function makeOpt(id, title, recommendedRaw, desc, criticalLevel, impactCategory, citations, singleSourceInfo, tool, customSources, alternatives) {
+  function makeOpt(id, title, recommendedRaw, desc, criticalLevel, impactCategory, citations, singleSourceInfo, tool, customSources, alternatives, extra) {
     const activeTool = tool || "litespeed";
     const optObj = { id, title, tool: activeTool, recommendedRaw, criticalLevel: criticalLevel || "standard" };
     const comp = getOptionComparison(optObj, uploadedSettings, env);
@@ -2604,6 +3144,7 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
       }
     }
 
+    const extraProps = (extra && typeof extra === "object") ? extra : {};
     return {
       id,
       title,
@@ -2622,7 +3163,10 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
         consensus: sources.domain.text
       },
       alternatives: alternatives || null,
-      isTextarea: (id === "drop_uri" || id === "js_exclude" || id === "css_exclude" || id === "media_lazy_exc" || id === "js_delayed_exclude" || id === "optm_dns_prefetch")
+      isTextarea: (id === "drop_uri" || id === "js_exclude" || id === "css_exclude" || id === "media_lazy_exc" || id === "js_delayed_exclude" || id === "optm_dns_prefetch"),
+      wpPath: extraProps.wpPath || null,
+      scoreImpact: (extraProps.scoreImpact !== undefined) ? extraProps.scoreImpact : undefined,
+      readOnly: !!extraProps.readOnly
     };
   }
 
@@ -2647,14 +3191,18 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
         makeOpt(
           "domain_key",
           "Domännyckel (QUIC.cloud)",
-          (uploadedSettings && typeof uploadedSettings.domain_key === "string") ? uploadedSettings.domain_key : "",
-          "Visar ansluten QUIC.cloud domännyckel för bildoptimering och CCSS. Genereras i WP Admin.",
+          (uploadedSettings && typeof uploadedSettings.domain_key === "string" && uploadedSettings.domain_key.length > 5)
+            ? maskSecretKey(uploadedSettings.domain_key)
+            : "",
+          "Visar ansluten QUIC.cloud domännyckel (maskad) för bildoptimering och CCSS. Full nyckel visas aldrig i UI/export.",
           "standard",
           "performance",
           {
             litespeed: "QUIC.cloud Integration: Krävs för externa molntjänster som CCSS-generering, LQIP och bildoptimering.",
             consensus: "Officiell LiteSpeed Docs: Genereras säkert via LSCWP Dashboard i WordPress Admin."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ General ➔ Domain Key / Online Services", scoreImpact: 0, readOnly: true }
         ),
         makeOpt(
           "guest_mode",
@@ -3097,10 +3645,10 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
       ]
     },
 
-    // --- TAB 5: Page Optimization - HTML & Media ---
+    // --- TAB 5: Media & LCP-optimering ---
     {
       id: "page_optimization_media",
-      title: "⚡ [5] Sidopt. Media",
+      title: "🖼️ [5] Media & LCP",
       options: [
         makeOpt(
           "media_lazy",
@@ -3121,7 +3669,9 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
             whyRecommended: "LiteSpeed genererar Low Quality Image Placeholders (LQIP) och responsiva SVG-platshållare på servernivå utan att belasta webbläsarens JS-tråd.",
             actionOtherTools: "Om du använder Elementor: Sätt Elementor 'Lazy Load Background Images' till Inaktiv för att undvika dubbla platshållare. Om du föredrar WP Core default: Låt WP Native HTML5 loading='lazy' styra och håll Elementors experiment inaktivt.",
             actionForSecondary: "Om du använder Elementor: Sätt Elementor 'Lazy Load Background Images' till Inaktiv för att undvika dubbla platshållare. Om du föredrar WP Core default: Låt WP Native HTML5 loading='lazy' styra och håll Elementors experiment inaktivt."
-          }
+          },
+          "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ [5] Media & LCP ➔ Lazy Load för bilder", scoreImpact: 0 }
         ),
         makeOpt(
           "media_lazy_exc",
@@ -3133,19 +3683,23 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP Lazy Exclude: Förhindrar att utvalda klasser/taggar (t.ex. logo, hero) lazy-loadas.",
             consensus: "Google Core Web Vitals (LCP): Hero-bilder och logotyper som syns ovanför viket (Above the Fold) får ALDRIG lazy-loadas."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ [5] Media & LCP ➔ Lazy Load Excludes", scoreImpact: 0 }
         ),
         makeOpt(
           "media_webp",
-          "WebP / AVIF Bildersättning",
+          "WebP / AVIF Bildersättning (HTML)",
           1,
-          "Ersätter automatiskt JPG/PNG med komprimerade nästa generations bildformat (WebP).",
+          "HTML-ersättning: byter JPG/PNG-URL:er i HTML till WebP/AVIF via rewrite. Skiljer sig från Bildoptimering → Next-Gen Image Format (QUIC genererar filer). Soft match om Next-Gen redan är PÅ — undvik dubbel gulflaggning.",
           "standard",
           "performance",
           {
-            litespeed: "LSCWP WebP Replacement: Serverar WebP-bilder med fallback till JPG/PNG via .htaccess rewrite rules.",
-            consensus: "Google Web Dev (Modern Image Formats): WebP/AVIF minskar bildvikten med 30-50% utan visuell kvalitetsförlust."
-          }
+            litespeed: "LSCWP Media WebP Replacement (media-webp): Serverar WebP via HTML/rewrite — inte samma sak som img_optm-webp (QUIC next-gen generation).",
+            consensus: "Google Web Dev (Modern Image Formats): WebP/AVIF minskar bildvikten med 30-50%. Använd HTML-ersättning OCH/ELLER QUIC-generering beroende på setup."
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ [5] Media & LCP ➔ WebP/AVIF Replacement", scoreImpact: 0 }
         ),
         makeOpt(
           "media_vpi",
@@ -3157,8 +3711,203 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP VPI: Skapar automatisk viewport-exkludering för kritiska bilder.",
             consensus: "Web Vitals Best Practice: Bra komplement om LiteSpeed Lazy Load körs."
-          }
-        ),
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ [5] Media & LCP ➔ VPI (Viewport Images)", scoreImpact: 0 }
+        )
+      ]
+    },
+
+    // --- TAB 6: Bildoptimering (Image Optimization / QUIC) ---
+    {
+      id: "image_optimization",
+      title: "🖼️ [6] Bildoptimering",
+      options: (function () {
+        const hasQuicKey = !!(uploadedSettings && (
+          (typeof uploadedSettings.domain_key === "string" && uploadedSettings.domain_key.length > 5) ||
+          (typeof uploadedSettings.hash === "string" && uploadedSettings.hash.length > 5)
+        ));
+        const defaultWebpAttr = "img.src\ndiv.data-bg\nimg.data-src\nimg.srcset\nsource.srcset\ndiv.data-thumb\nimg.data-large_image\ndiv.data-large_image\nimg.data-background\ndiv.data-background";
+        return [
+          makeOpt(
+            "cdn",
+            "CDN aktiv",
+            (uploadedSettings && (uploadedSettings.cdn === "1" || uploadedSettings.cdn === 1 || uploadedSettings["cdn"] === "1")) ? 1 : 0,
+            "Status: om LiteSpeed CDN-modulen är PÅ. Read-only-liknande statusrad.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP CDN Settings: Aktiverar CDN-mappning för statiska resurser.",
+              consensus: "CDN Best Practice: Policy/context beroende på hosting och QUIC/Cloudflare-setup."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ CDN ➔ CDN Settings", scoreImpact: 0, readOnly: true }
+          ),
+          makeOpt(
+            "cdn_quic",
+            "QUIC.cloud CDN",
+            (uploadedSettings && (uploadedSettings.cdn_quic === "1" || uploadedSettings.cdn_quic === 1 || uploadedSettings["cdn-quic"] === "1" || uploadedSettings["cdn-quic"] === 1)) ? 1 : 0,
+            "Status: QUIC.cloud CDN-tjänst. Komplement till Domain Key under General.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP CDN ➔ QUIC.cloud: Officiell LiteSpeed CDN-integration.",
+              consensus: "QUIC.cloud Docs: Kräver giltig Domain Key för full funktionalitet."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ CDN", scoreImpact: 0, readOnly: true }
+          ),
+          makeOpt(
+            "cdn_cloudflare",
+            "Cloudflare API CDN",
+            (uploadedSettings && (uploadedSettings.cdn_cloudflare === "1" || uploadedSettings.cdn_cloudflare === 1 || uploadedSettings["cdn-cloudflare"] === "1" || uploadedSettings["cdn-cloudflare"] === 1)) ? 1 : 0,
+            "Status: Cloudflare API-integration i LiteSpeed CDN. API-nyckel maskas alltid i UI/export.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP CDN ➔ Cloudflare API: Synkar purge med Cloudflare.",
+              consensus: "Cloudflare + LiteSpeed: Använd API-token med minsta nödvändiga behörighet."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ CDN ➔ Cloudflare API", scoreImpact: 0, readOnly: true }
+          ),
+          makeOpt(
+            "img_optm_auto",
+            "Automatisk begäran med Cron",
+            hasQuicKey ? 1 : 0,
+            hasQuicKey
+              ? "PÅ rekommenderas när QUIC är ansluten så att nya bilder skickas till optimering via cron."
+              : "Soft/Policy utan QUIC-nyckel — aktivera Domain Key först, annars info-varning om PÅ.",
+            "standard",
+            "performance",
+            {
+              litespeed: "LSCWP Image Optimization: Automatisk begäran med Cron (img_optm-auto).",
+              consensus: "AreWee Woo/Elementor-baslinje: PÅ när QUIC ansluten."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Automatisk begäran med Cron", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_ori",
+            "Optimera originalbilder",
+            1,
+            "Optimerar originaluppladdade bilder (inte bara thumbnails). Policy/soft — scoreImpact 0.",
+            "standard",
+            "performance",
+            {
+              litespeed: "LSCWP img_optm-ori: Optimera originalbilder.",
+              consensus: "Woo/Elementor-baslinje: PÅ för mindre mediavolym."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Optimera originalbilder", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_rm_bkup",
+            "🚨 Ta bort ursprungliga säkerhetskopior",
+            0,
+            "AV rekommenderas! PÅ raderar originalbackup oåterkalleligt. Om PÅ visas info-alert (🚨) — ingen danger-poängkollaps.",
+            "standard",
+            "stability",
+            {
+              litespeed: "LSCWP img_optm-rm_bkup: Ta bort ursprungliga säkerhetskopior efter optimering.",
+              consensus: "AreWee Policy: Behåll alltid backup (AV) på produktion — oåterkalleligt annars."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Ta bort ursprungliga säkerhetskopior", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_lossless",
+            "Optimera förlustfritt",
+            0,
+            "Policy: PÅ ger högre kvalitet/filstorlek; AV (lossy) ger mindre filer. Soft match — ingen hård avvikelse.",
+            "standard",
+            "performance",
+            {
+              litespeed: "LSCWP img_optm-lossless: Förlustfri vs lossy komprimering.",
+              consensus: "Policy beroende på fotokvalitetskrav."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Optimera förlustfritt", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_sizes_skipped",
+            "Optimize Image Sizes (skipped)",
+            "",
+            "Lista över bildstorlekar som hoppas över vid optimering. Visa som lista/textarea. Policy.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP img_optm-sizes_skipped: Hoppa över utvalda intermediate sizes.",
+              consensus: "Policy: Lämna tom för att optimera alla storlekar, eller lista tunga sizes att skippa."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Optimize Image Sizes", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_exif",
+            "Behåll EXIF/XMP-data",
+            0,
+            "AV typiskt (strip metadata för mindre filer och integritet). Policy/soft.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP img_optm-exif: Behåll EXIF/XMP-data.",
+              consensus: "Integritet & storlek: AV rekommenderas för de flesta sajter."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Behåll EXIF/XMP-data", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_webp",
+            "Next-Gen Image Format",
+            1,
+            "QUIC next-gen GENERERING: 0=AV, 1=WebP (rek), 2=AVIF (ej gratis). Skiljer sig från Media & LCP → media_webp (HTML-ersättning). Soft match när media_webp speglar samma avsikt.",
+            "standard",
+            "performance",
+            {
+              litespeed: "LSCWP img_optm-webp: Next-Gen Image Format via QUIC.cloud (genererar .webp/.avif-filer).",
+              consensus: "AreWee: WebP (1) som standard. media_webp hanterar HTML-rewrite separat."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Next-Gen Image Format", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_webp_attr",
+            "WebP/AVIF Attribute To Replace",
+            defaultWebpAttr,
+            "Attribut/selektorer som ska bytas till next-gen. Policy/textarea — LS-standardlista.",
+            "standard",
+            "config",
+            {
+              litespeed: "LSCWP img_optm-webp_attr: WebP/AVIF Attribute To Replace.",
+              consensus: "Behåll LS-standardlista om du saknar egen policy."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ WebP/AVIF Attribute To Replace", scoreImpact: 0 }
+          ),
+          makeOpt(
+            "img_optm_webp_replace_srcset",
+            "WebP/AVIF For Extra srcset",
+            1,
+            "PÅ om Next-Gen Image Format är aktivt. Soft/inaktiv när next-gen är AV.",
+            "standard",
+            "performance",
+            {
+              litespeed: "LSCWP img_optm-webp_replace_srcset: WebP/AVIF For Extra srcset.",
+              consensus: "Komplement till Next-Gen — aktivera tillsammans med WebP (1)."
+            },
+            null, "litespeed", null, null,
+            { wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ WebP/AVIF For Extra srcset", scoreImpact: 0 }
+          )
+        ];
+      })()
+    },
+
+    // --- TAB 7: Page Optimization - HTML & Tweaks ---
+    {
+      id: "page_optimization_html",
+      title: "⚡ [7] Sidopt. HTML",
+      options: [
         makeOpt(
           "optm_qs_rm",
           "Ta bort frågesträngar (Remove Query Strings)",
@@ -3169,7 +3918,9 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP Remove Query Strings: Tar bort versionsparametrar (?ver=...) från statiska resurser.",
             consensus: "WooCommerce Best Practice: AV! Många plugins och betalmoduler kräver frågesträngar för cache-ogiltigförklaring."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ HTML-inställningar ➔ Ta bort frågesträngar", scoreImpact: 0 }
         ),
         makeOpt(
           "optm_dns_prefetch",
@@ -3181,7 +3932,9 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP DNS Prefetch: Löser upp domännamn i förväg.",
             consensus: "Web Performance Standards: Bra för externa API:er och fonter."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ HTML-inställningar / Tweaks ➔ DNS Prefetch", scoreImpact: 0 }
         ),
         makeOpt(
           "optm_emojis_rm",
@@ -3199,15 +3952,17 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
             primaryTool: "LiteSpeed Cache (optm_emojis_rm)",
             whyRecommended: "Inbyggd avstängning i LiteSpeed sparar en extern JS-förfrågan och kräver ingen extra PHP-kod i SCM.",
             actionForSecondary: "Om denna är PÅ i LiteSpeed kan du inaktivera motsvarande emoji-snippet i SCM."
-          }
+          },
+          "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Sidoptimering ➔ HTML-inställningar / Tweaks ➔ Ta bort WordPress Emojis", scoreImpact: 0 }
         )
       ]
     },
 
-    // --- TAB 6: Crawler / Sökspindel ---
+    // --- TAB 8: Crawler / Sökspindel ---
     {
       id: "crawler",
-      title: "⚡ [6] Crawler",
+      title: "⚡ [8] Crawler",
       options: [
         makeOpt(
           "crawler",
@@ -3219,19 +3974,23 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP Crawler: Automatisk bakgrundsgenomsökning av sitemap för att hålla cache-sidor varma.",
             consensus: "LiteSpeed Server Enterprise: Garanterar att första besökaren på en sida alltid får en omedelbar cache-träff (HIT)."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Crawler ➔ Aktivera Crawler", scoreImpact: 0 }
         ),
         makeOpt(
           "crawler_usleep",
-          "Crawler Fördröjning (Mikrosekunder)",
+          "Crawl Interval",
           1000,
-          "Paus mellan crawler-anrop för att förhindra serveröverbelastning.",
+          "LSCWP 7.x: crawler-crawl_interval (intervall). Legacy: crawler-usleep (µs). Paus/intervall så crawlern inte överbelastar servern.",
           "standard",
           "config",
           {
-            litespeed: "LSCWP Crawler Throttle: Definierar mikrosekunders fördröjning mellan varje crawler-förfrågan.",
+            litespeed: "LSCWP Crawler: Crawl Interval (crawler-crawl_interval); äldre nyckel crawler-usleep (mikrosekunder).",
             consensus: "Server Management Best Practice: Förhindrar att crawlern spikar serverns CPU vid stora produktkataloger."
-          }
+          },
+          null, "litespeed", null, null,
+          { wpPath: "LiteSpeed Cache ➔ Crawler ➔ Crawl Interval", scoreImpact: 0 }
         )
       ]
     },
@@ -3773,12 +4532,21 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
 if (typeof window !== "undefined") {
   window.analyzeSystem = analyzeSystem;
   window.BENCHMARK_VERSIONS = BENCHMARK_VERSIONS;
+  window.maskSecretKey = maskSecretKey;
   window.checkMissingExclusions = checkMissingExclusions;
   window.getFulfilledExclusions = getFulfilledExclusions;
   window.mergeExclusions = mergeExclusions;
   window.getOptionComparison = getOptionComparison;
   window.parseMemoryMB = parseMemoryMB;
   window.compareVersions = compareVersions;
+  window.getPluginMatchTokens = getPluginMatchTokens;
+  window.isCoreWooCommercePlugin = isCoreWooCommercePlugin;
+  window.isCoreElementorPlugin = isCoreElementorPlugin;
+  window.hasExternalGoogleFonts = hasExternalGoogleFonts;
+  window.themeSignalsExternalGoogleFonts = themeSignalsExternalGoogleFonts;
+  window.elementorSignalsExternalGoogleFonts = elementorSignalsExternalGoogleFonts;
+  window.sanitizeElementorGoogleFonts = sanitizeElementorGoogleFonts;
+  window.isActiveGoogleFontsValue = isActiveGoogleFontsValue;
 }
 
 // Node.js export for test runner
@@ -3786,13 +4554,22 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     analyzeSystem,
     BENCHMARK_VERSIONS,
+    maskSecretKey,
     checkMissingExclusions,
     getFulfilledExclusions,
     mergeExclusions,
     getOptionComparison,
     parseMemoryMB,
     compareVersions,
-    buildCompleteLscwpSettings
+    buildCompleteLscwpSettings,
+    getPluginMatchTokens,
+    isCoreWooCommercePlugin,
+    isCoreElementorPlugin,
+    hasExternalGoogleFonts,
+    themeSignalsExternalGoogleFonts,
+    elementorSignalsExternalGoogleFonts,
+    sanitizeElementorGoogleFonts,
+    isActiveGoogleFontsValue
   };
 }
 

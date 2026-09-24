@@ -1,6 +1,6 @@
 /**
  * LiteSpeed & WordPress Optimizer - Main Application Controller
- * Version: 2.6.10.3
+ * Version: 2.7.2.2
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
-  const APP_VERSION = "2.6.10.3";
+  const APP_VERSION = "2.7.2.2";
   try { window.APP_VERSION = APP_VERSION; } catch (e) {}
 
   // Prevent browser from navigating away and opening dropped files globally
@@ -41,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
     uploadedSettings: null,
     analysisResults: null,
     activeTabId: "general",
-    activeSettingsFilter: "deviations",
+    activeSettingsFilter: "all_deviations",
     activeRiskFilter: "all",
     settingsSortBy: "deviations", // deviations (default) | default | impact | status | alphabetical
     settingsSearchQuery: "",
@@ -1153,6 +1153,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function processElementorText(text, sourceName) {
     try {
       state.elemInfo = parseElementorStatus(text);
+      if (state.elemInfo && typeof window.sanitizeElementorGoogleFonts === "function") {
+        window.sanitizeElementorGoogleFonts(state.elemInfo);
+      }
       state.uploadMetadata.elemInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
       elementorStatus.textContent = "✓ Inläst";
       elementorStatus.title = sourceName;
@@ -1729,7 +1732,7 @@ document.addEventListener("DOMContentLoaded", () => {
       css_loading: null,
       lazy_load: false,
       font_icon_svg: false,
-      google_fonts: true,
+      google_fonts: false, // v2.7.2: only true on explicit Active signal — never invent from missing lines
       container: false
     };
     const lines = text.split(/\r?\n/);
@@ -1927,11 +1930,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 10. Check Google Fonts (English & Swedish)
+        // v2.7.2.2: Custom Fonts / Custom Icons are NOT Google Fonts (count ≠ Active GF)
         if (
-          nameLower.includes("google font") || 
-          nameLower.includes("google-typsnitt") || 
-          nameLower.includes("google_font") || 
-          nameLower.includes("e_google_fonts")
+          !nameLower.includes("custom font") &&
+          !nameLower.includes("custom icon") &&
+          (
+            nameLower.includes("google font") ||
+            nameLower.includes("google-typsnitt") ||
+            nameLower.includes("google_font") ||
+            nameLower.includes("e_google_fonts")
+          )
         ) {
           data.google_fonts = isExplicitlyActive && !statusLower.includes("inaktivera") && !statusLower.includes("inaktiv") && !statusLower.includes("disable") && !statusLower.includes("disabled");
           if (data.google_fonts && !data.experiments.includes("google_fonts")) {
@@ -1984,7 +1992,10 @@ document.addEventListener("DOMContentLoaded", () => {
       lowerText.includes("google fonts: inactive") ||
       lowerText.includes("google-typsnitt: inaktivera") ||
       lowerText.includes("google-typsnitt: inaktiv") ||
-      lowerText.includes("google fonts: avstängd")
+      lowerText.includes("google fonts: avstängd") ||
+      lowerText.includes("google_font-disabled") ||
+      lowerText.includes("google_font_disabled") ||
+      lowerText.includes("settings: css_print_method-external, google_font-disabled")
     ) {
       data.google_fonts = false;
     }
@@ -2645,7 +2656,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const updateAlert = (results.alerts || []).find(a => a.id === "alert_available_updates");
       if (updateAlert && updateAlert.components && updateAlert.components.length > 0) {
         const count = updateAlert.components.length;
-        updatesEl.textContent = `ℹ️ ${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
+        updatesEl.textContent = `${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
         updatesEl.style.display = "inline-flex";
         updatesEl.onclick = () => {
           const tabBtn = document.querySelector('[data-tab="conflicts"]') || document.getElementById("tab-conflicts");
@@ -3550,25 +3561,40 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsContainer.appendChild(cssDiagCard);
     }
 
-    // Filter options within the active tab if filter is active
+    // Filter options: all_deviations = cross-tab flatten; others scoped to active tab
     const compFn = window.getOptionComparison || getOptionComparison;
-    let filteredOptions = activeTab.options.filter(o => o.id !== "optm_css_custom");
-    
-    if (state.activeSettingsFilter === "critical") {
-      filteredOptions = activeTab.options.filter(o => {
-        if (o.id === "optm_css_custom") return false;
-        return o.criticalLevel === "critical";
+    const annotateTab = (o, tab) => Object.assign({}, o, {
+      _sourceTabId: tab.id,
+      _sourceTabTitle: tab.title,
+      tabCategoryTitle: tab.title
+    });
+    const isMeasuredDeviant = (o) => {
+      const comp = compFn ? compFn(o, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false, isMeasured: false };
+      return !!(comp.isDeviant && comp.isMeasured);
+    };
+
+    let filteredOptions;
+    const isAllDev = state.activeSettingsFilter === "all_deviations";
+
+    if (isAllDev) {
+      filteredOptions = [];
+      (state.analysisResults.recommendations || []).forEach(tab => {
+        (tab.options || []).forEach(o => {
+          if (o.id === "optm_css_custom") return;
+          if (isMeasuredDeviant(o)) filteredOptions.push(annotateTab(o, tab));
+        });
       });
-    } else if (state.activeSettingsFilter === "deviations") {
-      filteredOptions = activeTab.options.filter(o => {
-        if (o.id === "optm_css_custom") return false;
-        const comp = compFn ? compFn(o, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false, isMatches: true };
-        return comp.isDeviant || !comp.isMatches;
-      });
-    } else if (state.activeSettingsFilter === "ecommerce") {
-      filteredOptions = activeTab.options.filter(o => o.id !== "optm_css_custom" && (o.id.includes("woo") || o.id.includes("drop_uri") || o.id.includes("esi") || o.id.includes("cart")));
-    } else if (state.activeSettingsFilter === "baseline") {
-      filteredOptions = activeTab.options.filter(o => o.id !== "optm_css_custom");
+    } else {
+      filteredOptions = activeTab.options.filter(o => o.id !== "optm_css_custom").map(o => annotateTab(o, activeTab));
+      if (state.activeSettingsFilter === "critical") {
+        filteredOptions = filteredOptions.filter(o => o.criticalLevel === "critical");
+      } else if (state.activeSettingsFilter === "deviations") {
+        filteredOptions = filteredOptions.filter(isMeasuredDeviant);
+      } else if (state.activeSettingsFilter === "ecommerce") {
+        filteredOptions = filteredOptions.filter(o => o.id.includes("woo") || o.id.includes("drop_uri") || o.id.includes("esi") || o.id.includes("cart"));
+      } else if (state.activeSettingsFilter === "baseline") {
+        // keep all annotated options in active tab
+      }
     }
 
     // Apply live search query filter if entered
@@ -3594,6 +3620,12 @@ document.addEventListener("DOMContentLoaded", () => {
           <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">🔍</span>
           <strong>Inga inställningar i denna flik matchar sökningen "${escapeHtml(state.settingsSearchQuery)}".</strong>
           <p style="font-size: 0.8rem; margin-top: 0.25rem;">Rensa sökfältet för att återställa listan.</p>
+        `;
+      } else if (state.activeSettingsFilter === "all_deviations") {
+        emptyNotice.innerHTML = `
+          <span style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; color: #4ade80;">🎉</span>
+          <strong style="color: #4ade80; font-size: 1rem;">Inga avvikelser på hela sajten!</strong>
+          <p style="font-size: 0.82rem; margin-top: 0.25rem;">Alla uppmätta inställningar över alla kategorier matchar våra optimala rekommendationer (Policy/Context räknas inte som avvikelse).</p>
         `;
       } else if (state.activeSettingsFilter === "deviations") {
         emptyNotice.innerHTML = `
@@ -3738,6 +3770,18 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id)) {
         activeUserVal = state.uploadedSettings[opt.id];
       }
+      // Never surface object-pswd / API keys in cleartext in the options UI
+      if (activeUserVal !== "" && activeUserVal !== null && activeUserVal !== undefined) {
+        const secretFn = (typeof window !== "undefined" && typeof window.isSecretOptionKey === "function")
+          ? window.isSecretOptionKey
+          : ((id) => /pswd|passwd|password|secret|token|domain_key|cloudflare_key|(^|[_-])hash$/i.test(String(id || "")));
+        const maskFn = (typeof window !== "undefined" && typeof window.maskSecretKey === "function")
+          ? window.maskSecretKey
+          : null;
+        if (secretFn(opt.id) && maskFn) {
+          activeUserVal = maskFn(activeUserVal);
+        }
+      }
 
       let isChecked = false;
       let isMatches = false;
@@ -3755,6 +3799,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const sourceSlotBadge = (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_")))
         ? `<span class="badge-risk info" style="margin-left: 0.35rem; background: rgba(168, 85, 247, 0.12); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.65rem;">📂 Slot 5 · Elementor</span>`
+        : "";
+
+      const showCategoryBadge = state.activeSettingsFilter === "all_deviations";
+      const categoryBadge = showCategoryBadge && (opt._sourceTabTitle || opt.tabCategoryTitle)
+        ? `<button type="button" class="category-tab-badge btn-jump-category" data-tab-id="${escapeHtml(opt._sourceTabId || "")}" data-setting-id="${escapeHtml(opt.id)}" title="Hoppa till flik">${escapeHtml(opt._sourceTabTitle || opt.tabCategoryTitle)}</button>`
         : "";
 
       const matchBadge = !comp.isMeasured 
@@ -3908,9 +3957,16 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (isTextareaField) {
-        const impactScoreHtml = (opt.criticalLevel === "critical") 
-          ? `<span style="color: #f87171; font-weight: 600;">Påverkan av Score: Kritisk (- 15 p vid avvikelse)</span>`
-          : `<span style="color: #fb923c; font-weight: 600;">Påverkan av Score: Hög (- 10 p vid avvikelse)</span>`;
+        let impactScoreHtml = "";
+        if (opt.scoreImpact === 0 || opt.readOnly || (comp && comp.isPolicyContext)) {
+          impactScoreHtml = `<span style="color: #93c5fd; font-weight: 600;">Påverkan av Score: Policy / 0 p</span>`;
+        } else if (opt.criticalLevel === "critical") {
+          impactScoreHtml = `<span style="color: #f87171; font-weight: 600;">Påverkan av Score: Kritisk (- 15 p vid avvikelse)</span>`;
+        } else if (opt.criticalLevel === "high") {
+          impactScoreHtml = `<span style="color: #fb923c; font-weight: 600;">Påverkan av Score: Hög (- 10 p vid avvikelse)</span>`;
+        } else {
+          impactScoreHtml = `<span style="color: var(--text-muted); opacity: 0.85;">Påverkan av Score: Låg (- 2 p vid avvikelse)</span>`;
+        }
         
         const rawSiteExcl = (comp && comp.rawMeasured !== null && comp.rawMeasured !== undefined) ? comp.rawMeasured.toString() : "";
         const cleanExclusionLines = rawSiteExcl
@@ -4005,9 +4061,10 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="setting-state-pill ${statusClass}">${statusText}</span>
               <h4 class="setting-title" style="margin: 0; font-size: 0.95rem; font-weight: 700;">${opt.title}</h4>
               <span style="font-size: 0.7rem; color: var(--text-muted); opacity: 0.7; font-family: monospace;">(ID: ${opt.id})</span>
-              ${sourceSlotBadge}${matchBadge}
+              ${categoryBadge}${sourceSlotBadge}${matchBadge}
             </div>
             <p class="setting-desc" style="margin-bottom: 0.75rem;">${opt.desc}</p>
+            ${opt.wpPath ? `<div style="margin: 0.15rem 0 0.55rem; font-size: 0.7rem; opacity: 0.9;"><span>📍 <strong>WP:</strong></span> <code style="background: rgba(0,0,0,0.3); padding: 0.1rem 0.35rem; border-radius: 4px; color: #a5b4fc; font-family: monospace; font-size: 0.68rem; border: 1px solid rgba(255,255,255,0.03);">${escapeHtml(opt.wpPath)}</code></div>` : ""}
             ${singleSourceHtml}
             ${citationsHtml}
 
@@ -4060,7 +4117,9 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       } else {
         let impactScoreHtml = "";
-        if (opt.criticalLevel === "critical") {
+        if (opt.scoreImpact === 0 || opt.readOnly || (comp && comp.isPolicyContext)) {
+          impactScoreHtml = `<span style="color: #93c5fd; font-weight: 600;">Påverkan av Score: Policy / 0 p</span>`;
+        } else if (opt.criticalLevel === "critical") {
           impactScoreHtml = `<span style="color: #f87171; font-weight: 600;">Påverkan av Score: Kritisk (- 15 p vid avvikelse)</span>`;
         } else if (opt.criticalLevel === "high") {
           impactScoreHtml = `<span style="color: #fb923c; font-weight: 600;">Påverkan av Score: Hög (- 10 p vid avvikelse)</span>`;
@@ -4074,9 +4133,10 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="setting-state-pill ${statusClass}">${statusText}</span>
               <h4 class="setting-title" style="margin: 0; font-size: 0.95rem; font-weight: 700;">${opt.title}</h4>
               <span style="font-size: 0.7rem; color: var(--text-muted); opacity: 0.7; font-family: monospace;">(ID: ${opt.id})</span>
-              ${matchBadge}
+              ${categoryBadge}${matchBadge}
             </div>
             <p class="setting-desc">${opt.desc}</p>
+            ${opt.wpPath ? `<div style="margin: 0.35rem 0 0.5rem; font-size: 0.7rem; opacity: 0.9;"><span>📍 <strong>WP:</strong></span> <code style="background: rgba(0,0,0,0.3); padding: 0.1rem 0.35rem; border-radius: 4px; color: #a5b4fc; font-family: monospace; font-size: 0.68rem; border: 1px solid rgba(255,255,255,0.03);">${escapeHtml(opt.wpPath)}</code></div>` : ""}
             ${alternativesHtml}
             ${singleSourceHtml}
             ${citationsHtml}
@@ -4091,6 +4151,26 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       settingsContainer.appendChild(card);
+
+      const jumpBtn = card.querySelector(".btn-jump-category");
+      if (jumpBtn) {
+        jumpBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const tabId = jumpBtn.getAttribute("data-tab-id");
+          const settingId = jumpBtn.getAttribute("data-setting-id");
+          if (tabId && settingId) {
+            // Switch to tab-scoped "all" so the target card is visible in its category
+            if (state.activeSettingsFilter === "all_deviations") {
+              state.activeSettingsFilter = "all";
+              document.querySelectorAll(".filter-btn").forEach(b => {
+                b.classList.toggle("active", b.dataset.filter === "all");
+              });
+            }
+            jumpToSetting(tabId, settingId);
+          }
+        });
+      }
     });
   }
 
@@ -4151,7 +4231,9 @@ document.addEventListener("DOMContentLoaded", () => {
           const devData = {
             id: opt.id,
             title: opt.title,
-            origVal: comp.currentDisplay,
+            origVal: ((typeof window.isSecretOptionKey === "function" && window.isSecretOptionKey(opt.id)) || opt.id === "domain_key" || opt.id === "cdn_cloudflare_key" || /cloudflare_key|domain_key|hash|pswd|password|passwd|secret|token/i.test(String(opt.id || "")))
+              ? ((typeof window.maskSecretKey === "function" && comp.rawMeasured) ? window.maskSecretKey(comp.rawMeasured) : (String(comp.currentDisplay || "").length > 12 ? (String(comp.currentDisplay).slice(0,4) + "…" + String(comp.currentDisplay).slice(-4)) : comp.currentDisplay))
+              : comp.currentDisplay,
             recVal: comp.recommendedDisplay,
             recRaw: opt.recommendedRaw
           };
@@ -4489,7 +4571,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = payload.syncPluginVersion || data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.6.10.3";
+        const targetVersion = "2.7.2.2";
         if (companionVersion !== targetVersion) {
           apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
@@ -4984,6 +5066,17 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       state.themeInfo = profile.themeInfo || null;
       state.elemInfo = profile.elemInfo;
+      // v2.7.2.2: clear stale google_fonts:true from pre-2.7.2 history (no explicit experiment)
+      if (state.elemInfo && typeof window.sanitizeElementorGoogleFonts === "function") {
+        window.sanitizeElementorGoogleFonts(state.elemInfo);
+      } else if (state.elemInfo && state.elemInfo.google_fonts === true) {
+        const exps = Array.isArray(state.elemInfo.experiments) ? state.elemInfo.experiments : [];
+        const hasExplicit = exps.some(e => {
+          const low = String(e).toLowerCase();
+          return (low.includes("google") && (low.includes("font") || low.includes("typsnitt"))) && !low.includes("custom");
+        });
+        if (!hasExplicit) state.elemInfo.google_fonts = false;
+      }
       state.customCodeInfo = profile.customCodeInfo;
       state.customCss = profile.customCss || "";
       state.uploadedSettings = profile.uploadedSettings;
@@ -5538,7 +5631,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderHistoryLibrary();
   updateCompareDropdowns();
 
-  // Test/debug exports (v2.6.10.3)
+  // Test/debug exports (v2.7.2.2)
   try {
     window.detectPastedFormat = detectPastedFormat;
     window.escapeHtml = escapeHtml;

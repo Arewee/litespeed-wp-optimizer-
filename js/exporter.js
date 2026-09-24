@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer (v2.6.10.3)
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.7.2.2)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
  * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
@@ -358,12 +358,44 @@ function parseSettingsFile(rawContent) {
   throw new Error("Kunde inte tolka inställningsfilen. Kontrollera filformatet.");
 }
 
+
+function maskSecretKey(val) {
+  if (val === null || val === undefined) return "";
+  const s = String(val).trim();
+  if (!s || s === "0" || s === "1") return s;
+  if (s.length < 10) return "••••";
+  return s.slice(0, 4) + "…" + s.slice(-4);
+}
+const SECRET_OPTION_IDS = new Set([
+  "domain_key", "hash", "cdn_cloudflare_key", "cdn-cloudflare_key",
+  "object-pswd", "object_pswd", "object-password", "object_password",
+  "cache-object_pswd", "cache_object_pswd", "object-pass", "object_pass",
+  "redis_password", "redis-password", "redis_pswd", "redis-pswd"
+]);
+
+/** True when a settings/option key must never appear in cleartext in human-readable output. */
+function isSecretOptionKey(id) {
+  if (id === null || id === undefined) return false;
+  const s = String(id);
+  if (SECRET_OPTION_IDS.has(s)) return true;
+  // Denylist patterns: passwords, keys, tokens, pswd/passwd
+  if (/pswd|passwd|password|secret|token|(^|[_-])key($|[_-])/i.test(s)) return true;
+  return false;
+}
+
+/** Mask value for display/report if key is secret; otherwise return as-is (stringified). */
+function maskValueIfSecret(key, val) {
+  if (!isSecretOptionKey(key)) return val;
+  return maskSecretKey(val);
+}
+
 // --- TWO-WAY KEY TRANSLATION LAYER ---
 
 const KEY_MAPPING_TO_INTERNAL = {
   "auto_upgrade": "auto_upgrade",
   "hash": "domain_key",
   "domain_key": "domain_key",
+  "api_key": "domain_key",
   "guest": "guest_mode",
   "guest_mode": "guest_mode",
   "guest_optm": "guest_optm",
@@ -507,12 +539,33 @@ const KEY_MAPPING_TO_INTERNAL = {
   "media_iframe_lazy": "media_iframe_lazy",
   "media-webp": "media_webp",
   "media_webp": "media_webp",
-  "media-optm_webp": "media_webp",
-  "media_optm_webp": "media_webp",
-  "img_optm-webp": "media_webp",
-  "img_optm_webp": "media_webp",
-  "media-webp_dec": "media_webp",
-  "media_webp_dec": "media_webp",
+  "img_optm-webp": "img_optm_webp",
+  "img_optm_webp": "img_optm_webp",
+  "img_optm-auto": "img_optm_auto",
+  "img_optm_auto": "img_optm_auto",
+  "img_optm-ori": "img_optm_ori",
+  "img_optm_ori": "img_optm_ori",
+  "img_optm-rm_bkup": "img_optm_rm_bkup",
+  "img_optm_rm_bkup": "img_optm_rm_bkup",
+  "img_optm-lossless": "img_optm_lossless",
+  "img_optm_lossless": "img_optm_lossless",
+  "img_optm-sizes_skipped": "img_optm_sizes_skipped",
+  "img_optm_sizes_skipped": "img_optm_sizes_skipped",
+  "img_optm-exif": "img_optm_exif",
+  "img_optm_exif": "img_optm_exif",
+  "img_optm-webp_attr": "img_optm_webp_attr",
+  "img_optm_webp_attr": "img_optm_webp_attr",
+  "img_optm-webp_replace_srcset": "img_optm_webp_replace_srcset",
+  "img_optm_webp_replace_srcset": "img_optm_webp_replace_srcset",
+  "cdn": "cdn",
+  "cdn-quic": "cdn_quic",
+  "cdn_quic": "cdn_quic",
+  "cdn-cloudflare": "cdn_cloudflare",
+  "cdn_cloudflare": "cdn_cloudflare",
+  "cdn-mapping": "cdn_mapping",
+  "cdn_mapping": "cdn_mapping",
+  "cdn-cloudflare_key": "cdn_cloudflare_key",
+  "cdn_cloudflare_key": "cdn_cloudflare_key",
   "media-webp_attribute": "media_webp_attribute",
   "media-webp_replace": "media_webp_replace",
   "media-webp_rep": "media_webp_replace",
@@ -527,14 +580,20 @@ const KEY_MAPPING_TO_INTERNAL = {
   "optm_ggfonts_rm": "optm_ggfonts_rm",
   "crawler": "crawler",
   "crawler_usleep": "crawler_usleep",
+  "crawler-usleep": "crawler_usleep",
+  "crawler-crawl_interval": "crawler_usleep",
+  "crawler_crawl_interval": "crawler_usleep",
   "crawler_load_limit": "crawler_load_limit",
+  "crawler-load_limit": "crawler_load_limit",
+  "object-pswd": "object-pswd",
+  "object_pswd": "object-pswd",
+  "cache-object_pswd": "object-pswd",
+  "cache_object_pswd": "object-pswd",
   "db_optm_revisions": "db_optm_revisions",
-  "db_optm_auto_draft": "db_optm_auto_draft",
-  "db_optm_trash_post": "db_optm_trash_post",
-  "db_optm_spam_comment": "db_optm_spam_comment",
-  "db_optm_trash_comment": "db_optm_trash_comment",
-  "db_optm_trackbacks": "db_optm_trackbacks",
-  "db_optm_transient": "db_optm_transient",
+  "db_optm-revisions_max": "db_optm_revisions",
+  "db_optm_revisions_max": "db_optm_revisions",
+  "db_optm_revisions_age": "db_optm_revisions_age",
+  "db_optm-revisions_age": "db_optm_revisions_age",
   
   // Custom CSS key mapping
   "optm-css_custom": "optm_css_custom",
@@ -543,7 +602,7 @@ const KEY_MAPPING_TO_INTERNAL = {
 
 const KEY_MAPPING_TO_LSCWP = {
   "auto_upgrade": "auto_upgrade",
-  "domain_key": "domain_key",
+  "domain_key": "hash",
   "guest_mode": "guest",
   "guest_optm": "guest_optm",
   "server_ip": "server_ip",
@@ -555,7 +614,7 @@ const KEY_MAPPING_TO_LSCWP = {
   "cache_mobile": "cache-mobile",
   "drop_uri": "cache-exc",
   "esi": "esi",
-  "cache_object": "cache-object",
+  "cache_object": "object",
   "cache_object_kind": "cache-object_kind",
   "cache_object_host": "cache-object_host",
   "cache_object_port": "cache-object_port",
@@ -573,7 +632,7 @@ const KEY_MAPPING_TO_LSCWP = {
   "css_combined_priority": "optm-css_comb_priority",
   "css_exclude": "optm-css_exc",
   "css_preload": "optm-css_preload",
-  "optm_font_display": "optm-font_display",
+  "optm_font_display": "optm-css_font_display",
   "optm_ggfonts_async": "optm-ggfonts_async",
   "optm_ggfonts_rm": "optm-ggfonts_rm",
   "optm_js_min": "optm-js_min",
@@ -596,18 +655,29 @@ const KEY_MAPPING_TO_LSCWP = {
   "media_webp": "media-webp",
   "media_webp_replace": "media-webp_replace",
   "media_webp_attribute": "media-webp_attribute",
-  "optm_emojis_rm": "optm-emojis_rm",
+  "img_optm_auto": "img_optm-auto",
+  "img_optm_ori": "img_optm-ori",
+  "img_optm_rm_bkup": "img_optm-rm_bkup",
+  "img_optm_lossless": "img_optm-lossless",
+  "img_optm_sizes_skipped": "img_optm-sizes_skipped",
+  "img_optm_exif": "img_optm-exif",
+  "img_optm_webp": "img_optm-webp",
+  "img_optm_webp_attr": "img_optm-webp_attr",
+  "img_optm_webp_replace_srcset": "img_optm-webp_replace_srcset",
+  "cdn": "cdn",
+  "cdn_quic": "cdn-quic",
+  "cdn_cloudflare": "cdn-cloudflare",
+  "cdn_mapping": "cdn-mapping",
+  "cdn_cloudflare_key": "cdn-cloudflare_key",
+  "optm_emojis_rm": "optm-emoji_rm",
   "optm_qs_rm": "optm-qs_rm",
   "crawler": "crawler",
-  "crawler_usleep": "crawler_usleep",
-  "crawler_load_limit": "crawler_load_limit",
-  "db_optm_revisions": "db_optm_revisions",
-  "db_optm_auto_draft": "db_optm_auto_draft",
-  "db_optm_trash_post": "db_optm_trash_post",
-  "db_optm_spam_comment": "db_optm_spam_comment",
-  "db_optm_trash_comment": "db_optm_trash_comment",
-  "db_optm_trackbacks": "db_optm_trackbacks",
-  "db_optm_transient": "db_optm_transient",
+  "crawler_usleep": "crawler-crawl_interval",
+  "crawler_load_limit": "crawler-load_limit",
+  "object-pswd": "object-pswd",
+  "object_pswd": "object-pswd",
+  "db_optm_revisions": "db_optm-revisions_max",
+  "db_optm_revisions_age": "db_optm-revisions_age",
   
   // Custom CSS key mapping
   "optm_css_custom": "optm-css_custom"
@@ -627,7 +697,9 @@ const KNOWN_TEXTAREA_KEYS = new Set([
   "optm_js_defer_exc", "optm-js_defer_exc", "optm_js_delay_inc", "optm-js_delay_inc",
   "optm_dns_prefetch", "optm-dns_prefetch",
   "css_preload", "optm-css_preload", "optm_css_preload",
-  "optm_css_custom", "optm-css_custom"
+  "optm_css_custom", "optm-css_custom",
+  "img_optm_sizes_skipped", "img_optm-sizes_skipped",
+  "img_optm_webp_attr", "img_optm-webp_attr"
 ]);
 
 function translateKeysToInternal(obj) {
@@ -654,7 +726,14 @@ function translateKeysToInternal(obj) {
       // General complex nested objects (e.g. CDN mappings) remain untouched
     }
     
-    newObj[internalKey] = val;
+    if (internalKey === "domain_key" && Object.prototype.hasOwnProperty.call(newObj, "domain_key")) {
+      const existing = newObj["domain_key"];
+      const keepExisting = (typeof existing === "string" && existing.length > 5) &&
+        (!(typeof val === "string") || val.length <= existing.length);
+      if (!keepExisting) newObj[internalKey] = val;
+    } else {
+      newObj[internalKey] = val;
+    }
   });
   return newObj;
 }
@@ -668,11 +747,10 @@ function translateKeysToLscwp(obj) {
       return;
     }
     
-    // Safety check: Never output domain_key/hash as integer 1 or 0
+    // Safety check: Never output domain_key/hash as integer 1 or 0; LSCWP 7.x write key is hash
     if (key === "domain_key" || key === "hash") {
       if (typeof obj[key] === "string" && obj[key].length > 5 && obj[key] !== "1" && obj[key] !== "0") {
         newObj["hash"] = obj[key];
-        newObj["domain_key"] = obj[key];
       }
       return;
     }
@@ -705,7 +783,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.6.10.3
+ * Version: 2.7.2.2
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -944,7 +1022,7 @@ function generateSyncPluginPhp() {
 /**
  * Plugin Name: AreWee-Optimizer REST Sync Bridge
  * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
- * Version: 2.6.10.3
+ * Version: 2.7.2.2
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1162,7 +1240,7 @@ function wp_optimizer_sync_get_diagnostics() {
 
     return array(
         'status' => 'success',
-        'syncPluginVersion' => '2.6.10.3',
+        'syncPluginVersion' => '2.7.2.2',
         'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
         'wooInfo' => $wooinfo,
@@ -1170,7 +1248,7 @@ function wp_optimizer_sync_get_diagnostics() {
         'elemInfo' => $eleminfo,
         'uploadedSettings' => $lscwp_options,
         'data' => array(
-            'syncPluginVersion' => '2.6.10.3',
+            'syncPluginVersion' => '2.7.2.2',
             'sysInfo' => $sysinfo,
             'sysinfo' => $sysinfo,
             'wooInfo' => $wooinfo,
@@ -1240,12 +1318,13 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   // Helper to normalize measured user value from uploaded settings
   function getMeasuredVal(key, fallback) {
     if (state.uploadedSettings && state.uploadedSettings.hasOwnProperty(key)) {
-      return state.uploadedSettings[key];
+      const v = state.uploadedSettings[key];
+      return isSecretOptionKey(key) ? maskSecretKey(v) : v;
     }
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.6.10.3)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.7.2.2)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
   md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
@@ -1327,7 +1406,19 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
         }
 
         const descClean = (opt.desc || "").replace(/\|/g, "/");
-        out += `| \`${opt.id}\` (${opt.title}) | ${comp.currentDisplay} | ${comp.recommendedDisplay} | ${comp.statusLabel} | ${descClean} |\n`;
+        let curDisp = comp.currentDisplay;
+        let recDisp = comp.recommendedDisplay;
+        if (isSecretOptionKey(opt.id)) {
+          if (comp.rawMeasured && String(comp.rawMeasured).length > 5) {
+            curDisp = maskSecretKey(comp.rawMeasured);
+          } else if (typeof curDisp === "string" && curDisp.length > 12 && !curDisp.includes("…") && !/Ansluten|PÅ|AV|Ej /.test(curDisp)) {
+            curDisp = maskSecretKey(curDisp);
+          }
+          if (typeof recDisp === "string" && recDisp.length > 12 && !/policy|maskad|quic|domain|Status/i.test(recDisp)) {
+            recDisp = maskSecretKey(recDisp);
+          }
+        }
+        out += `| \`${opt.id}\` (${opt.title}) | ${curDisp} | ${recDisp} | ${comp.statusLabel} | ${descClean} |\n`;
       });
       out += `\n`;
     });
@@ -1339,7 +1430,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `- **Installerad pluginversion:** ${env.lscwpVersion || "Okänd"}\n`;
   md += `- **Granskad mot benchmark:** LiteSpeed Cache v7.9.1 Official Best Practice\n\n`;
   md += renderComponentAlerts("litespeed");
-  md += renderSettingsSection(["general", "cache", "purge", "page_optimization_css", "page_optimization_js", "page_optimization_media", "crawler", "tuning"]);
+  md += renderSettingsSection(["general", "cache", "purge", "page_optimization_css", "page_optimization_js", "page_optimization_media", "image_optimization", "page_optimization_html", "crawler", "tuning"]);
   
   // Full un-truncated exclusion blocks
   const curDropUri = getMeasuredVal("drop_uri", "(Inga aktiva drop_uri-regler inlästa)");
@@ -1411,7 +1502,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
   md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
 
-  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.6.10.3*\n`;
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.7.2.2*\n`;
 
   return md;
 }
@@ -1424,7 +1515,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.6.10.3)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.7.2.2)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
@@ -1445,13 +1536,17 @@ function generateBatchSecondOpinionMarkdown(historyList) {
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.6.10.3*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.7.2.2*\n`;
 
   return md;
 }
 
 // Global browser window attachment
 if (typeof window !== "undefined") {
+  window.maskSecretKey = maskSecretKey;
+  window.isSecretOptionKey = isSecretOptionKey;
+  window.maskValueIfSecret = maskValueIfSecret;
+  window.SECRET_OPTION_IDS = SECRET_OPTION_IDS;
   window.generateSecondOpinionMarkdown = generateSecondOpinionMarkdown;
   window.generateBatchSecondOpinionMarkdown = generateBatchSecondOpinionMarkdown;
   window.KEY_MAPPING_TO_INTERNAL = KEY_MAPPING_TO_INTERNAL;
@@ -1471,6 +1566,10 @@ if (typeof window !== "undefined") {
 // Node.js export support
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { 
+    maskSecretKey,
+    isSecretOptionKey,
+    maskValueIfSecret,
+    SECRET_OPTION_IDS,
     php_serialize, 
     php_deserialize, 
     parseSettingsFile,

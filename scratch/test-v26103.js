@@ -1,7 +1,7 @@
 /**
- * Automated Verification Suite for AreWee-Optimizer v2.6.10.3
+ * Automated Verification Suite for AreWee-Optimizer v2.7.0 (ex-v2.6.10.3 functional)
  * Tests:
- * 1. Version synchronization across all files (v2.6.10.3).
+ * 1. Version synchronization across all files (v2.7.0).
  * 2. Elementor Core Asset Loading parity (>= 3.16 / 4.x is Optimal in Core).
  * 3. Contextual CSS satellites (CCSS per URL & Inline Async Lib Optimal when Async CSS is AV).
  * 4. Google Fonts Async (Optimal when Remove is ON or no external Google Fonts).
@@ -28,12 +28,12 @@ function assert(condition, message) {
   }
 }
 
-console.log('=== STARTING v2.6.10.3 VERIFICATION SUITE ===\n');
+console.log('=== STARTING v2.7.0 FUNCTIONAL VERIFICATION ===\n');
 
 // ==========================================
-// 1. VERSION CONSISTENCY (v2.6.10.3)
+// 1. VERSION CONSISTENCY (v2.7.0)
 // ==========================================
-console.log('--- 1. Version Consistency (v2.6.10.3) ---');
+console.log('--- 1. Version Consistency (v2.7.0) ---');
 const indexHtml = fs.readFileSync(path.join(BASE_DIR, 'index.html'), 'utf8');
 const stylesCss = fs.readFileSync(path.join(BASE_DIR, 'css/styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(BASE_DIR, 'js/app.js'), 'utf8');
@@ -42,31 +42,31 @@ const exporterJs = fs.readFileSync(path.join(BASE_DIR, 'js/exporter.js'), 'utf8'
 const readmeMd = fs.readFileSync(path.join(BASE_DIR, 'README.md'), 'utf8');
 const geminiMd = fs.readFileSync(path.join(BASE_DIR, 'GEMINI.md'), 'utf8');
 
-assert(indexHtml.includes('<title>AreWee-Optimizer - WordPress prestanda & stabilitetsoptimerare (v2.6.10.3)</title>'), 'index.html has v2.6.10.3 title');
-assert(indexHtml.includes('css/styles.css?v=2.6.10.3'), 'index.html has styles.css?v=2.6.10.3');
-assert(indexHtml.includes('<span class="logo-tag">v2.6.10.3</span>'), 'index.html has logo v2.6.10.3');
-assert(indexHtml.includes('Nuvarande rekommendationer (v2.6.10.3)'), 'index.html has recommendation badge v2.6.10.3');
-assert(indexHtml.includes('js/exporter.js?v=2.6.10.3') && indexHtml.includes('js/rules.js?v=2.6.10.3') && indexHtml.includes('js/app.js?v=2.6.10.3'), 'index.html has script tags v2.6.10.3');
+assert(indexHtml.includes('<title>AreWee-Optimizer - WordPress prestanda & stabilitetsoptimerare (v2.7.0)</title>'), 'index.html has v2.7.0 title');
+assert(indexHtml.includes('css/styles.css?v=2.7.0'), 'index.html has styles.css?v=2.7.0');
+assert(indexHtml.includes('<span class="logo-tag">v2.7.0</span>'), 'index.html has logo v2.7.0');
+assert(indexHtml.includes('Nuvarande rekommendationer (v2.7.0)'), 'index.html has recommendation badge v2.7.0');
+assert(indexHtml.includes('js/exporter.js?v=2.7.0') && indexHtml.includes('js/rules.js?v=2.7.0') && indexHtml.includes('js/app.js?v=2.7.0'), 'index.html has script tags v2.7.0');
 assert(indexHtml.includes('id="health-score-updates"'), 'index.html has #health-score-updates container under gauge');
 
-assert(stylesCss.includes('Stylesheet (v2.6.10.3)'), 'css/styles.css has v2.6.10.3 header');
-assert(stylesCss.includes('v2.6.10.3 Components:'), 'css/styles.css has v2.6.10.3 section comment');
+assert(stylesCss.includes('Stylesheet (v2.7.0)'), 'css/styles.css has v2.7.0 header');
+assert(stylesCss.includes('v2.7.0 Components:'), 'css/styles.css has v2.7.0 section comment');
 
-assert(appJs.includes('Version: 2.6.10.3'), 'js/app.js has Version: 2.6.10.3 header');
-assert(appJs.includes('const APP_VERSION = "2.6.10.3";'), 'js/app.js has APP_VERSION = "2.6.10.3"');
-assert(appJs.includes('const targetVersion = "2.6.10.3";'), 'js/app.js has targetVersion = "2.6.10.3"');
+assert(appJs.includes('Version: 2.7.0'), 'js/app.js has Version: 2.7.0 header');
+assert(appJs.includes('const APP_VERSION = "2.7.0";'), 'js/app.js has APP_VERSION = "2.7.0"');
+assert(appJs.includes('const targetVersion = "2.7.0";'), 'js/app.js has targetVersion = "2.7.0"');
 assert(appJs.includes('health-score-updates'), 'js/app.js renders updates notice under gauge');
 
-assert(rulesJs.includes('Compatibility Engine (v2.6.10.3)'), 'js/rules.js has v2.6.10.3 header');
-assert(rulesJs.includes('ctm:\n    benchmarkVersion: "2.6.10.3"') || rulesJs.includes('benchmarkVersion: "2.6.10.3"'), 'js/rules.js has benchmarkVersion 2.6.10.3');
+assert(rulesJs.includes('Compatibility Engine (v2.7.0)'), 'js/rules.js has v2.7.0 header');
+assert(rulesJs.includes('ctm:\n    benchmarkVersion: "2.7.0"') || rulesJs.includes('benchmarkVersion: "2.7.0"'), 'js/rules.js has benchmarkVersion 2.7.0');
 
-assert(exporterJs.includes('Exporter / Serializer (v2.6.10.3)'), 'js/exporter.js has v2.6.10.3 header');
-assert(exporterJs.includes("'syncPluginVersion' => '2.6.10.3'"), 'js/exporter.js has syncPluginVersion 2.6.10.3');
-assert(exporterJs.includes('Second Opinion (v2.6.10.3)'), 'js/exporter.js has report template v2.6.10.3');
+assert(exporterJs.includes('Exporter / Serializer (v2.7.0)'), 'js/exporter.js has v2.7.0 header');
+assert(exporterJs.includes("'syncPluginVersion' => '2.7.0'"), 'js/exporter.js has syncPluginVersion 2.7.0');
+assert(exporterJs.includes('Second Opinion (v2.7.0)'), 'js/exporter.js has report template v2.7.0');
 
-assert(readmeMd.includes('Dashboard (v2.6.10.3)'), 'README.md has v2.6.10.3 header');
-assert(readmeMd.includes('Release v2.6.10.3:'), 'README.md includes v2.6.10.3 changelog');
-assert(geminiMd.includes('Arkitektur (v2.6.10.3)'), 'GEMINI.md has v2.6.10.3 reference');
+assert(readmeMd.includes('Dashboard (v2.7.0)'), 'README.md has v2.7.0 header');
+assert(readmeMd.includes('Release v2.7.0:'), 'README.md includes v2.7.0 changelog');
+assert(geminiMd.includes('Arkitektur (v2.7.0)'), 'GEMINI.md has v2.7.0 reference');
 
 // ==========================================
 // LOAD RULES IN VM CONTEXT
@@ -251,14 +251,15 @@ assert(updateAlert.components.length === 2, '2 pending updates detected');
 
 // Verify copy pattern for count only (singular vs plural)
 function formatUpdatesNotice(count) {
-  return `ℹ️ ${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
+  return `${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
 }
-assert(formatUpdatesNotice(1) === 'ℹ️ 1 uppdatering tillgänglig', 'Singular format: ℹ️ 1 uppdatering tillgänglig');
-assert(formatUpdatesNotice(2) === 'ℹ️ 2 uppdateringar tillgängliga', 'Plural format: ℹ️ 2 uppdateringar tillgängliga');
+assert(formatUpdatesNotice(1) === '1 uppdatering tillgänglig', 'Singular format: 1 uppdatering tillgänglig');
+assert(formatUpdatesNotice(2) === '2 uppdateringar tillgängliga', 'Plural format: 2 uppdateringar tillgängliga');
+assert(!formatUpdatesNotice(1).includes('ℹ️') && !formatUpdatesNotice(2).includes('ℹ️'), 'Health updates notice has no ℹ️ icon');
 assert(!formatUpdatesNotice(2).includes('WooCommerce') && !formatUpdatesNotice(2).includes('Elementor'), 'Notice contains only count, no plugin names');
 
 console.log(`\n==========================================`);
-console.log(`v2.6.10.3 VERIFICATION SUMMARY: ${passed} passed, ${failed} failed`);
+console.log(`v2.7.0 FUNCTIONAL SUMMARY: ${passed} passed, ${failed} failed`);
 console.log(`==========================================\n`);
 
 if (failed > 0) {
