@@ -1,0 +1,194 @@
+`
+### wp-core ###
+
+version: 6.9.4
+site_language: sv_SE
+user_language: sv_SE
+timezone: +01:00
+permalink: /%postname%/
+https_status: true
+multisite: false
+user_registration: 0
+blog_public: 1
+default_comment_status: open
+environment_type: production
+user_count: 7
+dotorg_communication: true
+
+### wp-paths-sizes ###
+
+wordpress_path: /home/sweetmini/domains/maximeraprofil.se/public_html
+wordpress_size: loading...
+uploads_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/uploads
+uploads_size: loading...
+themes_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/themes
+themes_size: loading...
+plugins_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/plugins
+plugins_size: loading...
+fonts_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/uploads/fonts
+fonts_size: loading...
+database_size: loading...
+total_size: loading...
+
+### wp-dropins (1) ###
+
+object-cache.php: true
+
+### wp-active-theme ###
+
+name: Blocksy Child (blocksy-child)
+version: undefined
+author: Creative Themes
+author_website: (undefined)
+parent_theme: Blocksy (blocksy)
+theme_features: core-block-patterns, widgets-block-editor, post-thumbnails, automatic-feed-links, responsive-embeds, html5, title-tag, custom-logo, lifterlms-sidebars, boostify-header-footer, rank-math-breadcrumbs, fl-theme-builder-headers, fl-theme-builder-footers, fl-theme-builder-parts, editor-styles, editor-style, editor-color-palette, editor-gradient-presets, menus, align-wide, customize-selective-refresh-widgets, header-footer-elementor, woocommerce, wc-product-gallery-zoom, widgets
+theme_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/themes/blocksy-child
+
+### wp-parent-theme ###
+
+name: Blocksy (blocksy)
+version: 2.1.44
+author: CreativeThemes
+author_website: https://creativethemes.com
+theme_path: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/themes/blocksy
+
+### wp-themes-inactive (1) ###
+
+Twenty Twenty-Five: version: 1.5, author: WordPress-teamet
+
+### wp-mu-plugins (2) ###
+
+ManageWP - Worker Loader: version: 1.0.0, author: GoDaddy
+WordPress automation by Installatron: author: (undefined), version: (undefined)
+
+### wp-plugins-active (18) ###
+
+Advanced Custom Fields: version: 6.8.3, author: WP Engine
+Advanced Post Queries: version: 1.1.4, author: Shabti Kaplan
+Advanced Product Fields Extended for WooCommerce: version: 3.2, author: StudioWombat
+Consent & Tracking Manager: version: 1.7.5, author: AreWee
+Elementor: version: 4.1.1, author: Elementor.com
+Elementor Pro: version: 4.1.0, author: Elementor.com
+GTM4WP - A Google Tag Manager (GTM) plugin for WordPress: version: 1.22.3, author: Thomas Geiger
+Klarna for WooCommerce: version: 4.10.7, author: klarna
+LiteSpeed Cache: version: 7.8.1, author: LiteSpeed Technologies
+Loco Translate: version: 2.8.5, author: Tim Whitlock
+ManageWP - Worker: version: 4.9.34, author: GoDaddy
+Members: version: 3.2.22, author: MemberPress
+PDF Invoices & Packing Slips for WooCommerce: version: 5.13.0, author: WP Overnight
+SureRank SEO: version: 1.7.4, author: SureRank
+SureRank SEO Pro: version: 1.7.1, author: SureRank
+WooCommerce: version: 10.6.2, author: Automattic (latest version: 10.8.1)
+WooCommerce PayPal Payments: version: 4.0.4, author: PayPal
+Wordfence Security: version: 8.2.2, author: Wordfence
+
+### wp-plugins-inactive (1) ###
+
+Advanced Product Fields Pro for WooCommerce: version: 3.1.5, author: StudioWombat
+
+### wp-media ###
+
+image_editor: WP_Image_Editor_GD
+imagick_module_version: Inte tillgänglig
+imagemagick_version: Inte tillgänglig
+imagick_version: Inte tillgänglig
+file_uploads: 1
+post_max_size: 2G
+upload_max_filesize: 1G
+max_effective_size: 1 GB
+max_file_uploads: 20
+image_format_transforms: image/heic → image/jpeg, image/heif → image/jpeg, image/heic-sequence → image/jpeg, image/heif-sequence → image/jpeg
+gd_version: 2.3.3
+gd_formats: GIF, JPEG, PNG, WebP, BMP, AVIF, XPM
+ghostscript_version: unknown
+
+### wp-server ###
+
+server_architecture: Linux 4.18.0-553.111.1.lve.el8.x86_64 x86_64
+httpd_software: LiteSpeed
+php_version: 8.3.31 64bit
+php_sapi: litespeed
+max_input_variables: 8000
+time_limit: 300
+memory_limit: 1G
+max_input_time: 600
+upload_max_filesize: 1G
+php_post_max_size: 2G
+curl_version: 8.20.0 OpenSSL/1.1.1w
+suhosin: false
+imagick_availability: false
+pretty_permalinks: true
+htaccess_extra_rules: true
+static_robotstxt_file: false
+current: 2026-06-04T09:33:35+00:00
+utc-time: Thursday, 04-Jun-26 09:33:35 UTC
+server-time: 2026-06-04T10:33:29+01:00
+
+### wp-database ###
+
+extension: mysqli
+server_version: 10.6.26-MariaDB
+client_version: mysqlnd 8.3.31
+max_allowed_packet: 134217728
+max_connections: 1000
+
+### wp-constants ###
+
+WP_HOME: undefined
+WP_SITEURL: undefined
+WP_CONTENT_DIR: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content
+WP_PLUGIN_DIR: /home/sweetmini/domains/maximeraprofil.se/public_html/wp-content/plugins
+WP_MEMORY_LIMIT: 768M
+WP_MAX_MEMORY_LIMIT: 1G
+WP_DEBUG: false
+WP_DEBUG_DISPLAY: true
+WP_DEBUG_LOG: false
+SCRIPT_DEBUG: false
+WP_CACHE: true
+CONCATENATE_SCRIPTS: undefined
+COMPRESS_SCRIPTS: undefined
+COMPRESS_CSS: undefined
+WP_ENVIRONMENT_TYPE: undefined
+WP_DEVELOPMENT_MODE: undefined
+DB_CHARSET: utf8
+DB_COLLATE: undefined
+
+### wp-filesystem ###
+
+wordpress: writable
+wp-content: writable
+uploads: writable
+plugins: writable
+themes: writable
+fonts: does not exist
+mu-plugins: writable
+
+### acf ###
+
+version: 6.8.3
+plugin_type: Free
+update_source: ACF Direct
+ui_field_groups: 1
+php_field_groups: 0
+json_field_groups: 0
+rest_field_groups: 0
+post_types_enabled: true
+ui_post_types: 1
+json_post_types: 0
+ui_taxonomies: 0
+json_taxonomies: 0
+rest_api_format: light
+admin_ui_enabled: true
+field_type-modal_enabled: true
+field_settings_tabs_enabled: false
+shortcode_enabled: true
+registered_acf_forms: 0
+json_save_paths: 1
+json_load_paths: 1
+ai_enabled: false
+schema_support: false
+schema_ready_objects: 
+	blocks: 0
+	post_types: 0
+
+`

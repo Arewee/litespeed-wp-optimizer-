@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer (v2.6.8)
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.6.10.3)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
  * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
@@ -170,6 +170,64 @@ function php_serialize(obj) {
   }
 
   return "N;";
+}
+
+
+/**
+ * Detect LiteSpeed Cache 7.1.9+ / 7.x JSON tuple export lines:
+ * ["_version","7.9.1"] or ["media-lazy_exc", ["a","b"]]
+ */
+function looksLikeLscwpJsonTuples(text) {
+  if (!text || typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // Whole-file JSON array of tuples
+  if (trimmed.startsWith("[") && trimmed.includes('"_version"')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0]) && typeof parsed[0][0] === "string") {
+        return true;
+      }
+    } catch (e) { /* fall through to line scan */ }
+  }
+  const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let tupleHits = 0;
+  let knownKeyHits = 0;
+  const knownRe = /^\[\s*"(?:_version|version|cache|cache-priv|cache-exc|optm-|media-|object|guest|esi)/;
+  for (const line of lines.slice(0, 80)) {
+    if (line.startsWith("[") && line.endsWith("]")) {
+      try {
+        const tup = JSON.parse(line);
+        if (Array.isArray(tup) && tup.length >= 2 && typeof tup[0] === "string") {
+          tupleHits++;
+          if (knownRe.test(line) || /^(?:_|cache|optm|media|object|guest|esi)/.test(tup[0])) knownKeyHits++;
+        }
+      } catch (e) { /* ignore */ }
+    }
+  }
+  return tupleHits >= 2 && knownKeyHits >= 1;
+}
+
+/**
+ * Two-layer validation: parsed object must look like LSCWP settings.
+ */
+function isValidLscwpSettingsObject(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return false;
+  const markers = [
+    "cache", "cache_priv", "optm_css_min", "optm_js_min", "optm_html_min",
+    "drop_uri", "media_lazy", "guest_mode", "esi", "cache_object", "cache_browser",
+    "_version", "version", "the_version", "lscwp_cur_version",
+    "optm-css_min", "optm-js_min", "optm-html_min", "cache-priv", "cache-exc", "media-lazy"
+  ];
+  let hits = 0;
+  for (const k of keys) {
+    const kl = k.toLowerCase();
+    if (markers.some(m => kl === m.toLowerCase() || kl.replace(/_/g, "-") === m.replace(/_/g, "-"))) hits++;
+    if (/^(cache|optm|media|guest|esi|crawler|object)/i.test(k)) hits++;
+  }
+  return hits >= 1;
 }
 
 /**
@@ -366,11 +424,25 @@ const KEY_MAPPING_TO_INTERNAL = {
   "optm-css_min": "optm_css_min",
   "optm_css_min": "optm_css_min",
   "css_minify": "optm_css_min",
+  "optm-html_min": "optm_html_min",
+  "optm_html_min": "optm_html_min",
+  "html_minify": "optm_html_min",
+  "html_min": "optm_html_min",
   "optm-css_comb": "optm_css_comb",
   "optm_css_comb": "optm_css_comb",
   "css_combine": "optm_css_comb",
+  "optm-css_comb_ext_inl": "optm_css_comb_ext_inl",
+  "optm_css_comb_ext_inl": "optm_css_comb_ext_inl",
+  "optm-ucss": "optm_ucss",
+  "optm_ucss": "optm_ucss",
+  "optm-ucss_inline": "optm_ucss_inline",
+  "optm_ucss_inline": "optm_ucss_inline",
   "optm-css_async": "optm_css_async",
   "optm_css_async": "optm_css_async",
+  "optm-ccss_per_url": "optm_ccss_per_url",
+  "optm_ccss_per_url": "optm_ccss_per_url",
+  "optm-css_async_inline": "optm_css_async_inline",
+  "optm_css_async_inline": "optm_css_async_inline",
   "optm-css_comb_priority": "css_combined_priority",
   "css_combined_priority": "css_combined_priority",
   "optm-css_exc": "css_exclude",
@@ -383,12 +455,18 @@ const KEY_MAPPING_TO_INTERNAL = {
   "optm-css_font_display": "optm_font_display",
   "optm_css_font_display": "optm_font_display",
   "font_display": "optm_font_display",
+  "optm-ggfonts_async": "optm_ggfonts_async",
+  "optm_ggfonts_async": "optm_ggfonts_async",
+  "optm-ggfonts_rm": "optm_ggfonts_rm",
+  "optm_ggfonts_rm": "optm_ggfonts_rm",
   "optm-js_min": "optm_js_min",
   "optm_js_min": "optm_js_min",
   "js_minify": "optm_js_min",
   "optm-js_comb": "optm_js_comb",
   "optm_js_comb": "optm_js_comb",
   "js_combine": "optm_js_comb",
+  "optm-js_comb_ext_inl": "optm_js_comb_ext_inl",
+  "optm_js_comb_ext_inl": "optm_js_comb_ext_inl",
   "optm-js_defer": "optm_js_defer",
   "optm_js_defer": "optm_js_defer",
   "js_defer": "optm_js_defer",
@@ -402,6 +480,12 @@ const KEY_MAPPING_TO_INTERNAL = {
   "optm-js_defer_exc": "optm_js_defer_exc",
   "optm_js_defer_exc": "optm_js_defer_exc",
   "optm-js_delay_inc": "optm_js_delay_inc",
+  "optm-qs_rm": "optm_qs_rm",
+  "optm_qs_rm": "optm_qs_rm",
+  "optm-dns_prefetch": "optm_dns_prefetch",
+  "optm_dns_prefetch": "optm_dns_prefetch",
+  "media-vpi": "media_vpi",
+  "media_vpi": "media_vpi",
   "media-lazy": "media_lazy",
   "media_lazy": "media_lazy",
   "media-lazy_native": "media_lazy_native",
@@ -478,14 +562,23 @@ const KEY_MAPPING_TO_LSCWP = {
   "cache_browser": "cache-browser",
   "cache_browser_ttl": "cache-browser_ttl",
   "optm_css_min": "optm-css_min",
+  "optm_html_min": "optm-html_min",
   "optm_css_comb": "optm-css_comb",
+  "optm_css_comb_ext_inl": "optm-css_comb_ext_inl",
+  "optm_ucss": "optm-ucss",
+  "optm_ucss_inline": "optm-ucss_inline",
   "optm_css_async": "optm-css_async",
+  "optm_ccss_per_url": "optm-ccss_per_url",
+  "optm_css_async_inline": "optm-css_async_inline",
   "css_combined_priority": "optm-css_comb_priority",
   "css_exclude": "optm-css_exc",
   "css_preload": "optm-css_preload",
   "optm_font_display": "optm-font_display",
+  "optm_ggfonts_async": "optm-ggfonts_async",
+  "optm_ggfonts_rm": "optm-ggfonts_rm",
   "optm_js_min": "optm-js_min",
   "optm_js_comb": "optm-js_comb",
+  "optm_js_comb_ext_inl": "optm-js_comb_ext_inl",
   "optm_js_defer": "optm-js_defer",
   "optm_js_defer_exc": "optm-js_defer_exc",
   "optm_js_delay_inc": "optm-js_delay_inc",
@@ -493,6 +586,8 @@ const KEY_MAPPING_TO_LSCWP = {
   "js_delayed_exclude": "optm-js_delayed_exc",
   "optm_js_delayed_exc": "optm-js_delayed_exc",
   "optm_js_delay_exc": "optm-js_delayed_exc",
+  "optm_dns_prefetch": "optm-dns_prefetch",
+  "media_vpi": "media-vpi",
   "media_lazy": "media-lazy",
   "media_lazy_native": "media-lazy_native",
   "media_lazy_placeholder": "media-lazy_placeholder",
@@ -503,7 +598,6 @@ const KEY_MAPPING_TO_LSCWP = {
   "media_webp_attribute": "media-webp_attribute",
   "optm_emojis_rm": "optm-emojis_rm",
   "optm_qs_rm": "optm-qs_rm",
-  "optm_ggfonts_rm": "optm-ggfonts_rm",
   "crawler": "crawler",
   "crawler_usleep": "crawler_usleep",
   "crawler_load_limit": "crawler_load_limit",
@@ -531,6 +625,7 @@ const KNOWN_TEXTAREA_KEYS = new Set([
   "media_lazy_exc", "media-lazy_exc", "media-lazy-exc", "media_lazy_exclude", "media-lazy_img_exc", "media_lazy_img_exc", "media-lazy_class_exc", "media_lazy_class_exc", "media-lazy_uri_exc", "media_lazy_uri_exc",
   "js_delayed_exclude", "optm-js_delayed_exc", "optm_js_delayed_exc", "js_delayed_exc",
   "optm_js_defer_exc", "optm-js_defer_exc", "optm_js_delay_inc", "optm-js_delay_inc",
+  "optm_dns_prefetch", "optm-dns_prefetch",
   "css_preload", "optm-css_preload", "optm_css_preload",
   "optm_css_custom", "optm-css_custom"
 ]);
@@ -610,7 +705,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.6.8
+ * Version: 2.6.10.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -849,7 +944,7 @@ function generateSyncPluginPhp() {
 /**
  * Plugin Name: AreWee-Optimizer REST Sync Bridge
  * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
- * Version: 2.6.8
+ * Version: 2.6.10.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1067,7 +1162,7 @@ function wp_optimizer_sync_get_diagnostics() {
 
     return array(
         'status' => 'success',
-        'syncPluginVersion' => '2.6.8',
+        'syncPluginVersion' => '2.6.10.3',
         'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
         'wooInfo' => $wooinfo,
@@ -1075,7 +1170,7 @@ function wp_optimizer_sync_get_diagnostics() {
         'elemInfo' => $eleminfo,
         'uploadedSettings' => $lscwp_options,
         'data' => array(
-            'syncPluginVersion' => '2.6.8',
+            'syncPluginVersion' => '2.6.10.3',
             'sysInfo' => $sysinfo,
             'sysinfo' => $sysinfo,
             'wooInfo' => $wooinfo,
@@ -1150,7 +1245,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.6.8)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.6.10.3)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
   md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
@@ -1316,7 +1411,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
   md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
 
-  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.6.8*\n`;
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.6.10.3*\n`;
 
   return md;
 }
@@ -1329,7 +1424,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.6.8)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.6.10.3)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
@@ -1350,7 +1445,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.6.8*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.6.10.3*\n`;
 
   return md;
 }
@@ -1367,6 +1462,8 @@ if (typeof window !== "undefined") {
   window.generateAutoOptimizerSnippet = generateAutoOptimizerSnippet;
   window.generateCodeSnippetsJson = generateCodeSnippetsJson;
   window.parseSettingsFile = parseSettingsFile;
+  window.looksLikeLscwpJsonTuples = looksLikeLscwpJsonTuples;
+  window.isValidLscwpSettingsObject = isValidLscwpSettingsObject;
   window.php_serialize = php_serialize;
   window.php_deserialize = php_deserialize;
 }
@@ -1376,7 +1473,9 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { 
     php_serialize, 
     php_deserialize, 
-    parseSettingsFile, 
+    parseSettingsFile,
+    looksLikeLscwpJsonTuples,
+    isValidLscwpSettingsObject,
     translateKeysToInternal, 
     translateKeysToLscwp,
     generateAutoOptimizerSnippet,

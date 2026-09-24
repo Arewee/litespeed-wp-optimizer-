@@ -1,0 +1,168 @@
+`
+### wp-core ###
+
+version: 6.9.4
+site_language: sv_SE
+user_language: sv_SE
+timezone: Europe/Stockholm
+permalink: /%postname%/
+https_status: true
+multisite: false
+user_registration: 0
+blog_public: 1
+default_comment_status: open
+environment_type: production
+user_count: 3
+dotorg_communication: true
+
+### wp-paths-sizes ###
+
+wordpress_path: /home/sweetmini/domains/2you.se/public_html
+wordpress_size: 446,71 MB (468409868 bytes)
+uploads_path: /home/sweetmini/domains/2you.se/public_html/wp-content/uploads
+uploads_size: 1,94 GB (2084140570 bytes)
+themes_path: /home/sweetmini/domains/2you.se/public_html/wp-content/themes
+themes_size: 29,55 MB (30988386 bytes)
+plugins_path: /home/sweetmini/domains/2you.se/public_html/wp-content/plugins
+plugins_size: 246,56 MB (258538287 bytes)
+fonts_path: /home/sweetmini/domains/2you.se/public_html/wp-content/uploads/fonts
+fonts_size: directory not found
+database_size: 547,50 MB (574095360 bytes)
+total_size: 3,18 GB (3416172471 bytes)
+
+### wp-dropins (1) ###
+
+object-cache.php: true
+
+### wp-active-theme ###
+
+name: Astra (astra)
+version: 4.13.3 (latest version: 4.13.4)
+author: Brainstorm Force
+author_website: https://wpastra.com/about/?utm_source=theme_preview&utm_medium=author_link&utm_campaign=astra_theme
+parent_theme: none
+theme_features: core-block-patterns, astra_hooks, widgets-block-editor, align-wide, automatic-feed-links, title-tag, post-thumbnails, starter-content, html5, post-formats, custom-logo, customize-selective-refresh-widgets, editor-style, responsive-embeds, woocommerce, rank-math-breadcrumbs, amp, wc-product-gallery-zoom, wc-product-gallery-lightbox, wc-product-gallery-slider, widgets, menus
+theme_path: /home/sweetmini/domains/2you.se/public_html/wp-content/themes/astra
+
+### wp-themes-inactive (1) ###
+
+Twenty Twenty-Five: version: 1.5, author: WordPress-teamet
+
+### wp-mu-plugins (2) ###
+
+ManageWP - Worker Loader: version: 1.0.0, author: GoDaddy
+WordPress automation by Installatron: author: (undefined), version: (undefined)
+
+### wp-plugins-active (19) ###
+
+Advanced Product Fields Pro for WooCommerce: version: 3.1.6, author: StudioWombat
+BjornTech Swish for WooCommerce: version: 3.7.8, author: BjornTech
+Catch Infinite Scroll: version: 2.2, author: Catch Plugins
+Code Snippets: version: 3.9.6, author: Code Snippets Pro
+Complianz Privacy Suite (GDPR/CCPA) premium: version: 0.0.0.0, author: Complianz (latest version: 0.0.0.0)
+Elementor: version: 4.1.1, author: Elementor.com
+Elementor Pro: version: 4.1.0, author: Elementor.com
+Flexible Checkout Fields: version: 4.1.37, author: WP Desk
+GTM4WP - A Google Tag Manager (GTM) plugin for WordPress: version: 1.22.3, author: Thomas Geiger
+Kustom Checkout for WooCommerce: version: 2.20.3, author: Kustom (latest version: 2.20.4)
+LiteSpeed Cache: version: 7.8.1, author: LiteSpeed Technologies
+Loco Translate: version: 2.8.5, author: Tim Whitlock
+ManageWP - Worker: version: 4.9.34, author: GoDaddy
+PixelYourSite: version: 0.0.0.0, author: PixelYourSite
+Shipmondo for WooCommerce: version: 1.0.5, author: Shipmondo
+SureRank SEO: version: 1.7.4, author: SureRank (latest version: 1.7.5)
+SureRank SEO Pro: version: 1.7.1, author: SureRank (latest version: 1.7.2)
+WooCommerce: version: 10.6.2, author: Automattic (latest version: 10.8.1)
+Wordfence Security: version: 8.2.2, author: Wordfence
+
+### code-snippets (10) ###
+
+snippet-6: name: Ta bort "produkt x" har lagts till din varukorg meddelande , scope: front-end, modified: 2022-09-15 11:22:50
+snippet-10: name: Ta bort "antal" som visas under kategorier & styling, scope: front-end, modified: 2025-02-04 14:01:53
+snippet-13: name: Ta bort WP lazy load, scope: global, modified: 2024-04-02 14:40:29
+snippet-16: name: Styla sales badge, scope: front-end, modified: 2025-01-23 14:58:13
+snippet-19: name: Produktkategorier bakgrund-rubrik, scope: front-end, modified: 2025-02-14 09:53:37
+snippet-20: name: Öppna produktmeny med länk, scope: front-end, modified: 2025-02-06 11:30:19
+snippet-21: name: USERS LOGGED IN?, scope: admin, modified: 2026-05-07 15:52:02
+snippet-24: name: Visa vikt på order i WC admin, scope: global, modified: 2026-01-10 10:47:19
+snippet-25: name: Visa produkers vikt under WC - Produkter i översikt, scope: admin, modified: 2026-01-10 10:58:47
+snippet-27: name: Visa size och dimensions på media, scope: admin, modified: 2026-05-07 16:50:52
+
+### wp-media ###
+
+image_editor: WP_Image_Editor_GD
+imagick_module_version: Inte tillgänglig
+imagemagick_version: Inte tillgänglig
+imagick_version: Inte tillgänglig
+file_uploads: 1
+post_max_size: 512M
+upload_max_filesize: 512M
+max_effective_size: 512 MB
+max_file_uploads: 20
+image_format_transforms: image/heic → image/jpeg, image/heif → image/jpeg, image/heic-sequence → image/jpeg, image/heif-sequence → image/jpeg
+gd_version: 2.3.3
+gd_formats: GIF, JPEG, PNG, WebP, BMP, AVIF, XPM
+ghostscript_version: unknown
+
+### wp-server ###
+
+server_architecture: Linux 4.18.0-553.111.1.lve.el8.x86_64 x86_64
+httpd_software: LiteSpeed
+php_version: 8.3.31 64bit
+php_sapi: litespeed
+max_input_variables: 8000
+time_limit: 300
+memory_limit: 1G
+max_input_time: 600
+upload_max_filesize: 512M
+php_post_max_size: 512M
+curl_version: 8.20.0 OpenSSL/1.1.1w
+suhosin: false
+imagick_availability: false
+pretty_permalinks: true
+htaccess_extra_rules: true
+static_robotstxt_file: false
+current: 2026-06-04T09:35:40+00:00
+utc-time: Thursday, 04-Jun-26 09:35:40 UTC
+server-time: 2026-06-04T11:35:37+02:00
+
+### wp-database ###
+
+extension: mysqli
+server_version: 10.6.26-MariaDB
+client_version: mysqlnd 8.3.31
+max_allowed_packet: 134217728
+max_connections: 1000
+
+### wp-constants ###
+
+WP_HOME: undefined
+WP_SITEURL: undefined
+WP_CONTENT_DIR: /home/sweetmini/domains/2you.se/public_html/wp-content
+WP_PLUGIN_DIR: /home/sweetmini/domains/2you.se/public_html/wp-content/plugins
+WP_MEMORY_LIMIT: 768M
+WP_MAX_MEMORY_LIMIT: 1G
+WP_DEBUG: false
+WP_DEBUG_DISPLAY: true
+WP_DEBUG_LOG: false
+SCRIPT_DEBUG: false
+WP_CACHE: true
+CONCATENATE_SCRIPTS: undefined
+COMPRESS_SCRIPTS: undefined
+COMPRESS_CSS: undefined
+WP_ENVIRONMENT_TYPE: undefined
+WP_DEVELOPMENT_MODE: undefined
+DB_CHARSET: utf8
+DB_COLLATE: undefined
+
+### wp-filesystem ###
+
+wordpress: writable
+wp-content: writable
+uploads: writable
+plugins: writable
+themes: writable
+fonts: does not exist
+mu-plugins: writable
+
+`

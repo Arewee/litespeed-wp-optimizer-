@@ -1,6 +1,6 @@
 /**
  * LiteSpeed & WordPress Optimizer - Main Application Controller
- * Version: 2.6.8
+ * Version: 2.6.10.3
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -18,6 +18,9 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
   }
+
+  const APP_VERSION = "2.6.10.3";
+  try { window.APP_VERSION = APP_VERSION; } catch (e) {}
 
   // Prevent browser from navigating away and opening dropped files globally
   window.addEventListener("dragover", (e) => {
@@ -407,8 +410,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (trimmed.startsWith("<?php") || trimmed.includes("add_action(") || trimmed.includes("Site Code Manager") || trimmed.includes('"isScmPackage"') || (trimmed.includes('"snippets"') && trimmed.includes("["))) {
       return "customcode";
     }
-    // 7. LiteSpeed .data settings
-    if (trimmed.startsWith("a:") || trimmed.includes("litespeed-cache-conf") || (trimmed.includes("optm_") && trimmed.includes("cache_")) || (trimmed.includes("optm-") && trimmed.includes("media-"))) {
+    // 7. LiteSpeed .data settings (PHP serialize, classic keys, OR LSCWP 7.1.9+ JSON tuples)
+    const hasTupleHelper = (typeof looksLikeLscwpJsonTuples === "function")
+      ? looksLikeLscwpJsonTuples(trimmed)
+      : (typeof window !== "undefined" && typeof window.looksLikeLscwpJsonTuples === "function" && window.looksLikeLscwpJsonTuples(trimmed));
+    if (
+      trimmed.startsWith("a:") ||
+      trimmed.includes("litespeed-cache-conf") ||
+      (trimmed.includes("optm_") && trimmed.includes("cache_")) ||
+      (trimmed.includes("optm-") && trimmed.includes("media-")) ||
+      hasTupleHelper ||
+      (trimmed.includes('["_version"') || trimmed.includes("['_version'")) ||
+      (trimmed.startsWith("[") && trimmed.includes('"_version"') && trimmed.includes("optm-")) ||
+      (/\[\s*"cache-priv"/.test(trimmed) && /\[\s*"optm-/.test(trimmed))
+    ) {
       return "settings";
     }
 
@@ -475,6 +490,21 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (targetSlot === "customcode") {
       processCustomCodeTextData(text, finalSourceName);
     } else if (targetSlot === "settings") {
+      // Layer 2: validate that content actually parses as LSCWP settings
+      try {
+        const parseFn = (typeof parseSettingsFile === "function") ? parseSettingsFile : (typeof window !== "undefined" ? window.parseSettingsFile : null);
+        const validFn = (typeof isValidLscwpSettingsObject === "function") ? isValidLscwpSettingsObject : (typeof window !== "undefined" ? window.isValidLscwpSettingsObject : null);
+        if (parseFn) {
+          const parsedProbe = parseFn(text);
+          if (validFn && !validFn(parsedProbe)) {
+            alert(`❌ Ogiltig LiteSpeed-konfiguration: Innehållet identifierades som .data men saknar igenkännbara LSCWP-nycklar.`);
+            return false;
+          }
+        }
+      } catch (probeErr) {
+        alert(`❌ Ogiltig LiteSpeed-konfiguration: Kunde inte tolka innehållet som LSCWP-inställningar (${probeErr.message}).`);
+        return false;
+      }
       processSettingsText(text, finalSourceName);
     }
     return true;
@@ -1694,9 +1724,9 @@ document.addEventListener("DOMContentLoaded", () => {
       experiments: [],
       hasLazyLoad: false,
       css_print_method: "external",
-      dom_optimization: false,
-      asset_loading: false,
-      css_loading: false,
+      dom_optimization: null,
+      asset_loading: null,
+      css_loading: null,
       lazy_load: false,
       font_icon_svg: false,
       google_fonts: true,
@@ -1803,19 +1833,35 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 4. Check Asset loading specifically (English & Swedish: "tillgångsladdning", "resursladdning", "improved asset loading")
+        // Defaults stay null; only set true when Active, false when Inactive (v2.6.10.1)
         if (
           nameLower.includes("asset") || 
           nameLower.includes("resurs") || 
           nameLower.includes("tillgång") ||
           nameLower.includes("e_optimized_assets_loading")
         ) {
-          data.asset_loading = isExplicitlyActive;
-          if (isExplicitlyActive && !data.experiments.includes("e_optimized_assets_loading")) {
-            data.experiments.push("e_optimized_assets_loading");
+          const isExplicitlyInactiveAsset = (
+            statusLower.includes("inactive") ||
+            statusLower.includes("inaktiv") ||
+            statusLower.includes("disabled") ||
+            statusLower.includes("disable") ||
+            statusLower === "0" ||
+            statusLower === "false" ||
+            statusLower === "off" ||
+            statusLower.includes("avstängd")
+          );
+          if (isExplicitlyActive) {
+            data.asset_loading = true;
+            if (!data.experiments.includes("e_optimized_assets_loading")) {
+              data.experiments.push("e_optimized_assets_loading");
+            }
+          } else if (isExplicitlyInactiveAsset) {
+            data.asset_loading = false;
           }
         }
 
         // 5. Check CSS loading specifically (English & Swedish: "css-inläsning", "css-laddning", "improved css loading")
+        // Defaults stay null; only set true when Active, false when Inactive (v2.6.10.1)
         if (
           nameLower.includes("css loading") || 
           nameLower.includes("css-laddning") || 
@@ -1824,9 +1870,23 @@ document.addEventListener("DOMContentLoaded", () => {
           nameLower.includes("css inläsning") || 
           nameLower.includes("e_optimized_css_loading")
         ) {
-          data.css_loading = isExplicitlyActive;
-          if (isExplicitlyActive && !data.experiments.includes("e_optimized_css_loading")) {
-            data.experiments.push("e_optimized_css_loading");
+          const isExplicitlyInactiveCss = (
+            statusLower.includes("inactive") ||
+            statusLower.includes("inaktiv") ||
+            statusLower.includes("disabled") ||
+            statusLower.includes("disable") ||
+            statusLower === "0" ||
+            statusLower === "false" ||
+            statusLower === "off" ||
+            statusLower.includes("avstängd")
+          );
+          if (isExplicitlyActive) {
+            data.css_loading = true;
+            if (!data.experiments.includes("e_optimized_css_loading")) {
+              data.experiments.push("e_optimized_css_loading");
+            }
+          } else if (isExplicitlyInactiveCss) {
+            data.css_loading = false;
           }
         }
 
@@ -2192,9 +2252,10 @@ document.addEventListener("DOMContentLoaded", () => {
         tab.options.forEach(opt => {
           if (state.editedSettings[opt.id] === undefined) {
             const comp = compFn ? compFn(opt, state.uploadedSettings, state.analysisResults.environment) : null;
-            const upVal = (comp && comp.rawMeasured !== null && comp.rawMeasured !== undefined)
+            // v2.6.9 P0: Only seed from REAL measurements. Never invent Optimal via recommendedRaw.
+            const upVal = (comp && comp.isMeasured && comp.rawMeasured !== null && comp.rawMeasured !== undefined)
               ? comp.rawMeasured
-              : (state.uploadedSettings ? (state.uploadedSettings[opt.id] !== undefined ? state.uploadedSettings[opt.id] : state.uploadedSettings[opt.id.replace(/_/g, "-")]) : undefined);
+              : undefined;
 
             if (upVal !== undefined && upVal !== null && upVal !== "") {
               if (opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude") {
@@ -2208,9 +2269,8 @@ document.addEventListener("DOMContentLoaded", () => {
               } else {
                 state.editedSettings[opt.id] = (upVal === "1" || upVal === 1 || upVal === "on" || upVal === true) ? 1 : 0;
               }
-            } else {
-              state.editedSettings[opt.id] = opt.recommendedRaw;
             }
+            // else: leave unset/unknown — UI shows measured | unknown | recommended | status
           }
         });
       });
@@ -2279,7 +2339,7 @@ document.addEventListener("DOMContentLoaded", () => {
       activePlugins: []
     };
 
-    let elemVersion = "4.1.1"; // default to Swedish live-version/user version
+    let elemVersion = (typeof BENCHMARK_VERSIONS !== "undefined" && BENCHMARK_VERSIONS.elementor && BENCHMARK_VERSIONS.elementor.benchmarkVersion) ? BENCHMARK_VERSIONS.elementor.benchmarkVersion : "4.2.0"; // dynamic ~4.2.x baseline
     if (state.sysInfo && state.sysInfo["wp-plugins-active"]) {
       const keys = Object.keys(state.sysInfo["wp-plugins-active"]);
       const matchKey = keys.find(k => k.toLowerCase() === "elementor");
@@ -2333,8 +2393,8 @@ document.addEventListener("DOMContentLoaded", () => {
         loaded: !!state.themeInfo,
         color: state.themeInfo ? "var(--color-success)" : "var(--text-muted)",
         details: state.themeInfo
-          ? `<strong>Aktivt tema:</strong> ${env.theme}<br><strong>Struktur:</strong> ${env.hasChildTheme ? "Barntema aktivt" : "Huvudtema"}`
-          : `<strong>Detekterat tema:</strong> ${env.theme || "Aktivt tema"}`
+          ? `<strong>Aktivt tema:</strong> ${escapeHtml(env.theme)}<br><strong>Struktur:</strong> ${env.hasChildTheme ? "Barntema aktivt" : "Huvudtema"}`
+          : `<strong>Detekterat tema:</strong> ${escapeHtml(env.theme || "Aktivt tema")}`
       },
       {
         name: "5. Elementor",
@@ -2342,7 +2402,7 @@ document.addEventListener("DOMContentLoaded", () => {
         loaded: !!state.elemInfo,
         color: state.elemInfo ? "var(--color-success)" : "var(--text-muted)",
         details: state.elemInfo 
-          ? `<strong>Live-version:</strong> v${elemVersion}<br><strong>Lazy load:</strong> ${env.hasElementorLazyLoad ? "Aktiv (Risk!)" : "Inaktiv (Optimalt)"}<br><strong>Funktioner:</strong> ${env.elemExperiments.length} st`
+          ? `<strong>Live-version:</strong> v${escapeHtml(elemVersion)}<br><strong>Lazy load:</strong> ${env.hasElementorLazyLoad ? "Aktiv (Risk!)" : "Inaktiv (Optimalt)"}<br><strong>Funktioner:</strong> ${parseInt(env.elemExperiments.length, 10) || 0} st<br><strong>Källa:</strong> Slot 5 (Elementor)`
           : (env.hasElementor ? "<strong>Elementor är aktivt!</strong> Ladda upp för att verifiera inbyggd lazyload." : "Inte aktivt på sajten.")
       },
       {
@@ -2360,7 +2420,7 @@ document.addEventListener("DOMContentLoaded", () => {
         loaded: !!state.uploadedSettings,
         color: state.uploadedSettings ? "var(--color-success)" : "var(--accent-indigo)",
         details: state.uploadedSettings 
-          ? `<strong>Inlästa parametrar:</strong> ${Object.keys(state.uploadedSettings).length} st<br><strong>Referens:</strong> LiteSpeed Cache v${lscwpVersion}`
+          ? `<strong>Inlästa parametrar:</strong> ${Object.keys(state.uploadedSettings).length} st<br><strong>Referens:</strong> LiteSpeed Cache v${escapeHtml(String(lscwpVersion))}`
           : "Ingen basfil inläst. Skapar en ren optimeringsprofil från scratch!"
       }
     ];
@@ -2389,17 +2449,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const specTitle = document.getElementById("elementor-spec-title");
     if (specTitle) {
-      specTitle.innerHTML = `🎨 Elementor v${elemVersion} (${state.sysInfo && state.sysInfo["wp-plugins-active"] && state.sysInfo["wp-plugins-active"]["Elementor"] ? "Detekterad" : "Referens"})`;
+      specTitle.innerHTML = `🎨 Elementor v${escapeHtml(String(elemVersion))} (${state.sysInfo && state.sysInfo["wp-plugins-active"] && Object.keys(state.sysInfo["wp-plugins-active"]).some(k => k.toLowerCase() === "elementor") ? "Detekterad" : "Referens ~4.2.x"})`;
     }
 
     const lscwpSpecTitle = document.getElementById("lscwp-spec-title");
     if (lscwpSpecTitle) {
-      lscwpSpecTitle.innerHTML = `⚡ LiteSpeed Cache v${lscwpVersion} (Konfigurationer)`;
+      lscwpSpecTitle.innerHTML = `⚡ LiteSpeed Cache v${escapeHtml(String(lscwpVersion))} (Konfigurationer)`;
     }
 
     const lscwpRefBadge = document.getElementById("lscwp-ref-badge");
     if (lscwpRefBadge) {
-      lscwpRefBadge.innerHTML = `Referens: LiteSpeed Cache v${lscwpVersion}`;
+      lscwpRefBadge.innerHTML = `Referens: LiteSpeed Cache v${escapeHtml(String(lscwpVersion))}`;
     }
   }
 
@@ -2468,7 +2528,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const isDanger = a.type === "danger";
       const isWarning = a.type === "warning";
-      const deduction = isDanger ? 18 : (isWarning ? 7 : 2);
+      // Explicit scoreImpact: 0 (e.g. SCM raw echo advisory) must never deduct points
+      const deduction = (a.scoreImpact === 0) ? 0 : (isDanger ? 18 : (isWarning ? 7 : 2));
 
       if (cat === "stability") {
         stabilityDeductions += deduction;
@@ -2576,6 +2637,26 @@ document.addEventListener("DOMContentLoaded", () => {
     if (gaugeEl) {
       const deg = (score / 100) * 360;
       gaugeEl.style.setProperty("--score-deg", `${deg}deg`);
+    }
+
+    // Render ecosystem updates notice under health gauge (count only)
+    const updatesEl = document.getElementById("health-score-updates");
+    if (updatesEl) {
+      const updateAlert = (results.alerts || []).find(a => a.id === "alert_available_updates");
+      if (updateAlert && updateAlert.components && updateAlert.components.length > 0) {
+        const count = updateAlert.components.length;
+        updatesEl.textContent = `ℹ️ ${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
+        updatesEl.style.display = "inline-flex";
+        updatesEl.onclick = () => {
+          const tabBtn = document.querySelector('[data-tab="conflicts"]') || document.getElementById("tab-conflicts");
+          if (tabBtn) tabBtn.click();
+          const targetCard = document.getElementById("alert_available_updates");
+          if (targetCard) targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+        };
+      } else {
+        updatesEl.style.display = "none";
+        updatesEl.textContent = "";
+      }
     }
 
     const allAlerts = [
@@ -3670,10 +3751,16 @@ document.addEventListener("DOMContentLoaded", () => {
         isMatches = comp.isMatches;
       }
 
-      const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude";
+      const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude" || opt.id === "optm_dns_prefetch";
+
+      const sourceSlotBadge = (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_")))
+        ? `<span class="badge-risk info" style="margin-left: 0.35rem; background: rgba(168, 85, 247, 0.12); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.65rem;">📂 Slot 5 · Elementor</span>`
+        : "";
 
       const matchBadge = !comp.isMeasured 
-        ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">⚪ Ej inläst</span>`
+        ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">⚪ Ej uppmätt / Okänd</span>`
+        : (comp.isPolicyContext)
+          ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.35);">🔵 Policy/Context</span>`
         : comp.isMatches 
           ? `<span class="badge-risk safe" style="margin-left: auto; background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Optimal</span>`
           : opt.criticalLevel === "critical"
@@ -3689,15 +3776,20 @@ document.addEventListener("DOMContentLoaded", () => {
         statusClass = "status-unset";
         statusText = "⚪ —";
       } else if (isTextareaField) {
-        const rawSiteExcl = (comp && comp.rawMeasured !== null && comp.rawMeasured !== undefined) ? comp.rawMeasured.toString() : "";
-        const cleanLines = rawSiteExcl.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-        const lineCount = cleanLines.length;
-        if (lineCount > 0) {
+        if (comp && comp.currentDisplay && comp.currentDisplay.includes("Inaktiv")) {
           statusClass = "status-on";
-          statusText = `✅ PÅ (${lineCount} rader)`;
+          statusText = `🟢 ${comp.currentDisplay}`;
         } else {
-          statusClass = "status-off";
-          statusText = "❌ AV (0 rader)";
+          const rawSiteExcl = (comp && comp.rawMeasured !== null && comp.rawMeasured !== undefined) ? comp.rawMeasured.toString() : "";
+          const cleanLines = rawSiteExcl.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+          const lineCount = cleanLines.length;
+          if (lineCount > 0) {
+            statusClass = "status-on";
+            statusText = `✅ PÅ (${lineCount} rader)`;
+          } else {
+            statusClass = "status-off";
+            statusText = "❌ AV (0 rader)";
+          }
         }
       } else if (opt.id === "elem_css_print_method") {
         statusClass = comp.isMatches ? "status-on" : "status-off";
@@ -3858,16 +3950,42 @@ document.addEventListener("DOMContentLoaded", () => {
         ` : '';
 
         let guidanceBoxHtml = "";
-        if (opt.id === "js_exclude" || opt.id === "js_delayed_exclude") {
+        if (opt.id === "js_delayed_exclude") {
+          const isDelayedInactive = comp && comp.currentDisplay && comp.currentDisplay.includes("Inaktiv");
+          if (isDelayedInactive) {
+            card.style.opacity = "0.75";
+          }
+          guidanceBoxHtml = `
+            <div style="margin-top: 0.65rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.73rem; color: #e0e7ff; line-height: 1.45;">
+              <strong style="color: #a5b4fc; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                <span>💡</span> Fördröj JS (JS Delay) Exkluderingar:
+              </strong>
+              <span>${isDelayedInactive ? '<strong>Obs:</strong> JS Delay är inaktivt (sajten kör JS Defer). Detta fält används endast om du slår på JS Delay (läge 2). Vid Defer räcker det att undantagen finns i <em>Exkluderingar av JS</em>.' : 'Klistra in denna lista i <strong>"Undantag för uppskjuten/fördröjd JS" (JS Delayed Exclude)</strong> i LiteSpeed för att skydda samtycke och kassa när JS Delay (läge 2) är aktivt.'}</span>
+            </div>
+          `;
+        } else if (opt.id === "js_exclude") {
           guidanceBoxHtml = `
             <div style="margin-top: 0.65rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.73rem; color: #e0e7ff; line-height: 1.45;">
               <strong style="color: #a5b4fc; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
                 <span>💡</span> Bästa praxis & Säkerhetsrekommendation för JS:
               </strong>
-              <span>Klistra in denna lista i <strong>både "Exkluderingar av JS" och "Undantag för uppskjuten/fördröjd JS" (JS Deferred/Delayed Excludes)</strong> i LiteSpeed. Detta säkerställer att undantagen fungerar oavsett om JS Defer eller JS Delay används.</span>
+              <span>Klistra in denna lista i <strong>"Exkluderingar av JS" (js_exclude)</strong> i LiteSpeed. Om du även aktiverar JS Delay (läge 2) klistras listan in i båda fälten. Detta säkerställer att kassa och samtyckesspårning aldrig bryts.</span>
               <div style="margin-top: 0.35rem; color: #fca5a5; font-size: 0.7rem; display: flex; align-items: flex-start; gap: 0.35rem;">
                 <span>⚠️</span> <span><em>Viktigt: LiteSpeed exkluderar INGET JavaScript automatiskt (till skillnad från sidcachen). Manuella undantag är ett strikt krav för att inte bryta kassa eller samtycke.</em></span>
               </div>
+            </div>
+          `;
+        } else if (opt.id === "media_lazy_exc") {
+          const isLazyInactive = comp && comp.currentDisplay && comp.currentDisplay.includes("Inaktiv");
+          if (isLazyInactive) {
+            card.style.opacity = "0.75";
+          }
+          guidanceBoxHtml = `
+            <div style="margin-top: 0.65rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.73rem; color: #e0e7ff; line-height: 1.45;">
+              <strong style="color: #a5b4fc; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                <span>💡</span> Lazy Load Bild-undantag:
+              </strong>
+              <span>${isLazyInactive ? '<strong>Inaktivt läge:</strong> LiteSpeeds egna bild-lazyload är avstängd (WordPress inbyggda Native Lazy Load styr bilderna). Detta undantagsfält i LiteSpeed behöver därför inte konfigureras och ger inget poängavdrag.' : 'När LiteSpeed Media Lazy Load är aktivt måste Above-the-fold bilder (logo, header, hero) exkluderas här för att inte fördröja LCP.'}</span>
             </div>
           `;
         } else if (opt.id === "css_exclude") {
@@ -3887,7 +4005,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="setting-state-pill ${statusClass}">${statusText}</span>
               <h4 class="setting-title" style="margin: 0; font-size: 0.95rem; font-weight: 700;">${opt.title}</h4>
               <span style="font-size: 0.7rem; color: var(--text-muted); opacity: 0.7; font-family: monospace;">(ID: ${opt.id})</span>
-              ${matchBadge}
+              ${sourceSlotBadge}${matchBadge}
             </div>
             <p class="setting-desc" style="margin-bottom: 0.75rem;">${opt.desc}</p>
             ${singleSourceHtml}
@@ -4158,7 +4276,7 @@ document.addEventListener("DOMContentLoaded", () => {
               const orig = state.uploadedSettings[opt.id];
               const current = state.editedSettings[opt.id];
 
-              const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude";
+              const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude" || opt.id === "optm_dns_prefetch";
 
               if (isTextareaField) {
                 if (orig !== current) diffCount++;
@@ -4371,7 +4489,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = payload.syncPluginVersion || data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.6.8";
+        const targetVersion = "2.6.10.3";
         if (companionVersion !== targetVersion) {
           apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
@@ -4792,7 +4910,8 @@ document.addEventListener("DOMContentLoaded", () => {
       editedSettings: state.editedSettings,
       detectedSiteUrl: state.detectedSiteUrl,
       apiUrl: state.apiUrl,
-      uploadMetadata: state.uploadMetadata
+      uploadMetadata: state.uploadMetadata,
+      appVersion: APP_VERSION
     };
 
     const existingIndex = historyLibrary.findIndex(p => p.name.toLowerCase() === profileName.toLowerCase());
@@ -4958,6 +5077,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div>
             <div class="history-card-title" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
             <div class="history-card-date">${escapeHtml(p.timestamp)}</div>
+            <div class="history-card-appver" style="font-size:0.68rem; color:#a5b4fc; margin-top:0.15rem;">AreWee v${escapeHtml(p.appVersion || "—")}</div>
           </div>
           <div class="history-card-score ${scoreClass}">Hälsa: ${parseInt(p.healthScore, 10)}%</div>
         </div>
@@ -5203,6 +5323,16 @@ document.addEventListener("DOMContentLoaded", () => {
             </td>
           </tr>
           <tr>
+            <td><strong>AreWee-app version</strong></td>
+            <td>${escapeHtml(profA.appVersion || "—")}</td>
+            <td>${escapeHtml(profB.appVersion || "—")}</td>
+            <td style="text-align: center;">
+              <span class="comparison-diff-badge ${(profA.appVersion || "") === (profB.appVersion || "") ? 'match' : 'diff'}">
+                ${(profA.appVersion || "") === (profB.appVersion || "") ? 'Lika' : 'Diff'}
+              </span>
+            </td>
+          </tr>
+          <tr>
             <td><strong>Sajt-URL</strong></td>
             <td><code>${profA.apiUrl ? escapeHtml(profA.apiUrl) : 'Manuell uppladdning'}</code></td>
             <td><code>${profB.apiUrl ? escapeHtml(profB.apiUrl) : 'Manuell uppladdning'}</code></td>
@@ -5407,6 +5537,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initial rendering
   renderHistoryLibrary();
   updateCompareDropdowns();
+
+  // Test/debug exports (v2.6.10.3)
+  try {
+    window.detectPastedFormat = detectPastedFormat;
+    window.escapeHtml = escapeHtml;
+    window.APP_VERSION = APP_VERSION;
+  } catch (e) {}
+
 
   // --- UNSAVED DATA & RELOAD PROTECTION ---
   window.addEventListener("beforeunload", (e) => {

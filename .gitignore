@@ -5,3 +5,5 @@
 *.txt
 *.local
 node_modules/
+!scratch/fixtures/
+!scratch/fixtures/**

@@ -26,7 +26,7 @@ Varje svar från assistenten **MÅSTE** inledas med följande rad högst upp:
    - Alla godkända kodändringar och uppdateringar **MÅSTE** medföra ett nytt, bumpat versionsnummer (semantisk versionshantering: Patch för fixar/småjusteringar, Minor för nya funktioner/moduler, Major för arkitekturändringar).
    - Det nya versionsnumret ska uppdateras synkront i UI (`index.html`), skript (`app.js`, `rules.js`, `exporter.js`), dokumentation (`README.md`, `gemini.md`) och cache-busting-parametrar.
 
-## 📌 Projektets Riktlinjer & Arkitektur (v2.6.8)
+## 📌 Projektets Riktlinjer & Arkitektur (v2.6.10.3)
 1. **Versionshantering & Benchmark-granskning**:
    - Om en sajt medvetet kör en äldre version av t.ex. WordPress eller WooCommerce (i väntan på buggfixar/stabilitet) ska appen **flagga** att en nyare version finns tillgänglig.
    - **Viktigt:** Vid granskning och jämförelse mot officiell dokumentation och rekommenderade inställningar ska jämförelsen **alltid göras mot samma/rätt version** som körs på sajten.

@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.6.8)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.6.10.3)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -70,11 +70,20 @@ const LSCWP_NATIVE_DEFAULTS = {
   "purge_upgrade": "1",
   "purge_stale": "0",
   "optm_css_min": "0",
+  "optm_html_min": "0",
   "optm_css_comb": "0",
+  "optm_css_comb_ext_inl": "0",
+  "optm_ucss": "0",
+  "optm_ucss_inline": "0",
   "optm_css_async": "0",
+  "optm_ccss_per_url": "0",
+  "optm_css_async_inline": "0",
   "optm_font_display": "0",
+  "optm_ggfonts_async": "0",
+  "optm_ggfonts_rm": "0",
   "optm_js_min": "0",
   "optm_js_comb": "0",
+  "optm_js_comb_ext_inl": "0",
   "optm_js_defer": "0",
   "js_delayed_exclude": "",
   "optm_js_delayed_exc": "",
@@ -87,7 +96,7 @@ const LSCWP_NATIVE_DEFAULTS = {
   "drop_uri": "",
   "optm_emojis_rm": "0",
   "optm_qs_rm": "0",
-  "optm_ggfonts_rm": "0",
+  "optm_dns_prefetch": "",
   "crawler": "0"
 };
 
@@ -248,9 +257,42 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       } else if (opt.id === "elem_dom_optimization") {
         rawMeasured = (environment.elemDomOpt || environment.elemInfo.dom_optimization === true || environment.elemInfo.e_dom_optimization === "active" || environment.elemInfo.dom_optimization === 1 || (environment.elemInfo.experiments && environment.elemInfo.experiments.some(e => e.toLowerCase().includes("dom") || e.toLowerCase().includes("optimized_dom")))) ? "1" : "0";
       } else if (opt.id === "elem_asset_loading") {
-        rawMeasured = (environment.elemAssetLoading || environment.elemInfo.asset_loading === true || environment.elemInfo.e_optimized_assets_loading === "active" || environment.elemInfo.asset_loading === 1 || (environment.elemInfo.experiments && environment.elemInfo.experiments.some(e => e.toLowerCase().includes("asset") || e.toLowerCase().includes("optimized_assets")))) ? "1" : "0";
+        // Elementor ≥3.16 / 4.x: Improved Asset Loading är permanent integrerad i Core (Optimal by default)
+        const elemVer = (environment.elemVersion || environment.elemInfo.version || "").toString();
+        const isModernCore = !elemVer || (typeof compareVersions === "function" ? compareVersions(elemVer, "3.16.0") >= 0 : true);
+        if (isModernCore) {
+          rawMeasured = "1";
+        } else {
+          const assetVal = environment.elemInfo.asset_loading;
+          const assetExpVal = environment.elemInfo.e_optimized_assets_loading;
+          const explicitlyOff = assetVal === false || assetVal === 0 || assetVal === "0" ||
+                                assetExpVal === false || assetExpVal === 0 || assetExpVal === "0" ||
+                                (typeof assetVal === "string" && /^(inactive|inaktiv|disabled|off|false)$/i.test(assetVal.trim())) ||
+                                (typeof assetExpVal === "string" && /inactive|inaktiv|disabled|off/i.test(assetExpVal));
+          if (explicitlyOff) {
+            rawMeasured = "0";
+          } else {
+            rawMeasured = (environment.elemAssetLoading || assetVal === true || assetExpVal === "active" || assetVal === 1 || (environment.elemInfo.experiments && environment.elemInfo.experiments.some(e => e.toLowerCase().includes("asset") || e.toLowerCase().includes("optimized_assets")))) ? "1" : "0";
+          }
+        }
       } else if (opt.id === "elem_css_loading") {
-        rawMeasured = (environment.elemCssLoading || environment.elemInfo.css_loading === true || environment.elemInfo.e_optimized_css_loading === "active" || environment.elemInfo.css_loading === 1 || (environment.elemInfo.experiments && environment.elemInfo.experiments.some(e => e.toLowerCase().includes("css") || e.toLowerCase().includes("optimized_css")))) ? "1" : "0";
+        // Elementor ≥3.16 / 4.x: Improved CSS Loading is built into Core (Optimal by default)
+        // Optimal only when NOT explicitly off; false/0/"0"/inactive always count as off (v2.6.10.1)
+        const elemVerCss = (environment.elemVersion || environment.elemInfo.version || "").toString();
+        const isModernCoreCss = !elemVerCss || (typeof compareVersions === "function" ? compareVersions(elemVerCss, "3.16.0") >= 0 : true);
+        const cssVal = environment.elemInfo.css_loading;
+        const cssExpVal = environment.elemInfo.e_optimized_css_loading;
+        const explicitlyOffCss = cssVal === false || cssVal === 0 || cssVal === "0" ||
+                                 cssExpVal === false || cssExpVal === 0 || cssExpVal === "0" ||
+                                 (typeof cssVal === "string" && /^(inactive|inaktiv|disabled|off|false)$/i.test(cssVal.trim())) ||
+                                 (typeof cssExpVal === "string" && /inactive|inaktiv|disabled|off/i.test(cssExpVal));
+        if (explicitlyOffCss) {
+          rawMeasured = "0";
+        } else if (isModernCoreCss || environment.elemCssLoading || cssVal === true || cssExpVal === "active" || cssVal === 1 || (environment.elemInfo.experiments && environment.elemInfo.experiments.some(e => e.toLowerCase().includes("css") || e.toLowerCase().includes("optimized_css")))) {
+          rawMeasured = "1";
+        } else {
+          rawMeasured = isModernCoreCss ? "1" : "0";
+        }
       } else if (opt.id === "elem_lazy_load") {
         rawMeasured = (environment.elemInfo.lazy_load === true || environment.elemInfo.hasLazyLoad === true || environment.elemInfo.e_lazy_load_images === "active") ? "1" : "0";
       } else if (opt.id === "elem_font_icon_svg") {
@@ -415,7 +457,9 @@ function getOptionComparison(opt, uploadedSettings, environment) {
   }
 
   // 2. LiteSpeed Cache & .data Settings Resolution
-  if (!isMeasured && hasSettings) {
+  // Elementor/Woo/WF/Theme/Server status must NEVER be updated from LSCWP .data
+  const isLitespeedTool = !opt.tool || opt.tool === "litespeed" || (opt.id && !opt.id.startsWith("elem_") && !opt.id.startsWith("woo_") && !opt.id.startsWith("wf_") && !opt.id.startsWith("theme_") && !opt.id.startsWith("php_") && !opt.id.startsWith("wp_") && opt.tool !== "elementor" && opt.tool !== "woocommerce" && opt.tool !== "wordfence" && opt.tool !== "theme" && opt.tool !== "server" && opt.tool !== "scm");
+  if (!isMeasured && hasSettings && isLitespeedTool) {
     const lscwpKey = (typeof KEY_MAPPING_TO_LSCWP !== "undefined" && KEY_MAPPING_TO_LSCWP[opt.id]) || opt.id.replace(/_/g, "-");
     
     // 1. Special direct alias & environment resolution for Object Cache
@@ -445,9 +489,17 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       isMeasured = true;
       rawMeasured = uploadedSettings["cache-exc"] !== undefined ? uploadedSettings["cache-exc"] : (uploadedSettings["cache_exc"] !== undefined ? uploadedSettings["cache_exc"] : (uploadedSettings["drop_uri"] !== undefined ? uploadedSettings["drop_uri"] : (uploadedSettings["cache-drop_uri"] !== undefined ? uploadedSettings["cache-drop_uri"] : uploadedSettings["cache-uri_exc"])));
     }
-    else if (opt.id === "media_lazy_exc" && (uploadedSettings["media-lazy_exc"] !== undefined || uploadedSettings["media_lazy_exc"] !== undefined || uploadedSettings["media-lazy-exc"] !== undefined || uploadedSettings["media_lazy_exclude"] !== undefined || uploadedSettings["media-lazy_img_exc"] !== undefined || uploadedSettings["media_lazy_img_exc"] !== undefined)) {
-      isMeasured = true;
-      rawMeasured = uploadedSettings["media-lazy_exc"] !== undefined ? uploadedSettings["media-lazy_exc"] : (uploadedSettings["media_lazy_exc"] !== undefined ? uploadedSettings["media_lazy_exc"] : (uploadedSettings["media-lazy-exc"] !== undefined ? uploadedSettings["media-lazy-exc"] : (uploadedSettings["media_lazy_exclude"] !== undefined ? uploadedSettings["media_lazy_exclude"] : (uploadedSettings["media-lazy_img_exc"] !== undefined ? uploadedSettings["media-lazy_img_exc"] : uploadedSettings["media_lazy_img_exc"]))));
+    else if (opt.id === "media_lazy_exc") {
+      if (uploadedSettings["media-lazy_exc"] !== undefined || uploadedSettings["media_lazy_exc"] !== undefined || uploadedSettings["media-lazy-exc"] !== undefined || uploadedSettings["media_lazy_exclude"] !== undefined || uploadedSettings["media-lazy_img_exc"] !== undefined || uploadedSettings["media_lazy_img_exc"] !== undefined) {
+        isMeasured = true;
+        rawMeasured = uploadedSettings["media-lazy_exc"] !== undefined ? uploadedSettings["media-lazy_exc"] : (uploadedSettings["media_lazy_exc"] !== undefined ? uploadedSettings["media_lazy_exc"] : (uploadedSettings["media-lazy-exc"] !== undefined ? uploadedSettings["media-lazy-exc"] : (uploadedSettings["media_lazy_exclude"] !== undefined ? uploadedSettings["media_lazy_exclude"] : (uploadedSettings["media-lazy_img_exc"] !== undefined ? uploadedSettings["media-lazy_img_exc"] : uploadedSettings["media_lazy_img_exc"]))));
+      } else {
+        const isLsLazy = uploadedSettings["media-lazy"] === "1" || uploadedSettings["media_lazy"] === "1" || (uploadedSettings.options && (uploadedSettings.options["media-lazy"] === "1" || uploadedSettings.options["media_lazy"] === "1"));
+        if (!isLsLazy) {
+          isMeasured = true;
+          rawMeasured = "";
+        }
+      }
     }
     else if (opt.id === "js_exclude" && (uploadedSettings["optm-js_exc"] !== undefined || uploadedSettings["optm_js_exc"] !== undefined || uploadedSettings["js_exclude"] !== undefined || uploadedSettings["js-exclude"] !== undefined || uploadedSettings["optm_js_exclude"] !== undefined || uploadedSettings["optm-js-exc"] !== undefined || uploadedSettings["js_exc"] !== undefined)) {
       isMeasured = true;
@@ -457,9 +509,54 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       isMeasured = true;
       rawMeasured = uploadedSettings["optm-css_exc"] !== undefined ? uploadedSettings["optm-css_exc"] : (uploadedSettings["optm_css_exc"] !== undefined ? uploadedSettings["optm_css_exc"] : (uploadedSettings["css_exclude"] !== undefined ? uploadedSettings["css_exclude"] : (uploadedSettings["css-exclude"] !== undefined ? uploadedSettings["css-exclude"] : (uploadedSettings["optm_css_exclude"] !== undefined ? uploadedSettings["optm_css_exclude"] : (uploadedSettings["optm-css-exc"] !== undefined ? uploadedSettings["optm-css-exc"] : uploadedSettings["css_exc"])))));
     }
-    else if (opt.id === "js_delayed_exclude" && (uploadedSettings["optm-js_delayed_exc"] !== undefined || uploadedSettings["optm_js_delayed_exc"] !== undefined || uploadedSettings["js_delayed_exclude"] !== undefined || uploadedSettings["js_delayed_exc"] !== undefined)) {
-      isMeasured = true;
-      rawMeasured = uploadedSettings["optm-js_delayed_exc"] !== undefined ? uploadedSettings["optm-js_delayed_exc"] : (uploadedSettings["optm_js_delayed_exc"] !== undefined ? uploadedSettings["optm_js_delayed_exc"] : (uploadedSettings["js_delayed_exclude"] !== undefined ? uploadedSettings["js_delayed_exclude"] : uploadedSettings["js_delayed_exc"]));
+    else if (opt.id === "js_delayed_exclude") {
+      if (uploadedSettings["optm-js_delayed_exc"] !== undefined || uploadedSettings["optm_js_delayed_exc"] !== undefined || uploadedSettings["js_delayed_exclude"] !== undefined || uploadedSettings["js_delayed_exc"] !== undefined) {
+        isMeasured = true;
+        rawMeasured = uploadedSettings["optm-js_delayed_exc"] !== undefined ? uploadedSettings["optm-js_delayed_exc"] : (uploadedSettings["optm_js_delayed_exc"] !== undefined ? uploadedSettings["optm_js_delayed_exc"] : (uploadedSettings["js_delayed_exclude"] !== undefined ? uploadedSettings["js_delayed_exclude"] : uploadedSettings["js_delayed_exc"]));
+      } else {
+        const defMode = uploadedSettings["optm-js_defer"] !== undefined ? uploadedSettings["optm-js_defer"] : (uploadedSettings["optm_js_defer"] !== undefined ? uploadedSettings["optm_js_defer"] : "0");
+        if (defMode !== "2" && defMode !== 2) {
+          isMeasured = true;
+          rawMeasured = "";
+        }
+      }
+    }
+    else if (opt.id === "media_vpi") {
+      if (uploadedSettings["media-vpi"] !== undefined || uploadedSettings["media_vpi"] !== undefined) {
+        isMeasured = true;
+        rawMeasured = uploadedSettings["media-vpi"] !== undefined ? uploadedSettings["media-vpi"] : uploadedSettings["media_vpi"];
+      } else {
+        const isLsLazy = uploadedSettings["media-lazy"] === "1" || uploadedSettings["media_lazy"] === "1" || (uploadedSettings.options && (uploadedSettings.options["media-lazy"] === "1" || uploadedSettings.options["media_lazy"] === "1"));
+        if (!isLsLazy) {
+          isMeasured = true;
+          rawMeasured = "0";
+        }
+      }
+    }
+    else if (opt.id === "optm_ccss_per_url" || opt.id === "optm_css_async_inline") {
+      const aliasKey = opt.id === "optm_ccss_per_url" ? "optm-ccss_per_url" : "optm-css_async_inline";
+      if (uploadedSettings[aliasKey] !== undefined || uploadedSettings[opt.id] !== undefined) {
+        isMeasured = true;
+        rawMeasured = uploadedSettings[aliasKey] !== undefined ? uploadedSettings[aliasKey] : uploadedSettings[opt.id];
+      } else {
+        const isAsyncCss = uploadedSettings["optm-css_async"] === "1" || uploadedSettings["optm_css_async"] === "1" || (uploadedSettings.options && (uploadedSettings.options["optm-css_async"] === "1" || uploadedSettings.options["optm_css_async"] === "1"));
+        if (!isAsyncCss) {
+          isMeasured = true;
+          rawMeasured = "0";
+        }
+      }
+    }
+    else if (opt.id === "optm_ggfonts_async") {
+      if (uploadedSettings["optm-ggfonts_async"] !== undefined || uploadedSettings["optm_ggfonts_async"] !== undefined) {
+        isMeasured = true;
+        rawMeasured = uploadedSettings["optm-ggfonts_async"] !== undefined ? uploadedSettings["optm-ggfonts_async"] : uploadedSettings["optm_ggfonts_async"];
+      } else {
+        const isGgRm = uploadedSettings["optm-ggfonts_rm"] === "1" || uploadedSettings["optm_ggfonts_rm"] === "1" || (uploadedSettings.options && (uploadedSettings.options["optm-ggfonts_rm"] === "1" || uploadedSettings.options["optm_ggfonts_rm"] === "1"));
+        if (isGgRm) {
+          isMeasured = true;
+          rawMeasured = "0";
+        }
+      }
     }
     else if (opt.id === "optm_js_defer" && (uploadedSettings["optm-js_defer"] !== undefined || uploadedSettings["optm_js_defer"] !== undefined || uploadedSettings["js_defer"] !== undefined || uploadedSettings["optm-js_delayed"] !== undefined)) {
       isMeasured = true;
@@ -485,14 +582,11 @@ function getOptionComparison(opt, uploadedSettings, environment) {
         rawMeasured = uploadedSettings.options[lscwpKey];
       }
     }
-    // 7. Fallback to native LSCWP default when setting was not explicitly overridden in .data
-    else if (LSCWP_NATIVE_DEFAULTS.hasOwnProperty(opt.id)) {
-      isMeasured = true;
-      rawMeasured = LSCWP_NATIVE_DEFAULTS[opt.id];
-    }
+    // 7. v2.6.9: Do NOT invent measurements from LSCWP_NATIVE_DEFAULTS.
+    // Missing keys stay unmeasured (unknown) — never false Optimal.
   }
 
-  const isTextarea = opt.id === "drop_uri" || opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "js_delayed_exclude";
+  const isTextarea = opt.id === "drop_uri" || opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "js_delayed_exclude" || opt.id === "optm_dns_prefetch";
   const rec = opt.recommendedRaw;
   const recNorm = (rec === "1" || rec === 1 || rec === "on" || rec === true || rec === "swap") ? 1 : (typeof rec === "string" ? rec : 0);
 
@@ -542,10 +636,26 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       // JS Delayed Excludes is only active if optm_js_defer is set to 2 (Delayed).
       const currentDeferMode = (uploadedSettings && (uploadedSettings.optm_js_defer !== undefined ? uploadedSettings.optm_js_defer : uploadedSettings["optm-js_defer"])) || 0;
       const isDelayActive = currentDeferMode === "2" || currentDeferMode === 2;
+      const isDeferActive = currentDeferMode === "1" || currentDeferMode === 1;
       
       if (!isDelayActive) {
         isMatches = true;
-        currentDisplay = "Inaktiv (Defer aktiv)";
+        currentDisplay = isDeferActive ? "Inaktiv (Defer aktiv)" : "Inaktiv (Delay ej aktiv)";
+        missingExclusions = [];
+      } else {
+        isMatches = missingExclusions.length === 0;
+        currentDisplay = isMatches ? "Matchar LS-rek" : "Avviker från LS-rek";
+      }
+    } else if (opt.id === "media_lazy_exc") {
+      const isLscwpLazy = uploadedSettings ? (
+        uploadedSettings.media_lazy === "1" || uploadedSettings.media_lazy === 1 ||
+        uploadedSettings["media-lazy"] === "1" || uploadedSettings["media-lazy"] === 1 ||
+        (uploadedSettings.options && (uploadedSettings.options.media_lazy === "1" || uploadedSettings.options["media-lazy"] === "1"))
+      ) : false;
+
+      if (!isLscwpLazy) {
+        isMatches = true;
+        currentDisplay = "Inaktiv (WP Native aktiv / LSCWP Lazy AV)";
         missingExclusions = [];
       } else {
         isMatches = missingExclusions.length === 0;
@@ -632,6 +742,115 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     isMatches = isExt;
     currentDisplay = isExt ? "Extern fil (Optimalt)" : "Inbäddad/Inline (Risk)";
     recommendedDisplay = "Extern fil";
+  } else if (opt.id === "cache_priv") {
+    // Policy/context setting — ON for members/B2B portals, OFF for typical admin-only sites.
+    // When site type is unknown, do NOT hard-flag deviation (cite Online Media Masters).
+    const measNormPriv = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    const isMembersLike = !!(environment && (environment.isMembershipSite || environment.isB2B || environment.hasMembershipPlugin ||
+      (environment.activeTheme && /maximera|member|portal|b2b/i.test(String(environment.activeTheme))) ||
+      (environment.detectedSiteUrl && /maximera|member|portal|b2b/i.test(String(environment.detectedSiteUrl))) ||
+      (environment.activePlugins && environment.activePlugins.some(p => /member|restrict|wishlist|b2b|wholesale/i.test(String(p))))));
+    const siteTypeKnown = isMembersLike || !!(environment && environment.siteTypeKnown === true);
+    if (isMembersLike) {
+      isMatches = measNormPriv === 1;
+      currentDisplay = measNormPriv === 1 ? "PÅ (Medlems/B2B)" : "AV";
+      recommendedDisplay = "PÅ (Medlems/B2B)";
+    } else if (!siteTypeKnown) {
+      // Unknown site type → policy/context, never hard deviation
+      isMatches = true;
+      currentDisplay = measNormPriv === 1 ? "PÅ (policy/context)" : "AV (policy/context)";
+      recommendedDisplay = "Policy: PÅ medlems/B2B · AV admin-only";
+    } else {
+      isMatches = measNormPriv === 0;
+      currentDisplay = measNormPriv === 1 ? "PÅ" : "AV (admin-only)";
+      recommendedDisplay = "AV (typisk admin-only)";
+    }
+
+  } else if (opt.id === "optm_ggfonts_rm") {
+    // Policy setting: PÅ om sajten blockerar Google Fonts / kör lokala typsnitt (GDPR-säkert).
+    // AV om Google Fonts används på sajten.
+    // Oavsett om användaren har PÅ eller AV är det ett avsiktligt val — aldrig hård avvikelse eller poängavdrag!
+    const measNormGg = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    isMatches = true;
+    currentDisplay = measNormGg === 1 ? "PÅ (GDPR / Lokala fonter)" : "AV (Google Fonts tillåts)";
+    recommendedDisplay = "Policy: PÅ för lokala fonter · AV om externa används";
+
+  } else if (opt.id === "media_vpi") {
+    // VPI (Viewport Images) är enbart meningsfullt om LiteSpeed Lazy Load faktiskt är aktivt.
+    // Om LiteSpeed Lazy Load är AV (media_lazy === 0) kör sajten WP Native Lazy.
+    // Då är media_vpi = AV helt optimalt och ger 0 avvikelse.
+    const isLscwpLazy = uploadedSettings ? (
+      uploadedSettings.media_lazy === "1" || uploadedSettings.media_lazy === 1 ||
+      uploadedSettings["media-lazy"] === "1" || uploadedSettings["media-lazy"] === 1 ||
+      (uploadedSettings.options && (uploadedSettings.options.media_lazy === "1" || uploadedSettings.options["media-lazy"] === "1"))
+    ) : false;
+
+    const measVpi = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+
+    if (!isLscwpLazy) {
+      isMatches = true;
+      currentDisplay = measVpi === 1 ? "PÅ (Ej nödvändig vid WP Native)" : "AV (Optimalt vid WP Native)";
+      recommendedDisplay = "AV (Inaktiv vid WP Native Lazy)";
+    } else {
+      isMatches = (measVpi === 1);
+      currentDisplay = measVpi === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "PÅ";
+    }
+
+  } else if (opt.id === "optm_ccss_per_url" || opt.id === "optm_css_async_inline") {
+    // Kontextberoende CSS-satelliter: CCSS per URL och Inline CSS Async Lib är endast relevanta när Load CSS Asynchronously är PÅ.
+    // När Async CSS är AV (0) krävs inte dessa satelliter och ska inte flaggas som avvikelser.
+    const isCssAsyncActive = uploadedSettings ? (
+      uploadedSettings.optm_css_async === "1" || uploadedSettings.optm_css_async === 1 ||
+      uploadedSettings["optm-css_async"] === "1" || uploadedSettings["optm-css_async"] === 1 ||
+      (uploadedSettings.options && (uploadedSettings.options.optm_css_async === "1" || uploadedSettings.options["optm-css_async"] === "1"))
+    ) : false;
+
+    const measSat = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+
+    if (!isCssAsyncActive) {
+      isMatches = true;
+      currentDisplay = measSat === 1 ? "PÅ (Ej nödvändig vid Async CSS AV)" : "AV (Inaktiv vid Async CSS AV)";
+      recommendedDisplay = "AV (Inaktiv vid Async CSS AV)";
+    } else {
+      isMatches = (measSat === 1);
+      currentDisplay = measSat === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "PÅ";
+    }
+
+  } else if (opt.id === "optm_ggfonts_async") {
+    // Ladda Google Fonts asynkront är endast relevant om externa Google Fonts faktiskt används på sajten.
+    // När sajten inte använder externa Google Fonts (antingen för att optm_ggfonts_rm är PÅ, eller för att
+    // varken Elementor eller temat flaggar Google Fonts-användning) utvärderas detta som Optimalt/inaktivt.
+    const isLscwpGgFontsRm = uploadedSettings ? (
+      uploadedSettings.optm_ggfonts_rm === "1" || uploadedSettings.optm_ggfonts_rm === 1 ||
+      uploadedSettings["optm-ggfonts_rm"] === "1" || uploadedSettings["optm-ggfonts_rm"] === 1 ||
+      (uploadedSettings.options && (uploadedSettings.options.optm_ggfonts_rm === "1" || uploadedSettings.options["optm-ggfonts_rm"] === "1"))
+    ) : false;
+
+    const isElemGg = environment ? (
+      (environment.elemInfo && (environment.elemInfo.google_fonts === true || environment.elemInfo.google_fonts === "1" || environment.elemInfo.google_fonts === "active" || environment.elemInfo.google_fonts === "enabled")) ||
+      Boolean(environment.hasElementorGoogleFonts)
+    ) : false;
+
+    const isThemeGg = environment ? (
+      (environment.themeInfo && (JSON.stringify(environment.themeInfo).toLowerCase().includes("google_fonts") || JSON.stringify(environment.themeInfo).toLowerCase().includes("fonts.googleapis.com"))) ||
+      Boolean(environment.hasThemeGoogleFonts)
+    ) : false;
+
+    const hasExternalGg = !isLscwpGgFontsRm && (isElemGg || isThemeGg);
+    const measGgAsync = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+
+    if (!hasExternalGg) {
+      isMatches = true;
+      currentDisplay = measGgAsync === 1 ? "PÅ (Ej nödvändig utan Google Fonts)" : "AV (Inaktiv utan Google Fonts)";
+      recommendedDisplay = "Inaktiv (inga externa Google Fonts)";
+    } else {
+      isMatches = (measGgAsync === 1);
+      currentDisplay = measGgAsync === 1 ? "PÅ" : "AV";
+      recommendedDisplay = "PÅ";
+    }
+
   } else if (typeof rec === "string" && rec !== "1" && rec !== "0") {
     const rawStr = String(rawMeasured !== null && rawMeasured !== undefined ? rawMeasured : "").trim().toLowerCase();
     const recStr = String(rec || "").trim().toLowerCase();
@@ -646,14 +865,17 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     recommendedDisplay = targetNorm === 1 ? "PÅ" : "AV";
   }
 
+  const isPolicyContext = (opt.id === "cache_priv" && isMatches && String(currentDisplay).includes("policy")) || (opt.id === "optm_ggfonts_rm");
+
   return {
     id: opt.id,
     title: opt.title,
     tool: opt.tool || "litespeed",
     criticalLevel: opt.criticalLevel || "standard",
     isMeasured: true,
-    status: isMatches ? "optimal" : "deviation",
-    statusLabel: isMatches ? "🟢 Optimal" : (opt.criticalLevel === "critical" ? "🚨 Avvikelse" : "🟡 Avvikelse"),
+    status: isPolicyContext ? "policy" : (isMatches ? "optimal" : "deviation"),
+    statusLabel: isPolicyContext ? "🔵 Policy/Context" : (isMatches ? "🟢 Optimal" : (opt.criticalLevel === "critical" ? "🚨 Avvikelse" : "🟡 Avvikelse")),
+    isPolicyContext: isPolicyContext,
     currentDisplay,
     recommendedDisplay,
     isMatches,
@@ -679,18 +901,18 @@ const BENCHMARK_VERSIONS = {
   },
   woocommerce: {
     name: "WooCommerce",
-    benchmarkVersion: "9.6.0",
-    latestRelease: "9.6.0",
-    auditDate: "2026-09-18",
+    benchmarkVersion: "9.8.0",
+    latestRelease: "9.8.2",
+    auditDate: "2026-09-24",
     source: "WooCommerce Developer Handbook & GitHub Releases",
     url: "https://developer.woocommerce.com/"
   },
   elementor: {
     name: "Elementor",
-    benchmarkVersion: "3.28.4",
-    latestRelease: "3.28.4",
-    auditDate: "2026-09-18",
-    source: "Elementor Developer Hub & Experiment Matrix",
+    benchmarkVersion: "4.2.0",
+    latestRelease: "4.2.1",
+    auditDate: "2026-09-24",
+    source: "Elementor Developer Hub & Performance Docs (4.x core baseline)",
     url: "https://developers.elementor.com/"
   },
   wordfence: {
@@ -703,17 +925,17 @@ const BENCHMARK_VERSIONS = {
   },
   ctm: {
     name: "Consent & Tag Manager (CTM)",
-    benchmarkVersion: "2.6.8",
-    latestRelease: "2.6.8",
-    releaseDate: "2026-09-20",
+    benchmarkVersion: "2.6.10.3",
+    latestRelease: "2.6.10.3",
+    releaseDate: "2026-09-24",
     changelogSummary: "Egenutvecklad ersättare för GTM4WP, Complianz och PixelYourSite med noll externa beroenden.",
     docsUrl: "https://arewee.se/ctm-docs"
   },
   scm: {
     name: "SCM (Site Code Manager)",
-    benchmarkVersion: "2.6.8",
-    latestRelease: "2.6.8",
-    auditDate: "2026-09-20",
+    benchmarkVersion: "2.6.10.3",
+    latestRelease: "2.6.10.3",
+    auditDate: "2026-09-24",
     source: "SCM Source Manual & Code Standards",
     url: "internal://site-code-manager"
   },
@@ -911,6 +1133,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   }
   if (elemInfo) {
     environment.hasElementor = true;
+    environment.elemVersion = elemInfo.version || environment.elemVersion || "";
     environment.elemDomOpt = elemInfo.dom_optimization === true || elemInfo.e_dom_optimization === "active" || elemInfo.dom_optimization === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("dom") || e.toLowerCase().includes("optimized_dom")));
     environment.elemAssetLoading = elemInfo.asset_loading === true || elemInfo.e_optimized_assets_loading === "active" || elemInfo.asset_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("asset") || e.toLowerCase().includes("optimized_assets")));
     environment.elemCssLoading = elemInfo.css_loading === true || elemInfo.e_optimized_css_loading === "active" || elemInfo.css_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("css") || e.toLowerCase().includes("optimized_css")));
@@ -1178,6 +1401,38 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   const alerts = [];
   const customCodeAlerts = [];
   const customCssAlerts = [];
+
+  // --- A0. Ecosystem Updates Advisory (Informative only, scoreImpact: 0) ---
+  const pendingUpdates = versionMatrix.filter(v => 
+    v.isActive && 
+    v.installedVersion && 
+    typeof v.installedVersion === "string" &&
+    /\d+(?:\.\d+)+/.test(v.installedVersion) &&
+    v.installedVersion !== "Ej aktivt" && 
+    v.installedVersion !== "Ej installerat" && 
+    v.installedVersion !== "Okänd" && 
+    v.latestRelease && 
+    compareVersions(v.installedVersion, v.latestRelease) < 0
+  );
+
+  if (pendingUpdates.length > 0) {
+    const namesList = pendingUpdates.map(p => `${p.name} (v${p.installedVersion} ➔ v${p.latestRelease})`).join(", ");
+    alerts.push({
+      id: "alert_available_updates",
+      type: "info",
+      icon: "ℹ️",
+      component: "core",
+      components: pendingUpdates.map(p => p.toolKey),
+      title: `${pendingUpdates.length} ekosystem-uppdatering${pendingUpdates.length > 1 ? "ar" : ""} tillgänglig${pendingUpdates.length > 1 ? "a" : ""} (${pendingUpdates.map(p => p.name).join(", ")})`,
+      desc: `Webbplatsen kör en stabil/äldre version av ${namesList}. Detta påverkar inte sajtens hälsopoäng då medveten frysning för stabilitet respekteras. Alla regler och jämförelser har anpassats specifikt mot dina installerade versioner.`,
+      source: "AreWee Version Matrix & Benchmark Registry",
+      compatibility: "Ingen aktiv konflikt. Noteringen är rent rådgivande inför framtida uppdateringscykler.",
+      targetTabId: "general",
+      impactCategory: "stability",
+      criticalLevel: "standard",
+      scoreImpact: 0
+    });
+  }
 
   // --- A. Server & Memory Alerts ---
   if (!environment.isLiteSpeedServer) {
@@ -1599,12 +1854,18 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     const isJsDeferActive = deferVal === "1" || deferVal === 1 || deferVal === "2" || deferVal === 2;
     
     if (isJsDeferActive) {
-      const jsExcl = String(uploadedSettings.js_exclude || uploadedSettings["optm-js_exclude"] || "").toLowerCase();
+      const allJsExcl = (
+        String(uploadedSettings.js_exclude || uploadedSettings["optm-js_exclude"] || uploadedSettings["optm_js_exc"] || uploadedSettings["optm-js_exc"] || "") + "\n" +
+        String(uploadedSettings.js_delayed_exclude || uploadedSettings["optm-js_delayed_exc"] || uploadedSettings["optm_js_delayed_exc"] || uploadedSettings["js_delayed_exc"] || "") + "\n" +
+        String(uploadedSettings.optm_js_defer_exc || uploadedSettings["optm-js_defer_exc"] || "")
+      ).toLowerCase();
       const missingCheckoutTokens = [];
-      if (!jsExcl.includes("klarna") && !jsExcl.includes("kco")) missingCheckoutTokens.push("klarna");
-      if (!jsExcl.includes("stripe")) missingCheckoutTokens.push("stripe");
-      if (!jsExcl.includes("woocommerce") && !jsExcl.includes("wc-checkout")) missingCheckoutTokens.push("woocommerce");
-      if (!jsExcl.includes("ctm") && !jsExcl.includes("cookieconsent")) missingCheckoutTokens.push("ctm");
+      const hasKlarna = environment.hasKlarna || (effectiveSysInfo && JSON.stringify(effectiveSysInfo).toLowerCase().includes("klarna"));
+      const hasStripe = environment.hasStripe || (effectiveSysInfo && JSON.stringify(effectiveSysInfo).toLowerCase().includes("stripe"));
+      if (hasKlarna && !allJsExcl.includes("klarna") && !allJsExcl.includes("kco")) missingCheckoutTokens.push("klarna");
+      if (hasStripe && !allJsExcl.includes("stripe")) missingCheckoutTokens.push("stripe");
+      if (!allJsExcl.includes("woocommerce") && !allJsExcl.includes("wc-checkout") && !allJsExcl.includes("wc-cart")) missingCheckoutTokens.push("woocommerce");
+      if (environment.hasCtm && !allJsExcl.includes("ctm") && !allJsExcl.includes("cookieconsent") && !allJsExcl.includes("datalayer")) missingCheckoutTokens.push("ctm");
       
       if (missingCheckoutTokens.length > 0) {
         alerts.push({
@@ -1766,13 +2027,14 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       const hasRawEchoTag = /echo\s*['"]\s*<(script|style)/i.test(code) || /<\/?(script|style)>/i.test(code) || code.includes("echo '<script") || code.includes('echo "<script') || code.includes("echo '<style") || code.includes('echo "<style');
       if (hasRawEchoTag) {
         customCodeAlerts.push({
-          type: "warning",
-          icon: "⚡",
+          type: "info",
+          icon: "💡",
           component: "scm",
-          title: `SCM: Rå HTML/JS utskriven direkt i PHP i '${title}'`,
-          desc: "Skript och stilar bör registreras via wp_enqueue_script/wp_enqueue_style istället för rå echo, så att LiteSpeed kan optimera dem säkert.",
+          title: `SCM Kodkvalitet: Rå HTML/JS utskriven direkt i PHP i '${title}'`,
+          desc: "Rekommendation: Skript och stilar bör registreras via wp_enqueue_script/wp_enqueue_style istället för rå echo, så att LiteSpeed kan optimera dem säkert.",
           impactCategory: "stability",
-          criticalLevel: "standard"
+          criticalLevel: "standard",
+          scoreImpact: 0
         });
       }
 
@@ -1940,7 +2202,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       id: "scm",
       name: "SCM",
       icon: "🔌",
-      version: "v2.6.8",
+      version: "v2.6.10.3",
       status: (environment.hasSCM || scmInfo) ? "optimal" : "neutral",
       active: Boolean(environment.hasSCM || scmInfo),
       subtext: scmInfo ? `${scmInfo.snippets ? scmInfo.snippets.length : 0} snippets granskade` : (environment.hasSCM ? "Aktiv källkod" : "Ej inläst")
@@ -1949,7 +2211,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       id: "ctm",
       name: "CTM",
       icon: "🛡️",
-      version: "v2.6.8",
+      version: "v2.6.10.3",
       status: environment.hasCTM ? "optimal" : "neutral",
       active: Boolean(environment.hasCTM),
       subtext: environment.hasCTM ? "Aktiv samtyckesmotor" : "Ej inläst"
@@ -1983,12 +2245,29 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   let jsStatus = isLscwpJs ? "optimal" : "warning";
   let jsStatusText = isLscwpJs ? "Optimal" : "Inaktiv";
 
-  // 3. CSS-generering
-  const isLscwpCss = uploadedSettings ? (uploadedSettings.optm_css_async === "1" || uploadedSettings["optm-css_async"] === "1" || uploadedSettings.optm_css_comb === "1" || uploadedSettings["optm-css_comb"] === "1") : false;
+  // 3. CSS-generering (v2.6.10.3: Combine/Async AV + Minify = Optimal; Async ON medan rec=AV → warning)
+  const isCombOn = uploadedSettings ? (uploadedSettings.optm_css_comb === "1" || uploadedSettings.optm_css_comb === 1 || uploadedSettings["optm-css_comb"] === "1" || uploadedSettings["optm-css_comb"] === 1) : false;
+  const isCssMinOn = uploadedSettings ? (uploadedSettings.optm_css_min === "1" || uploadedSettings.optm_css_min === 1 || uploadedSettings["optm-css_min"] === "1" || uploadedSettings["optm-css_min"] === 1) : false;
+  const isCssAsyncOn = uploadedSettings ? (uploadedSettings.optm_css_async === "1" || uploadedSettings.optm_css_async === 1 || uploadedSettings["optm-css_async"] === "1" || uploadedSettings["optm-css_async"] === 1) : false;
+  const isLscwpCss = Boolean(uploadedSettings && (uploadedSettings.optm_css_async === "1" || uploadedSettings["optm-css_async"] === "1" || uploadedSettings.optm_css_comb === "1" || uploadedSettings["optm-css_comb"] === "1" || uploadedSettings.optm_css_min === "1" || uploadedSettings["optm-css_min"] === "1"));
   const isElemCss = elemInfo ? (elemInfo.css_print_method === "external" || elemInfo.css_print_method === "internal" || elemInfo.e_optimized_css_loading === "active") : false;
   
-  let cssStatus = isLscwpCss || isElemCss ? "optimal" : "warning";
-  let cssStatusText = isLscwpCss || isElemCss ? "Optimal" : "Inaktiv";
+  let cssStatus = "optimal";
+  let cssStatusText = "Optimal";
+  if (isCombOn) {
+    cssStatus = "warning";
+    cssStatusText = "Kombinering aktiv (Risk)";
+  } else if (isCssAsyncOn) {
+    // Recommendation for optm_css_async is AV (0); Async ON must not produce Optimal
+    cssStatus = "warning";
+    cssStatusText = "Async CSS aktiv (avråds)";
+  } else if (!isCssMinOn && uploadedSettings && Object.keys(uploadedSettings).length > 0) {
+    cssStatus = "warning";
+    cssStatusText = "Ej minifierad";
+  } else {
+    cssStatus = "optimal";
+    cssStatusText = "Optimal";
+  }
 
   // 4. Google Fonts
   const isLscwpGgAsync = uploadedSettings ? (uploadedSettings.optm_ggfonts_async === "1" || uploadedSettings["optm-ggfonts_async"] === "1") : false;
@@ -2262,7 +2541,46 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           domain: { name: "CTM Consent Engine", status: "green", text: "CTM Source Guide: Samtyckesskript måste köras utan fördröjning för GDPR-efterlevnad." }
         };
       }
-      // 13. Default LiteSpeed settings
+      // 13. Google Fonts Remove (Policy)
+      else if (id === "optm_ggfonts_rm") {
+        sources = {
+          lsAdv: { name: "LiteSpeed Presets", status: "neutral", text: "LiteSpeed Presets: Standard är AV (0), men PÅ (1) rekommenderas om externa Google Fonts skall blockeras." },
+          oom: { name: "Online Media Masters", status: "green", text: "Online Media Masters: PÅ rekommenderas om lokala fonter används för att stoppa externa Google-anrop." },
+          domain: { name: "GDPR & Webbstandard", status: "green", text: "GDPR / ePrivacy: PÅ är optimalt om sajten inte använder Google Fonts eller har lokala fonter." }
+        };
+      }
+      // 14. VPI (Viewport Images)
+      else if (id === "media_vpi") {
+        const hasLsLazy = uploadedSettings ? (uploadedSettings.media_lazy === "1" || uploadedSettings.media_lazy === 1 || uploadedSettings["media-lazy"] === "1" || uploadedSettings["media-lazy"] === 1) : false;
+        sources = {
+          lsAdv: { name: "LiteSpeed / QUIC.cloud", status: hasLsLazy ? "green" : "neutral", text: hasLsLazy ? "LiteSpeed VPI: Genererar automatiska viewport-bilder för att förbättra LCP." : "LiteSpeed VPI: Inaktiv/krävs ej när LiteSpeed Lazy Load är avstängd." },
+          oom: { name: "Online Media Masters", status: hasLsLazy ? "green" : "neutral", text: hasLsLazy ? "Online Media Masters: Bra komplement när LiteSpeed bild-lazyload används." : "Online Media Masters: Behåll AV om sajten kör WordPress inbyggda Lazy Load." },
+          domain: { name: "Core Web Vitals", status: "green", text: hasLsLazy ? "Google Web Dev: Förhindrar att ovanför-viket-bilder fördröjs." : "WordPress Native Lazy: Sköts av webbläsaren utan externa QUIC-anrop." }
+        };
+      }
+      // 15. CSS Async Satellites (CCSS per URL & Inline Async Lib)
+      else if (id === "optm_ccss_per_url" || id === "optm_css_async_inline") {
+        const isCssAsyncActive = uploadedSettings ? (
+          uploadedSettings.optm_css_async === "1" || uploadedSettings.optm_css_async === 1 ||
+          uploadedSettings["optm-css_async"] === "1" || uploadedSettings["optm-css_async"] === 1 ||
+          (uploadedSettings.options && (uploadedSettings.options.optm_css_async === "1" || uploadedSettings.options["optm-css_async"] === "1"))
+        ) : false;
+        sources = {
+          lsAdv: { name: "LiteSpeed Docs", status: isCssAsyncActive ? "green" : "neutral", text: isCssAsyncActive ? "LiteSpeed Docs: Krävs när asynkron CSS används." : "LiteSpeed Docs: Inaktiv när asynkron CSS är avstängd." },
+          oom: { name: "Online Media Masters", status: isCssAsyncActive ? "green" : "neutral", text: isCssAsyncActive ? "Online Media Masters: Viktig satellit vid asynkron CSS." : "Online Media Masters: Behåll inaktiv då Async CSS avråds vid sidbyggare." },
+          domain: { name: "Web Vitals / Elementor", status: "green", text: isCssAsyncActive ? "Elementor Best Practice: Unik CCSS förhindrar layoutskakningar." : "Elementor & Core Web Vitals: Inaktiv då standard CSS-laddning används." }
+        };
+      }
+      // 16. Google Fonts Async
+      else if (id === "optm_ggfonts_async") {
+        const isGgRm = uploadedSettings ? (uploadedSettings.optm_ggfonts_rm === "1" || uploadedSettings.optm_ggfonts_rm === 1 || uploadedSettings["optm-ggfonts_rm"] === "1" || uploadedSettings["optm-ggfonts_rm"] === 1) : false;
+        sources = {
+          lsAdv: { name: "LiteSpeed Presets", status: isGgRm ? "neutral" : "green", text: isGgRm ? "LiteSpeed Presets: Inaktiv när Google Fonts raderas (Remove är PÅ)." : "LiteSpeed Presets: Asynkron typsnittshämtning minskar FCP." },
+          oom: { name: "Online Media Masters", status: isGgRm ? "neutral" : "green", text: isGgRm ? "Online Media Masters: Krävs ej vid lokala fonter eller borttagning." : "Online Media Masters: Rekommenderar PÅ om externa Google Fonts används." },
+          domain: { name: "Google Web Dev", status: "green", text: isGgRm ? "GDPR / Lokala fonter: Inga externa anrop exekveras." : "Core Web Vitals: Undviker renderingsblockerande typsnitt." }
+        };
+      }
+      // 17. Default LiteSpeed settings
       else {
         let isTurnedOff = recommendedRaw === 0 || recommendedRaw === "0";
         let isDelayed = recommendedRaw === 2 || recommendedRaw === "2";
@@ -2303,7 +2621,8 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
         litespeed: sources.lsAdv.text,
         consensus: sources.domain.text
       },
-      alternatives: alternatives || null
+      alternatives: alternatives || null,
+      isTextarea: (id === "drop_uri" || id === "js_exclude" || id === "css_exclude" || id === "media_lazy_exc" || id === "js_delayed_exclude" || id === "optm_dns_prefetch")
     };
   }
 
@@ -2397,12 +2716,12 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "cache_priv",
           "Cacha inloggade användare",
           1,
-          "Cachar sidor för inloggade administratörer separat. Mycket säkert och sparar serverresurser.",
+          "Policy/context: PÅ för medlems-/B2B-portaler (sparar CPU för inloggade medlemmar). AV för typiska sajter där endast admin/redaktör loggar in. När sajttyp är okänd markeras detta som policy — inte hård avvikelse.",
           "standard",
           "config",
           {
-            litespeed: "LSCWP Private Cache: Cachar skyddade vyer för inloggade administratörer och redaktörer separat.",
-            consensus: "WordPress Developer Best Practice: Sparar server-CPU vid intensivt redaktörsarbete."
+            litespeed: "LSCWP Private Cache (cache-priv): Separat cache-vary för inloggade användare.",
+            consensus: "Online Media Masters (Tom Dupuis): PÅ för membership/B2B-portaler som maximeraprofil.se; AV för vanliga sajter med enbart admin-inloggning — kontextstyrd rekommendation, inte universell avvikelse."
           }
         ),
         makeOpt(
@@ -2522,6 +2841,18 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
       title: "⚡ [3] Sidopt. CSS",
       options: [
         makeOpt(
+          "optm_html_min",
+          "HTML Minifiering",
+          1,
+          "Tar bort onödig whitespace från HTML. Rekommenderas PÅ för fullständig minifieringstrio (HTML, CSS, JS). Obs: kan i sällsynta fall påverka WooCommerce JSON-LD / strukturerad data — verifiera Rich Results efter aktivering.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP HTML Minify (optm-html_min): Komprimerar HTML-svar på servernivå.",
+            consensus: "Google Web Dev (Payload): Mindre HTML-byte. Woo/JSON-LD: kontrollera att Product/Offer-schema fortfarande validerar efter minify."
+          }
+        ),
+        makeOpt(
           "optm_css_min",
           "CSS Minifiering",
           1,
@@ -2552,6 +2883,42 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           }
         ),
         makeOpt(
+          "optm_css_comb_ext_inl",
+          "Kombinera extern och infogad CSS",
+          0,
+          "Bör vara AV (syskon till CSS Combine) för att inte bryta CSS-prioriteter och specifikationsordning.",
+          "high",
+          "stability",
+          {
+            litespeed: "LSCWP Combine External/Inline: Kombinerar extern och inline CSS.",
+            consensus: "Elementor & Woo Best Practice: AV! Orsakar krockar i dynamiska sidbyggarstilar."
+          }
+        ),
+        makeOpt(
+          "optm_ucss",
+          "Generera UCSS (Unique CSS)",
+          0,
+          "Bör vara AV som standard på Elementor/WooCommerce för att undvika trasig layout och saknad CSS för dynamiska widgets/kassa. Aktiveras endast selektivt med QUIC.cloud och manuell QA.",
+          "standard",
+          "stability",
+          {
+            litespeed: "LSCWP UCSS: Genererar unik CSS per sida via QUIC.cloud.",
+            consensus: "Elementor/Woo Consensus: AV som default-rek. UCSS utan manuell vitlistning rensar ofta CSS för minicart och interaktiva element."
+          }
+        ),
+        makeOpt(
+          "optm_ucss_inline",
+          "Infogad UCSS (Inline UCSS)",
+          0,
+          "Följer UCSS. Om UCSS används bäddas den in inline för att spara en CSS-förfrågan.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP Inline UCSS: Bäddar in genererad UCSS inline i HTML.",
+            consensus: "LSCWP Best Practice: Används endast i tandem med UCSS."
+          }
+        ),
+        makeOpt(
           "optm_css_async",
           "Ladda CSS asynkront (Load CSS Asynchronously)",
           0,
@@ -2561,6 +2928,30 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP Asynkron CSS: Laddar CSS asynkront och förlitar sig på Critical CSS (CCSS).",
             consensus: "Elementor & Webbstandard: AV vid visuella sidbyggare för att undvika FOUC (Flash of Unstyled Content) och synliga layoutförskjutningar."
+          }
+        ),
+        makeOpt(
+          "optm_ccss_per_url",
+          "CCSS per URL",
+          1,
+          "Kritiskt för Elementor om asynkron CSS/CCSS används, så att olika sidor får sin egen unika kritiska CSS (relevant främst om Async CSS är på).",
+          "standard",
+          "stability",
+          {
+            litespeed: "LSCWP CCSS per URL: Skapar unik kritisk CSS per sida istället för per inläggstyp.",
+            consensus: "Elementor Best Practice: Krävs om CCSS används för att inte startsida och produktsidor delar fel CSS."
+          }
+        ),
+        makeOpt(
+          "optm_css_async_inline",
+          "Inline CSS Async Lib",
+          1,
+          "Bäddar in det asynkrona CSS-biblioteket direkt i HTML för att spara en nätverksförfrågan (relevant främst om Async CSS är på).",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP Inline Async Lib: Sparar ett HTTP-anrop för laddningsbiblioteket.",
+            consensus: "Web Vitals Best Practice: Inlining minskar anslutningslatens för laddningsskript."
           }
         ),
         makeOpt(
@@ -2579,6 +2970,30 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
             primaryTool: "LiteSpeed Asynkron typsnittsladdning (swap)",
             whyRecommended: "Laddar webbtypsnitt asynkront och lägger till font-display: swap för att förhindra osynlig text och layoutförskjutning (CLS).",
             actionForSecondary: "Undvik att ladda samma typsnitt både i Elementor och via externa @import-regler i temat."
+          }
+        ),
+        makeOpt(
+          "optm_ggfonts_async",
+          "Ladda Google Fonts asynkront",
+          1,
+          "Laddar externa Google Fonts asynkront så att de inte blockerar renderingen av sidan.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP Google Fonts Async: Hämtar typsnitt i bakgrunden.",
+            consensus: "Google Core Web Vitals (FCP): Eliminerar typsnitt som renderingsblockerande resurs."
+          }
+        ),
+        makeOpt(
+          "optm_ggfonts_rm",
+          "Ta bort Google Fonts",
+          0,
+          "Policy: PÅ om sajten laddar lokala typsnitt (GDPR-säkert), annars AV om Google Fonts används på sajten.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP Remove Google Fonts: Raderar Google Fonts-anrop.",
+            consensus: "GDPR / ePrivacy: PÅ rekommenderas om lokala typsnitt har implementerats för att stoppa Google-anrop."
           }
         ),
         makeOpt(
@@ -2623,6 +3038,18 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP Advanced Preset: Avråds för dynamiska webbplatser.",
             consensus: "CTM & WooCommerce Dev Docs: AV! Skapar beroendekrockar, bryter asynkrona händelselyssnare och fördröjer interaktivitet (försämrar INP)."
+          }
+        ),
+        makeOpt(
+          "optm_js_comb_ext_inl",
+          "Kombinera extern och infogad JS",
+          0,
+          "Bör vara AV (syskon till JS Combine) då det annars bryter jQuery- och WooCommerce-beroenden.",
+          "critical",
+          "stability",
+          {
+            litespeed: "LSCWP Combine External/Inline JS: Kombinerar extern och inline JavaScript.",
+            consensus: "CTM & WooCommerce Best Practice: AV! Kraschar kassan och asynkrona spårningsskript."
           }
         ),
         makeOpt(
@@ -2718,6 +3145,42 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "LSCWP WebP Replacement: Serverar WebP-bilder med fallback till JPG/PNG via .htaccess rewrite rules.",
             consensus: "Google Web Dev (Modern Image Formats): WebP/AVIF minskar bildvikten med 30-50% utan visuell kvalitetsförlust."
+          }
+        ),
+        makeOpt(
+          "media_vpi",
+          "Generera VPI (Viewport Images)",
+          1,
+          "Genererar Viewport Images via QUIC.cloud när LiteSpeed Lazy Load används för att förbättra LCP.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP VPI: Skapar automatisk viewport-exkludering för kritiska bilder.",
+            consensus: "Web Vitals Best Practice: Bra komplement om LiteSpeed Lazy Load körs."
+          }
+        ),
+        makeOpt(
+          "optm_qs_rm",
+          "Ta bort frågesträngar (Remove Query Strings)",
+          0,
+          "Bör vara AV på WooCommerce-sajter för att inte bryta cache-busting, script-versioner och dynamiska anrop.",
+          "standard",
+          "stability",
+          {
+            litespeed: "LSCWP Remove Query Strings: Tar bort versionsparametrar (?ver=...) från statiska resurser.",
+            consensus: "WooCommerce Best Practice: AV! Många plugins och betalmoduler kräver frågesträngar för cache-ogiltigförklaring."
+          }
+        ),
+        makeOpt(
+          "optm_dns_prefetch",
+          "DNS-förhandshämtning (DNS Prefetch)",
+          "//fonts.googleapis.com\n//fonts.gstatic.com",
+          "Förhandshämtar DNS för externa domäner för att reducera anslutningslatens.",
+          "standard",
+          "performance",
+          {
+            litespeed: "LSCWP DNS Prefetch: Löser upp domännamn i förväg.",
+            consensus: "Web Performance Standards: Bra för externa API:er och fonter."
           }
         ),
         makeOpt(
@@ -2851,11 +3314,11 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "elem_dom_optimization",
           "Optimerad DOM-utmatning (Optimized DOM)",
           1,
-          "Tar bort onödiga omslutande div-taggar och minskar sidans DOM-djup.",
+          "Tar bort onödiga omslutande div-taggar och minskar sidans DOM-djup. Källa: Slot 5 (Elementor System Info) — LSCWP .data uppdaterar aldrig denna status.",
           "standard",
           "performance",
           {
-            litespeed: "Elementor Experiment: Minskar storleken på sidans HTML DOM-träd.",
+            litespeed: "Elementor Features (Slot 5): DOM-flaggan läses enbart från Elementor-rapporten, aldrig från LiteSpeed .data.",
             consensus: "Google Lighthouse & PageSpeed: Mindre DOM-djup ger snabbare layoutrendering och lägre minnesanvändning."
           },
           null,
@@ -2865,12 +3328,12 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "elem_asset_loading",
           "Förbättrad tillgångsladdning (Improved Asset Loading)",
           1,
-          "Laddar endast JS/CSS för de Elementor-widgets som faktiskt används på sidan.",
+          "Inbyggd i Core som standard i moderna Elementor (≥3.16 / 4.x). Dynamisk tillgångsladdning hanteras automatiskt av kärnan.",
           "standard",
           "performance",
           {
-            litespeed: "Elementor Modular Assets: Laddar endast CSS och JS för de komponenter som faktiskt används på den aktuella sidan.",
-            consensus: "Google Web Dev (Tree-shaking / Coverage): Minskar oanvänd CSS och JS med upp till 60%."
+            litespeed: "Elementor Core (≥3.16): Improved Asset Loading är inbyggd basfunktion — inte längre ett separat experimentkrav.",
+            consensus: "Elementor Performance Docs (4.x): Optimal/built-in core. Äldre experiment-textkrav är borttagna."
           },
           null,
           "elementor"
@@ -2879,12 +3342,12 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "elem_css_loading",
           "Förbättrad CSS-inläsning (Improved CSS Loading)",
           1,
-          "Laddar stilmallar asynkront och i inline-block för widgets som används.",
+          "Inbyggd i Core som standard i moderna Elementor (≥3.16 / 4.x). Optimerad CSS-laddning hanteras automatiskt av kärnan.",
           "standard",
           "performance",
           {
-            litespeed: "Elementor CSS Optimization: Laddar endast CSS för synliga moduler.",
-            consensus: "Google Web Dev (FCP): Eliminerar blockerande CSS-anrop och ger snabbare First Contentful Paint."
+            litespeed: "Elementor Core (≥3.16): Improved CSS Loading är inbyggd basfunktion — inte längre ett separat experimentkrav.",
+            consensus: "Elementor Performance Docs (4.x): Optimal/built-in core. Äldre experiment-textkrav är borttagna."
           },
           null,
           "elementor"
