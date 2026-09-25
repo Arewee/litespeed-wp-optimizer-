@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.7.2.2)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.7.3)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -300,7 +300,7 @@ function themeSignalsExternalGoogleFonts(themeInfo) {
 
 /**
  * True only when Elementor explicitly signals external Google Fonts.
- * v2.7.2.2: Custom Fonts count is NOT Google Fonts. Stale pre-2.7.2 profiles with
+ * v2.7.3: Custom Fonts count is NOT Google Fonts. Stale pre-2.7.2 profiles with
  * google_fonts:true but no explicit google_fonts experiment are treated as false
  * (old default invented Active without a system-info line).
  */
@@ -357,7 +357,7 @@ function sanitizeElementorGoogleFonts(elemInfo) {
  * True when LSCWP Remove Google Fonts is OFF and Elementor or theme signals external GF.
  * Missing / unknown Elementor google_fonts must NOT invent Active (false/unset = no signal).
  * Theme google_fonts:false must NOT invent Active (v2.7.2.1).
- * Stale Elementor google_fonts:true without explicit experiment → no signal (v2.7.2.2).
+ * Stale Elementor google_fonts:true without explicit experiment → no signal (v2.7.3).
  */
 function hasExternalGoogleFonts(uploadedSettings, environment) {
   const isLscwpGgFontsRm = uploadedSettings ? (
@@ -1154,6 +1154,23 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     isMatches = true; // status/policy — no score hit
     currentDisplay = meas === 1 ? "PÅ" : "AV";
     recommendedDisplay = "Status (Policy/Context)";
+    if (opt.id === "cdn_quic") {
+      const liveEval = evaluateQuicCloudLiveEdge({
+        cdnQuic: meas,
+        domainKey: uploadedSettings && (uploadedSettings.domain_key || uploadedSettings.hash),
+        liveHeaders: (environment && environment.quicLiveHeaders !== undefined)
+          ? environment.quicLiveHeaders
+          : (uploadedSettings && uploadedSettings._quic_live_headers),
+        siteUrl: (environment && environment.detectedSiteUrl) ||
+          (uploadedSettings && (uploadedSettings.site_url || uploadedSettings.home_url)) || null
+      });
+      currentDisplay = liveEval.displayLabel;
+      if (liveEval.status === "confirmed") {
+        recommendedDisplay = "PÅ när live-edge (x-qc-*) bekräftad";
+      } else if (meas === 1) {
+        recommendedDisplay = "Policy: Domain Key ≠ CDN-edge — verifiera x-qc-*";
+      }
+    }
 
   } else if (opt.id === "img_optm_auto") {
     const hasQuic = !!(uploadedSettings && (
@@ -1426,6 +1443,119 @@ const BENCHMARK_VERSIONS = {
 /**
  * Main multi-file analysis controller
  */
+
+/**
+ * v2.7.3: QUIC.cloud live-edge evaluation.
+ * Plugin toggle cdn_quic / Domain Key / qc-nameservers ≠ activated CDN edge.
+ * Live confirmation looks for x-qc-cache / x-qc-pop (or any x-qc-* header).
+ * Prefer Policy/info (scoreImpact 0) — never invent Optimal CDN-active.
+ *
+ * @param {Object} opts
+ * @param {string|number|boolean} [opts.cdnQuic]
+ * @param {string} [opts.domainKey]
+ * @param {Object|null} [opts.liveHeaders] - lowercased header map, or null if unprobed
+ * @param {string|null} [opts.siteUrl]
+ * @returns {{ status: string, edgeConfirmed: boolean, alertCandidate: Object|null, displayLabel: string, scoreImpact: number, note: string|null }}
+ */
+function evaluateQuicCloudLiveEdge(opts) {
+  opts = opts || {};
+  const rawQuic = opts.cdnQuic;
+  const quicOn = (rawQuic === 1 || rawQuic === "1" || rawQuic === true || rawQuic === "on" || rawQuic === "On");
+  const dk = (typeof opts.domainKey === "string") ? opts.domainKey.trim() : "";
+  const hasDomainKey = dk.length > 5 && dk !== "0" && dk !== "1";
+  const urlRaw = (opts.siteUrl != null) ? String(opts.siteUrl).trim() : "";
+  const hasUrl = !!(urlRaw && /^https?:\/\//i.test(urlRaw));
+
+  let headers = opts.liveHeaders;
+  const probed = (headers !== null && headers !== undefined);
+  const norm = {};
+  if (probed && typeof headers === "object" && !Array.isArray(headers)) {
+    Object.keys(headers).forEach(function (k) {
+      norm[String(k).toLowerCase()] = headers[k];
+    });
+  }
+  const hasXqc = probed && Object.keys(norm).some(function (k) {
+    return k === "x-qc-cache" || k === "x-qc-pop" || k.indexOf("x-qc-") === 0;
+  });
+
+  if (!quicOn) {
+    return {
+      status: "off",
+      edgeConfirmed: false,
+      alertCandidate: null,
+      displayLabel: "AV",
+      scoreImpact: 0,
+      note: hasDomainKey
+        ? "Domain Key är satt — Domain Key / nameservers ≠ aktiverad QUIC.cloud CDN-edge (cdn_quic AV)."
+        : null
+    };
+  }
+
+  if (hasXqc) {
+    return {
+      status: "confirmed",
+      edgeConfirmed: true,
+      alertCandidate: null,
+      displayLabel: "PÅ (live-edge bekräftad)",
+      scoreImpact: 0,
+      note: null
+    };
+  }
+
+  if (!hasUrl) {
+    return {
+      status: "needs_url",
+      edgeConfirmed: false,
+      alertCandidate: {
+        id: "cdn_quic_live_edge_unmeasured",
+        type: "info",
+        icon: "☁️",
+        component: "litespeed",
+        components: ["litespeed"],
+        title: "QUIC.cloud CDN PÅ — live-edge kräver URL-check",
+        desc: "cdn_quic är PÅ i LiteSpeed men live x-qc-* headers är inte verifierade (ingen sajt-URL). Domain Key / qc-nameservers ≠ aktiverad CDN-edge. Ange sajt-URL via profil, API-synk eller PSI för live-kontroll.",
+        source: "QUIC.cloud CDN live-edge (AreWee Policy)",
+        compatibility: "scoreImpact: 0 — Policy/info; ingen poängkollaps. Inte falsk Optimal.",
+        wpPath: "LiteSpeed Cache ➔ CDN ➔ QUIC.cloud",
+        targetTabId: "image_optimization",
+        targetSettingId: "cdn_quic",
+        impactCategory: "performance",
+        criticalLevel: "standard",
+        scoreImpact: 0
+      },
+      displayLabel: "PÅ (plugin) · kräver URL-check",
+      scoreImpact: 0,
+      note: "Unmeasured live-edge — kräver URL-check."
+    };
+  }
+
+  // URL available but no x-qc confirmation (probe missing/failed OR probed empty)
+  return {
+    status: "missing_live",
+    edgeConfirmed: false,
+    alertCandidate: {
+      id: "cdn_quic_live_edge_missing",
+      type: "info",
+      icon: "☁️",
+      component: "litespeed",
+      components: ["litespeed"],
+      title: "QUIC.cloud CDN PÅ men live-edge saknar x-qc-*",
+      desc: "Plugin-toggle cdn_quic=1 (och ev. Domain Key / nameservers) betyder inte att CDN-edge är aktiverad. Live-svar saknar x-qc-cache / x-qc-pop. Kontrollera i QUIC.cloud att CDN är aktiverad för domänen — inte bara Domain Key under General.",
+      source: "QUIC.cloud CDN live-edge (AreWee Policy)",
+      compatibility: "scoreImpact: 0 — Policy/info; Domain Key ≠ CDN-edge.",
+      wpPath: "LiteSpeed Cache ➔ CDN ➔ QUIC.cloud",
+      targetTabId: "image_optimization",
+      targetSettingId: "cdn_quic",
+      impactCategory: "performance",
+      criticalLevel: "standard",
+      scoreImpact: 0
+    },
+    displayLabel: "PÅ (plugin) · live-edge ej bekräftad",
+    scoreImpact: 0,
+    note: "Domain Key / nameservers ≠ aktiverad CDN-edge."
+  };
+}
+
 function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scmInfo, customCss, themeInfo, serverConfigFiles) {
   const hasAnyInput = !!(sysInfo || wooInfo || wfInfo || elemInfo || uploadedSettings || scmInfo || customCss || themeInfo);
   if (!hasAnyInput) {
@@ -1560,6 +1690,27 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     themeInfo: themeInfo || null,
     scmInfo: scmInfo || null
   };
+
+  // v2.7.3: site URL + optional QUIC live headers (from app probe / sync plugin)
+  const liveCtx = (serverConfigFiles && typeof serverConfigFiles === "object") ? serverConfigFiles : {};
+  let detectedUrl = liveCtx.detectedSiteUrl || null;
+  if (!detectedUrl && effectiveSysInfo && effectiveSysInfo["wp-core"]) {
+    const core = effectiveSysInfo["wp-core"];
+    detectedUrl = core.site_url || core.home_url || core.siteurl || core.home || null;
+  }
+  if (!detectedUrl && uploadedSettings) {
+    detectedUrl = uploadedSettings.site_url || uploadedSettings.home_url || null;
+  }
+  if (detectedUrl && typeof detectedUrl === "string" && detectedUrl.startsWith("http")) {
+    environment.detectedSiteUrl = detectedUrl.trim();
+  }
+  if (liveCtx.quicLiveHeaders !== undefined) {
+    environment.quicLiveHeaders = liveCtx.quicLiveHeaders;
+  } else if (uploadedSettings && uploadedSettings._quic_live_headers !== undefined) {
+    environment.quicLiveHeaders = uploadedSettings._quic_live_headers;
+  } else {
+    environment.quicLiveHeaders = undefined;
+  }
 
   if (wooInfo) {
     environment.hasWooCommerce = true;
@@ -2169,6 +2320,29 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       scoreImpact: 0
     });
   }
+
+  // --- D1d. QUIC.cloud live-edge Policy/info (v2.7.3, scoreImpact: 0) ---
+  (function () {
+    const qOn = !!(uploadedSettings && (
+      uploadedSettings.cdn_quic === "1" || uploadedSettings.cdn_quic === 1 ||
+      uploadedSettings["cdn-quic"] === "1" || uploadedSettings["cdn-quic"] === 1
+    ));
+    if (!qOn && !(uploadedSettings && (
+      (typeof uploadedSettings.domain_key === "string" && uploadedSettings.domain_key.length > 5) ||
+      (typeof uploadedSettings.hash === "string" && uploadedSettings.hash.length > 5)
+    ))) {
+      return; // nothing to evaluate
+    }
+    const liveEval = evaluateQuicCloudLiveEdge({
+      cdnQuic: qOn ? 1 : 0,
+      domainKey: uploadedSettings && (uploadedSettings.domain_key || uploadedSettings.hash),
+      liveHeaders: environment.quicLiveHeaders,
+      siteUrl: environment.detectedSiteUrl || null
+    });
+    if (liveEval.alertCandidate) {
+      alerts.push(liveEval.alertCandidate);
+    }
+  })();
 
   // --- D2. Single Source of Truth: CTM vs Legacy Tracking Plugins ---
   const legacyTrackers = activePluginKeys.filter(k => {
@@ -3751,8 +3925,8 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
             "standard",
             "config",
             {
-              litespeed: "LSCWP CDN ➔ QUIC.cloud: Officiell LiteSpeed CDN-integration.",
-              consensus: "QUIC.cloud Docs: Kräver giltig Domain Key för full funktionalitet."
+              litespeed: "LSCWP CDN ➔ QUIC.cloud: Officiell LiteSpeed CDN-integration. Domain Key under General aktiverar Online Services — inte nödvändigtvis CDN-edge.",
+              consensus: "AreWee Policy: Domain Key / qc-nameservers ≠ aktiverad CDN-edge. Bekräfta live via x-qc-cache / x-qc-pop. Saknad live-bekräftelse = Policy/info (scoreImpact 0), inte falsk Optimal."
             },
             null, "litespeed", null, null,
             { wpPath: "LiteSpeed Cache ➔ CDN", scoreImpact: 0, readOnly: true }
@@ -4547,6 +4721,7 @@ if (typeof window !== "undefined") {
   window.elementorSignalsExternalGoogleFonts = elementorSignalsExternalGoogleFonts;
   window.sanitizeElementorGoogleFonts = sanitizeElementorGoogleFonts;
   window.isActiveGoogleFontsValue = isActiveGoogleFontsValue;
+  window.evaluateQuicCloudLiveEdge = evaluateQuicCloudLiveEdge;
 }
 
 // Node.js export for test runner
@@ -4569,7 +4744,8 @@ if (typeof module !== "undefined" && module.exports) {
     themeSignalsExternalGoogleFonts,
     elementorSignalsExternalGoogleFonts,
     sanitizeElementorGoogleFonts,
-    isActiveGoogleFontsValue
+    isActiveGoogleFontsValue,
+    evaluateQuicCloudLiveEdge
   };
 }
 

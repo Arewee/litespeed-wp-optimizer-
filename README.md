@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.7.2.2)
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.7.3)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -83,6 +83,13 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 
 
 
+### 🩹 Release v2.7.3: Profiler UI + QUIC.cloud live-edge
+
+- **Profiler — ta bort "Rensa allt":** Knappen `btn-clear-history` och `clearAllHistory()` borttagna. Per-profil-radera samt datakällor `btn-clear-inputs` oförändrade.
+- **Jämförelse — Stäng/Tillbaka:** Ny `btn-compare-close` ("Stäng jämförelse") döljer resultat-wrapper, tömmer innerHTML och nollställer A/B-select. Rör inte `historyLibrary`/localStorage.
+- **QUIC.cloud live-edge:** `evaluateQuicCloudLiveEdge` — `cdn_quic` PÅ utan live `x-qc-*` → Policy/info (`scoreImpact: 0`). Domain Key / nameservers ≠ aktiverad CDN-edge. Utan URL → "kräver URL-check" / unmeasured (inte falsk Optimal). Synk-plugin kan returnera homepage-svarshuvuden.
+- **Verifiering:** hard-reload `?v=2.7.3`. Tester: `scratch/test-v273.js`.
+
 ### 🩹 Release v2.7.2.2: Riskdetektor Verktyg-layout & stale Elementor GF
 
 - **Layout:** Riskdetektor Verktyg-griden (`risk-status-grid`) tvingade `repeat(8, 1fr)` ≥1100px medan kort hade `min-width:auto` + nowrap-subtext → Wordfence (och övriga kort) klipptes av `body { overflow-x: hidden }`. Fix: `auto-fill` + `minmax(130–140px, 1fr)`, `min-width: 0` / `overflow: hidden` på `.risk-component-card`. WP-system-ikon `📝` → `🖥️`.
@@ -106,7 +113,7 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 - **Bugfix:** `analyzeSystem` matchade alla tilläggsnamn som *innehåller* `woocommerce` / `elementor`. Sista träffen vann → t.ex. WooCommerce PayPal Payments **4.1.3** skrev över kärn-Woo (**11.1.2**).
 - **Fix:** exakt slug/namn via `isCoreWooCommercePlugin` / `isCoreElementorPlugin` (`woocommerce`, `WooCommerce`, `woocommerce/woocommerce.php`; samma för Elementor vs Pro).
 - **Tester:** `scratch/test-v2716.js`. Ingen commit utan OK.
-- **Parkerat:** quic.cloud live-edge (`x-qc-cache`) detektion → senare version.
+- **Parkerat (löst i v2.7.3):** quic.cloud live-edge (`x-qc-cache`) detektion.
 
 ### 🩹 Release v2.7.1.5: audit remediation (crawl_interval, write maps, aliases)
 - **crawler_usleep ↔ crawler-crawl_interval:** INTERNAL `crawler-crawl_interval` → `crawler_usleep`; WRITE `crawler_usleep` → `crawler-crawl_interval` (LSCWP 7.x). Legacy `crawler-usleep` still read. Soft-cover när crawler AV behålls. UI-titel: Crawl Interval.

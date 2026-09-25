@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Stylesheet (v2.7.2.2)
+ * AreWee WP-Optimizer - Stylesheet (v2.7.3)
  * Modern Dark Mode Cockpit UI with Glassmorphism, Neon Accents, and Responsive Layouts
  */
 
@@ -1912,7 +1912,7 @@ input:checked + .slider:before {
 }
 
 /* Risk Component Overview Grids & Cards
- * v2.7.2.2: auto-fill + min-width:0 so all Verktyg cards wrap/shrink —
+ * v2.7.3: auto-fill + min-width:0 so all Verktyg cards wrap/shrink —
  * never clip Wordfence (or Tema/Elementor/SCM/CTM) off-screen via body overflow-x. */
 .risk-status-grid {
   display: grid;

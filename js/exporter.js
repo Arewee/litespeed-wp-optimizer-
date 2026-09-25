@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer (v2.7.2.2)
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.7.3)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
  * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
@@ -783,7 +783,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.7.2.2
+ * Version: 2.7.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1022,7 +1022,7 @@ function generateSyncPluginPhp() {
 /**
  * Plugin Name: AreWee-Optimizer REST Sync Bridge
  * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
- * Version: 2.7.2.2
+ * Version: 2.7.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1238,17 +1238,34 @@ function wp_optimizer_sync_get_diagnostics() {
         $lscwp_options = get_option('litespeed-cache-conf', array());
     }
 
+    // 6. v2.7.3: QUIC.cloud live-edge headers (read-only homepage probe)
+    $quic_live_headers = array();
+    $home = home_url('/');
+    $resp = wp_remote_head($home, array('timeout' => 8, 'redirection' => 3, 'sslverify' => false));
+    if (is_wp_error($resp)) {
+        $resp = wp_remote_get($home, array('timeout' => 8, 'redirection' => 3, 'sslverify' => false));
+    }
+    if (!is_wp_error($resp)) {
+        $hdrs = wp_remote_retrieve_headers($resp);
+        if ($hdrs) {
+            foreach ($hdrs as $hk => $hv) {
+                $quic_live_headers[strtolower((string)$hk)] = is_array($hv) ? implode(', ', $hv) : (string)$hv;
+            }
+        }
+    }
+
     return array(
         'status' => 'success',
-        'syncPluginVersion' => '2.7.2.2',
+        'syncPluginVersion' => '2.7.3',
         'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
         'wooInfo' => $wooinfo,
         'wfInfo' => $wfinfo,
         'elemInfo' => $eleminfo,
         'uploadedSettings' => $lscwp_options,
+        'quicLiveHeaders' => $quic_live_headers,
         'data' => array(
-            'syncPluginVersion' => '2.7.2.2',
+            'syncPluginVersion' => '2.7.3',
             'sysInfo' => $sysinfo,
             'sysinfo' => $sysinfo,
             'wooInfo' => $wooinfo,
@@ -1258,7 +1275,8 @@ function wp_optimizer_sync_get_diagnostics() {
             'elemInfo' => $eleminfo,
             'elementor' => $eleminfo,
             'uploadedSettings' => $lscwp_options,
-            'lscwp_settings' => $lscwp_options
+            'lscwp_settings' => $lscwp_options,
+            'quicLiveHeaders' => $quic_live_headers
         )
     );
 }
@@ -1324,7 +1342,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.7.2.2)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.7.3)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
   md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
@@ -1502,7 +1520,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
   md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
 
-  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.7.2.2*\n`;
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.7.3*\n`;
 
   return md;
 }
@@ -1515,7 +1533,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.7.2.2)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.7.3)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
@@ -1536,7 +1554,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.7.2.2*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.7.3*\n`;
 
   return md;
 }

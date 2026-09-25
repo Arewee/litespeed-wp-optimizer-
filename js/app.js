@@ -1,6 +1,6 @@
 /**
  * LiteSpeed & WordPress Optimizer - Main Application Controller
- * Version: 2.7.2.2
+ * Version: 2.7.3
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
-  const APP_VERSION = "2.7.2.2";
+  const APP_VERSION = "2.7.3";
   try { window.APP_VERSION = APP_VERSION; } catch (e) {}
 
   // Prevent browser from navigating away and opening dropped files globally
@@ -46,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsSortBy: "deviations", // deviations (default) | default | impact | status | alphabetical
     settingsSearchQuery: "",
     psiScores: null,
+    quicLiveHeaders: undefined, // undefined=unprobed; null=probed/failed; object=header map
     editedSettings: {}, // Active options configuration (1 for ON, 0 for OFF, or strings)
     apiUrl: "",
     apiToken: "",
@@ -173,10 +174,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnExportHistory = document.getElementById("btn-export-history");
   const btnImportHistoryTrigger = document.getElementById("btn-import-history-trigger");
   const historyImportFile = document.getElementById("history-import-file");
-  const btnClearHistory = document.getElementById("btn-clear-history");
   const compareSelectA = document.getElementById("compare-select-a");
   const compareSelectB = document.getElementById("compare-select-b");
   const btnCompareExecute = document.getElementById("btn-compare-execute");
+  const btnCompareClose = document.getElementById("btn-compare-close");
   const comparisonResultTableWrapper = document.getElementById("comparison-result-table-wrapper");
   const historyProfilesGrid = document.getElementById("history-profiles-grid");
   const historyEmptyState = document.getElementById("history-empty-state");
@@ -813,7 +814,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderCssAudits() {
-    const tempResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo);
+    const tempResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo, buildAnalyzeLiveContext());
     
     let cssAlertsHtml = "";
     if (tempResults && tempResults.customCssAlerts) {
@@ -942,6 +943,61 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
     return null;
+  }
+
+
+  /** v2.7.3: Build 9th-arg live context for analyzeSystem (URL + optional QUIC headers). */
+  function buildAnalyzeLiveContext() {
+    const siteUrl = state.detectedSiteUrl || extractSiteUrl(state.sysInfo, state.wooInfo) ||
+      (state.uploadedSettings && (state.uploadedSettings.site_url || state.uploadedSettings.home_url)) ||
+      (state.apiUrl || null);
+    return {
+      detectedSiteUrl: siteUrl || null,
+      quicLiveHeaders: state.quicLiveHeaders
+    };
+  }
+
+  /**
+   * v2.7.3: Best-effort live header probe for QUIC.cloud x-qc-*.
+   * Browser CORS often blocks header reads; sync-plugin path is preferred.
+   * Sets state.quicLiveHeaders: object on success, null on hard failure after URL known.
+   */
+  async function probeQuicLiveHeaders(url) {
+    if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
+    try {
+      const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store", redirect: "follow" });
+      const map = {};
+      let sawAny = false;
+      if (res && res.headers && typeof res.headers.forEach === "function") {
+        res.headers.forEach(function (v, k) {
+          map[String(k).toLowerCase()] = v;
+          sawAny = true;
+        });
+      }
+      // Even if CORS-safelist only, store what we got (may lack x-qc-*)
+      state.quicLiveHeaders = sawAny ? map : null;
+      return state.quicLiveHeaders;
+    } catch (e) {
+      // CORS / network — mark probed-but-unavailable so UI does not claim Optimal edge
+      state.quicLiveHeaders = null;
+      return null;
+    }
+  }
+
+  async function maybeProbeQuicLiveEdge() {
+    const us = state.uploadedSettings;
+    if (!us) return;
+    const quicOn = (us.cdn_quic === "1" || us.cdn_quic === 1 || us["cdn-quic"] === "1" || us["cdn-quic"] === 1);
+    if (!quicOn) return;
+    if (state.quicLiveHeaders !== undefined && state.quicLiveHeaders !== null && typeof state.quicLiveHeaders === "object") {
+      // already have real headers (e.g. from API sync)
+      const keys = Object.keys(state.quicLiveHeaders);
+      if (keys.some(function (k) { return String(k).toLowerCase().indexOf("x-qc-") === 0; })) return;
+    }
+    const url = state.detectedSiteUrl || extractSiteUrl(state.sysInfo, state.wooInfo) || state.apiUrl ||
+      (us.site_url || us.home_url) || null;
+    if (!url) return;
+    await probeQuicLiveHeaders(url);
   }
 
   function updateDetectedSiteUrl(url) {
@@ -1930,7 +1986,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 10. Check Google Fonts (English & Swedish)
-        // v2.7.2.2: Custom Fonts / Custom Icons are NOT Google Fonts (count ≠ Active GF)
+        // v2.7.3: Custom Fonts / Custom Icons are NOT Google Fonts (count ≠ Active GF)
         if (
           !nameLower.includes("custom font") &&
           !nameLower.includes("custom icon") &&
@@ -2235,7 +2291,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function silentUpdateAnalysis() {
     updateAnalysisReadyState();
     // Generate temporary rules engine results to render the 3 bullets inside the uploader slots immediately!
-    const tempResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo);
+    const tempResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo, buildAnalyzeLiveContext());
     renderBulletLists(tempResults.fileSummaries);
     renderSourcesTab();
     updateActiveSiteStatusBar();
@@ -2253,7 +2309,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!hasAnySource) return;
 
     try {
-      state.analysisResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo);
+      state.analysisResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo, buildAnalyzeLiveContext());
+      // v2.7.3: async live-edge probe (CORS may fail; sync-plugin headers preferred)
+      maybeProbeQuicLiveEdge().then(function () {
+        if (!state.analysisResults) return;
+        state.analysisResults = analyzeSystem(state.sysInfo, state.wooInfo, state.wfInfo, state.elemInfo, state.uploadedSettings, state.customCodeInfo, state.customCss, state.themeInfo, buildAnalyzeLiveContext());
+        try { renderAlerts(); } catch (e1) {}
+        try { renderSettingsPanel(); } catch (e2) {}
+        try { updateActiveSiteStatusBar(); } catch (e3) {}
+      }).catch(function () {});
       
       const compFn = (typeof getOptionComparison === "function") 
         ? getOptionComparison 
@@ -4541,6 +4605,13 @@ document.addEventListener("DOMContentLoaded", () => {
           state.uploadedSettings = translateKeysToInternal(rawSettings);
           state.editedSettings = JSON.parse(JSON.stringify(state.uploadedSettings));
         }
+        // v2.7.3: live QUIC response headers from sync plugin homepage probe
+        const liveHdrs = payload.quicLiveHeaders || payload.quic_live_headers || data.quicLiveHeaders || data.quic_live_headers ||
+          (payload.data && (payload.data.quicLiveHeaders || payload.data.quic_live_headers));
+        if (liveHdrs && typeof liveHdrs === "object") {
+          state.quicLiveHeaders = liveHdrs;
+        }
+        updateDetectedSiteUrl(url);
 
         // Check status markers in UI
         if (sysInfoStatus) {
@@ -4571,7 +4642,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = payload.syncPluginVersion || data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.7.2.2";
+        const targetVersion = "2.7.3";
         if (companionVersion !== targetVersion) {
           apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
@@ -5040,16 +5111,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function clearAllHistory() {
-    if (confirm("⚠️ Är du säker på att du vill radera ALL sparad historik? Detta kan inte ångras.")) {
-      historyLibrary = [];
-      saveHistoryToLocalStorage();
-      renderHistoryLibrary();
-      updateCompareDropdowns();
-      if (comparisonResultTableWrapper) comparisonResultTableWrapper.style.display = "none";
-    }
-  }
-
   function loadProfile(id) {
     const profile = historyLibrary.find(p => p.id === id);
     if (!profile) return;
@@ -5066,7 +5127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       state.themeInfo = profile.themeInfo || null;
       state.elemInfo = profile.elemInfo;
-      // v2.7.2.2: clear stale google_fonts:true from pre-2.7.2 history (no explicit experiment)
+      // v2.7.3: clear stale google_fonts:true from pre-2.7.2 history (no explicit experiment)
       if (state.elemInfo && typeof window.sanitizeElementorGoogleFonts === "function") {
         window.sanitizeElementorGoogleFonts(state.elemInfo);
       } else if (state.elemInfo && state.elemInfo.google_fonts === true) {
@@ -5372,7 +5433,18 @@ document.addEventListener("DOMContentLoaded", () => {
     return escapeHtml(String(val));
   }
 
+  function closeComparisonResult() {
+    if (comparisonResultTableWrapper) {
+      comparisonResultTableWrapper.innerHTML = "";
+      comparisonResultTableWrapper.style.display = "none";
+    }
+    if (compareSelectA) compareSelectA.value = "";
+    if (compareSelectB) compareSelectB.value = "";
+    if (btnCompareClose) btnCompareClose.style.display = "none";
+  }
+
   function executeComparison() {
+
     const idA = compareSelectA.value;
     const idB = compareSelectB.value;
 
@@ -5538,6 +5610,7 @@ document.addEventListener("DOMContentLoaded", () => {
       comparisonResultTableWrapper.innerHTML = tableHtml;
       comparisonResultTableWrapper.style.display = "block";
     }
+    if (btnCompareClose) btnCompareClose.style.display = "flex";
   }
 
   // Bind Datakällor top action buttons
@@ -5624,18 +5697,21 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnExportHistory) btnExportHistory.addEventListener("click", exportHistoryLibrary);
   if (btnImportHistoryTrigger) btnImportHistoryTrigger.addEventListener("click", () => historyImportFile.click());
   if (historyImportFile) historyImportFile.addEventListener("change", handleHistoryImport);
-  if (btnClearHistory) btnClearHistory.addEventListener("click", clearAllHistory);
   if (btnCompareExecute) btnCompareExecute.addEventListener("click", executeComparison);
+  if (btnCompareClose) btnCompareClose.addEventListener("click", closeComparisonResult);
 
   // Initial rendering
   renderHistoryLibrary();
   updateCompareDropdowns();
 
-  // Test/debug exports (v2.7.2.2)
+  // Test/debug exports (v2.7.3)
   try {
     window.detectPastedFormat = detectPastedFormat;
     window.escapeHtml = escapeHtml;
     window.APP_VERSION = APP_VERSION;
+    window.closeComparisonResult = closeComparisonResult;
+    window.buildAnalyzeLiveContext = buildAnalyzeLiveContext;
+    window.probeQuicLiveHeaders = probeQuicLiveHeaders;
   } catch (e) {}
 
 
