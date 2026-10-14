@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.7.3)
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.8.3)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -82,6 +82,40 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 - **Förfinad copy:** `js_delayed_exclude` visar tydligt `Inaktiv (Delay ej aktiv)` när både defer och delay är av.
 
 
+
+### 🚀 Release v2.8.3: Renodlad Checkout & Högerställd Statusdesign
+
+- **Renodlad Checkout:** 7:e funktionskortet döpt om till `🛒 Checkout` med larmstatus `Bromsrisk 🟡` istället för texten "Kassan Bromsas".
+- **Intuitiv Server-Cron telemetri:** Verktygsraden i Checkout visar `Server-Cron` med tydliga lägen (`PÅ (Server)` vid aktiv `DISABLE_WP_CRON` / `AV (Besökare)` när besökare belastas). Larmet förtydligat till *Server-Cron saknas: Kassan fördröjs av bakgrundsjobb (Besöksstyrd Cron)*.
+- **Högerställd och kompakt statusdesign:** Statusen i 6:e funktionskortet (`🖥️ Serverresurser`) förenklad till `Acceptabel 🟡` (tog bort `(Delad)`). Kortens rubrikrad har fått flex-skydd (`white-space: nowrap`, `margin-left: auto`, `text-align: right`, `flex-shrink: 0`) för att eliminera oönskade radbrytningar och textkollisioner.
+- **Verifiering:** hard-reload `?v=2.8.3`. Tester: `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.2: Kassa- och E-handelsfokus & Delad OPcache-kalibrering
+
+- **Kassa & E-handel (7:e funktionskortet):** Dedikerat kort i Riskdetektorn (`🛒 Kassa & E-handel`) som övervakar kassans mest kritiska prestandafaktorer: Redis Object Cache, WP-Cron och HPOS-synk.
+- **Rättvis OPcache på delad hosting:** Larm på delad hosting sänkta till neutral information (`scoreImpact: 0`). Ny realistisk skala för träffprocent ($\ge 90\,\%$ grön, $80–89\,\%$ acceptabel/gul, $< 80\,\%$ röd). Kortet visar ren träffprocent under `opcache_hit_rate` istället för att falsklarma "OPcache Full".
+- **WP-Cron via besökare:** Ny telemetriregel som varnar när `DISABLE_WP_CRON` är inaktivt vid aktiv WooCommerce, med exakta instruktioner för `wp-config.php` och cPanel-cron.
+- **HPOS Dubbelskrivning / Synk:** Ny telemetriregel som upptäcker om HPOS körs med kompatibilitetssynk mot gamla tabeller, vilket halverar orderläggningshastigheten.
+- **Adaptiv Grid:** Riskdetektorns funktionsrutnät anpassat för att hantera 7 kort responsivt på breda skärmar.
+- **Verifiering:** hard-reload `?v=2.8.2`. Tester: `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.1: Kompakta Serverresurser & Förfinad OPcache-telemetri
+
+- **Kompakta verktygsvärden i funktionskortet:** 6:e funktionskortet (`🖥️ Serverresurser`) visar rena procent (`100%`, `82%`), minnestak (`768M`) och databasstorlekar (`450 KB`) utan textomslag och onödig plottrighet.
+- **Koncis OPcache-förklaring:** Larmtexten kortad till två prydliga rader – med optimal träffprocent definierad som 100 % och saklig förklaring av delade serverresurser utan opraktiska förslag på plugin-radering eller serverbyte.
+- **Multi-line varningsrendering:** Applicerat `white-space: pre-line` i riskdetektorn så att radbrytningar presenteras strukturerat i webbläsaren.
+- **Verifiering & Site Health-paritet:** Fullständigt kalibrerat och verifierat mot skarp telemetry från produktionssajter. Tester: `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.0: Serverresurser, OPcache, Autoload & Renodlad Översikt
+
+- **Renodlad Översikt:** Dubblettstatusraden (`overview-component-status-grid`) borttagen under miljökartan. Översikten fokuserar nu knivskarpt på Health Score & Breakdown, WordPress Miljökarta (Conflict Topology) och Versionsgranskning.
+- **Serverresurser & PHP-motor:** Nytt 6:e funktionskort i Riskdetektorn (`🖥️ Serverresurser`) med standardiserade namn (`opcache.memory_consumption`, `WP_MEMORY_LIMIT`, `autoload_options_size`) och ultrakompakta trösklar (t.ex. `Optimal <800 KB`, `Kritisk >1.5 MB`).
+- **OPcache-analys:** Identifierar full opcode-cache eller låg träffprocent (`opcache_is_full` / `opcache_hit_rate < 95%`) som kritiskt larm, samt förbrukning $\ge 95\%$ som proaktiv varning med tydliga copy-paste-rader för `php.ini`.
+- **Autoloaded Options Size:** Analyserar `autoload_options_size` från WordPress Site Health (`### wp-database ###`) mot WordPress Core Performance Benchmarks (varning $>800\text{ KB}$, kritisk TTFB-påverkan $>1.5\text{ MB}$).
+- **Minneskrock & Admin-minne:** Informerar sakligt när `WP_MEMORY_LIMIT > memory_limit` (info, scoreImpact: 0), samt varnar om `WP_MAX_MEMORY_LIMIT < 512M` vid aktiv WooCommerce eller Elementor.
+- **Lagrings- & Backup-hygien:** Korsregel mellan storlek på `uploads`-katalogen ($>5\text{ GB}$) och LiteSpeed Cache backup-radering (`img_optm_rm_bkup`).
+- **Flik 1 Core Paritet:** Parametrar för OPcache-minnesallokering och Autoload-storlek integrerade i inställningsgranskningen.
+- **Verifiering:** hard-reload `?v=2.8.0`. Tester: `scratch/test-v280.js`.
 
 ### 🩹 Release v2.7.3: Profiler UI + QUIC.cloud live-edge
 

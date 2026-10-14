@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer (v2.7.3)
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.8.3)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
  * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
@@ -783,7 +783,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.7.3
+ * Version: 2.8.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1022,7 +1022,7 @@ function generateSyncPluginPhp() {
 /**
  * Plugin Name: AreWee-Optimizer REST Sync Bridge
  * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
- * Version: 2.7.3
+ * Version: 2.8.3
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1176,11 +1176,19 @@ function wp_optimizer_sync_get_diagnostics() {
             'language' => get_locale(),
             'permalink_structure' => get_option('permalink_structure')
         ),
+        'wp-constants' => array(
+            'WP_MEMORY_LIMIT' => defined('WP_MEMORY_LIMIT') ? WP_MEMORY_LIMIT : '40M',
+            'WP_MAX_MEMORY_LIMIT' => defined('WP_MAX_MEMORY_LIMIT') ? WP_MAX_MEMORY_LIMIT : null,
+            'WP_DEBUG' => defined('WP_DEBUG') && WP_DEBUG ? 'true' : 'false',
+            'WP_DEBUG_DISPLAY' => defined('WP_DEBUG_DISPLAY') && WP_DEBUG_DISPLAY ? 'true' : 'false',
+            'DISABLE_WP_CRON' => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ? 'true' : 'false'
+        ),
         'wp-server' => array(
             'httpd_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
             'php_version' => phpversion(),
             'php_memory_limit' => ini_get('memory_limit'),
-            'php_max_execution_time' => ini_get('max_execution_time')
+            'php_max_execution_time' => ini_get('max_execution_time'),
+            'max_input_vars' => ini_get('max_input_vars')
         ),
         'wp-active-theme' => array(
             'name' => wp_get_theme()->get('Name'),
@@ -1188,6 +1196,57 @@ function wp_optimizer_sync_get_diagnostics() {
         ),
         'wp-plugins-active' => $plugins_active_data
     );
+
+    // v2.8.0: OPcache telemetry (Read-Only)
+    if (function_exists('opcache_get_status')) {
+        $opstatus = @opcache_get_status(false);
+        if (is_array($opstatus)) {
+            $sysinfo['wp-server']['opcache_status'] = 'enabled';
+            $sysinfo['wp-server']['opcache_is_full'] = !empty($opstatus['opcache_is_full']);
+            if (isset($opstatus['opcache_statistics']['opcache_hit_rate'])) {
+                $sysinfo['wp-server']['opcache_hit_rate'] = round($opstatus['opcache_statistics']['opcache_hit_rate'], 2) . '%';
+            }
+            if (isset($opstatus['memory_usage']['used_memory'])) {
+                $sysinfo['wp-server']['opcache_memory_used'] = round($opstatus['memory_usage']['used_memory'] / (1024 * 1024), 1) . ' MB';
+            }
+            $op_total = ini_get('opcache.memory_consumption');
+            if ($op_total) {
+                $sysinfo['wp-server']['opcache_memory_total'] = $op_total . ' MB';
+            }
+            if (isset($opstatus['interned_strings_usage']['used_memory'], $opstatus['interned_strings_usage']['buffer_size'])) {
+                $int_used = round($opstatus['interned_strings_usage']['used_memory'] / (1024 * 1024), 1);
+                $int_buf = round($opstatus['interned_strings_usage']['buffer_size'] / (1024 * 1024), 1);
+                $sysinfo['wp-server']['opcache_interned_strings'] = "{$int_used} MB av {$int_buf} MB";
+            }
+        }
+    }
+
+    // v2.8.0: Autoload options size (Read-Only DB query)
+    global $wpdb;
+    if ($wpdb) {
+        $autoload_bytes = (int) $wpdb->get_var("SELECT SUM(LENGTH(option_value)) FROM {$wpdb->options} WHERE autoload = 'yes' OR autoload = 'on'");
+        if ($autoload_bytes > 0) {
+            $formatted_autoload = function_exists('size_format') ? size_format($autoload_bytes, 2) : (round($autoload_bytes / 1024, 1) . ' KB');
+            $sysinfo['wp-database'] = array(
+                'autoload_options_size' => $formatted_autoload,
+                'autoload_size' => $formatted_autoload
+            );
+        }
+    }
+
+    // v2.8.0: Uploads storage size (Read-Only)
+    if (function_exists('wp_upload_dir')) {
+        $upload_info = wp_upload_dir();
+        if (!empty($upload_info['basedir']) && is_dir($upload_info['basedir']) && function_exists('recurse_dirsize')) {
+            $uploads_bytes = @recurse_dirsize($upload_info['basedir']);
+            if ($uploads_bytes && $uploads_bytes > 0) {
+                $formatted_uploads = function_exists('size_format') ? size_format($uploads_bytes, 2) : (round($uploads_bytes / (1024 * 1024), 1) . ' MB');
+                $sysinfo['wp-paths-sizes'] = array(
+                    'uploads_size' => $formatted_uploads
+                );
+            }
+        }
+    }
     
     // 2. Gather WooCommerce Info (Read-Only)
     $wooinfo = null;
@@ -1256,7 +1315,7 @@ function wp_optimizer_sync_get_diagnostics() {
 
     return array(
         'status' => 'success',
-        'syncPluginVersion' => '2.7.3',
+        'syncPluginVersion' => '2.8.3',
         'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
         'wooInfo' => $wooinfo,
@@ -1265,7 +1324,7 @@ function wp_optimizer_sync_get_diagnostics() {
         'uploadedSettings' => $lscwp_options,
         'quicLiveHeaders' => $quic_live_headers,
         'data' => array(
-            'syncPluginVersion' => '2.7.3',
+            'syncPluginVersion' => '2.8.3',
             'sysInfo' => $sysinfo,
             'sysinfo' => $sysinfo,
             'wooInfo' => $wooinfo,
@@ -1342,7 +1401,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.7.3)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.8.3)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
   md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
@@ -1520,7 +1579,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
   md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
 
-  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.7.3*\n`;
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.8.3*\n`;
 
   return md;
 }
@@ -1533,7 +1592,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.7.3)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.8.3)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
@@ -1554,7 +1613,7 @@ function generateBatchSecondOpinionMarkdown(historyList) {
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.7.3*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.8.3*\n`;
 
   return md;
 }

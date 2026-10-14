@@ -1,6 +1,6 @@
 /**
  * LiteSpeed & WordPress Optimizer - Main Application Controller
- * Version: 2.7.3
+ * Version: 2.8.3
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
-  const APP_VERSION = "2.7.3";
+  const APP_VERSION = "2.8.3";
   try { window.APP_VERSION = APP_VERSION; } catch (e) {}
 
   // Prevent browser from navigating away and opening dropped files globally
@@ -1485,10 +1485,38 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
           const colonIndex = line.indexOf(":");
           if (colonIndex !== -1) {
-            const k = line.substring(0, colonIndex).trim();
+            const rawK = line.substring(0, colonIndex).trim();
             const val = line.substring(colonIndex + 1).trim();
+            const k = rawK.toLowerCase();
+            data[currentSection][rawK] = val;
             data[currentSection][k] = val;
-            data[currentSection][k.toLowerCase()] = val;
+
+            // Normalized aliases for OPcache (Swedish & English Site Health raw and localized)
+            if (currentSection === "wp-server") {
+              if (k.includes("opcode_cache_full") || k.includes("opcache_is_full") || k.includes("opcache_full") || k.includes("är opcode-cachen fylld") || k.includes("is opcode cache full")) {
+                const valLower = val.toLowerCase();
+                const isFull = valLower === "true" || valLower === "1" || valLower === "ja" || valLower === "yes" || valLower === "sant";
+                data[currentSection].opcache_is_full = isFull;
+                data[currentSection]["opcache_is_full"] = isFull;
+              } else if (k.includes("opcode_cache_memory_usage") || k.includes("opcache_memory_used") || k.includes("opcache_memory_usage") || k.includes("minnesanvändning för cache-lagrade opkoder") || k.includes("memory usage for cached opcodes")) {
+                data[currentSection].opcache_memory_used = val;
+                data[currentSection]["opcode_cache_memory_usage"] = val;
+              } else if (k.includes("opcode_cache_interned_strings_usage") || k.includes("opcache_interned_strings") || k.includes("användning av sparade strängar") || k.includes("interned strings usage")) {
+                data[currentSection].opcache_interned_strings = val;
+                data[currentSection]["opcode_cache_interned_strings_usage"] = val;
+              } else if (k.includes("opcode_cache_hit_rate") || k.includes("opcache_hit_rate") || k.includes("träffprocent för opcode-cache") || k.includes("hit rate for opcode cache")) {
+                data[currentSection].opcache_hit_rate = val;
+                data[currentSection]["opcode_cache_hit_rate"] = val;
+              } else if (k === "opcode_cache" || k === "opcode-cache" || k === "opcache" || k === "opcache_status") {
+                const isOpcodeOn = val === "true" || val === true || val === "1" || val === "enabled" || val === "aktiverad";
+                data[currentSection].opcache_status = isOpcodeOn ? "enabled" : val;
+              }
+            } else if (currentSection === "wp-database") {
+              if (k.includes("autoload_options_size") || k.includes("autoloaded_options_size") || k.includes("autoload_size") || k.includes("storlek på automatiskt inlästa alternativ") || k.includes("autoloaded options size") || k.includes("storlek på autoload-alternativ")) {
+                data[currentSection].autoload_options_size = val;
+                data[currentSection]["autoload_options_size"] = val;
+              }
+            }
           }
         }
       }
@@ -1589,6 +1617,15 @@ document.addEventListener("DOMContentLoaded", () => {
           data.hpos_enabled = true;
         }
       }
+
+      // Check for HPOS data sync / compatibility mode (dual-write)
+      if (lower.includes("compatibility mode") || lower.includes("kompatibilitetsläge") || lower.includes("data sync") || lower.includes("datasynkronisering") || lower.includes("synk mot gamla tabeller")) {
+        if (lower.includes("yes") || lower.includes("true") || lower.includes("✔") || lower.includes("aktiverat") || lower.includes("aktiv") || lower.includes("enabled") || lower.includes("1") || lower.includes("ja")) {
+          data.hpos_sync_enabled = true;
+        } else if (lower.includes("no") || lower.includes("false") || lower.includes("nej") || lower.includes("inaktiv") || lower.includes("disabled") || lower.includes("0")) {
+          data.hpos_sync_enabled = false;
+        }
+      }
     });
     
     // Fallback / Extra searches for WooCommerce settings across entire text
@@ -1609,6 +1646,14 @@ document.addEventListener("DOMContentLoaded", () => {
           lowerText.includes("orders table (hpos)") ||
           lowerText.includes("ordertabeller (hpos)")) {
         data.hpos_enabled = true;
+      }
+    }
+    
+    if (data.hpos_sync_enabled === undefined) {
+      if (lowerText.includes("compatibility mode: enabled") || lowerText.includes("compatibility mode: yes") || lowerText.includes("kompatibilitetsläge: aktiverat") || lowerText.includes("hpos data sync enabled: true") || lowerText.includes("hpos data sync enabled: yes") || lowerText.includes("hpos data sync enabled: 1")) {
+        data.hpos_sync_enabled = true;
+      } else if (lowerText.includes("compatibility mode: disabled") || lowerText.includes("compatibility mode: no") || lowerText.includes("kompatibilitetsläge: inaktiverat") || lowerText.includes("hpos data sync enabled: false") || lowerText.includes("hpos data sync enabled: no") || lowerText.includes("hpos data sync enabled: 0")) {
+        data.hpos_sync_enabled = false;
       }
     }
     
@@ -2809,123 +2854,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // 7 Key Component Status Cards + PSI Card in Översikt
-    const overviewGridEl = document.getElementById("overview-component-status-grid");
-    if (overviewGridEl) {
-      overviewGridEl.innerHTML = "";
-
-      const rawAlerts = [
-        ...(results.alerts || []),
-        ...(results.customCodeAlerts || []),
-        ...(results.customCssAlerts || [])
-      ].filter(a => a.type === "danger" || a.type === "warning");
-
-      const normalizedAlerts = rawAlerts.map(a => {
-        let comp = a.component;
-        if (!comp) {
-          if (a.targetTabId === "elementor") comp = "elementor";
-          else if (a.targetTabId === "wordfence") comp = "wordfence";
-          else if (a.title.toLowerCase().includes("ctm")) comp = "ctm";
-          else if (a.title.toLowerCase().includes("woo") || a.title.toLowerCase().includes("kassa") || a.title.toLowerCase().includes("cart")) comp = "woocommerce";
-          else if (a.title.toLowerCase().includes("litespeed")) comp = "litespeed";
-          else if (a.title.toLowerCase().includes("scm")) comp = "scm";
-          else comp = "server";
-        }
-        return { ...a, component: comp };
-      });
-
-      const componentDefs = {
-        litespeed: { key: "litespeed", label: "LiteSpeed", icon: "⚡" },
-        woocommerce: { key: "woocommerce", label: "WooCommerce", icon: "🛒" },
-        wordfence: { key: "wordfence", label: "Wordfence", icon: "🔒" },
-        elementor: { key: "elementor", label: "Elementor", icon: "🎨" },
-        ctm: { key: "ctm", label: "CTM", icon: "🏷️" },
-        scm: { key: "scm", label: "SCM (Kod)", icon: "💻" },
-        server: { key: "server", label: "Server & Core", icon: "🖥️" }
-      };
-
-      const statusKeys = ["litespeed", "woocommerce", "wordfence", "elementor", "ctm", "scm", "server"];
-
-      statusKeys.forEach(k => {
-        const def = componentDefs[k];
-        const compAlerts = normalizedAlerts.filter(a => {
-          if (a.components && Array.isArray(a.components)) return a.components.includes(k);
-          return a.component === k;
-        });
-
-        const hasDanger = compAlerts.some(a => a.type === "danger");
-        const hasWarning = compAlerts.some(a => a.type === "warning");
-        const cardStatusClass = hasDanger ? "status-danger" : hasWarning ? "status-warning" : "status-safe";
-        const cardStatusText = hasDanger ? "Kritiskt 🔴" : hasWarning ? "Varning 🟡" : "Optimalt 🟢";
-
-        const card = document.createElement("div");
-        card.className = `risk-component-card ${cardStatusClass}`;
-        card.style.cursor = "pointer";
-        card.title = "Klicka för att se detaljerade risker för denna modul i Riskdetektorn";
-        card.innerHTML = `
-          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">${def.icon}</div>
-          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">${def.label}</div>
-          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; font-weight: 600;">${cardStatusText}</div>
-          <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">
-            ${compAlerts.length > 0 ? `${compAlerts.length} notifiering(ar)` : 'Noll krockar'}
-          </div>
-        `;
-
-        card.addEventListener("click", () => {
-          switchMasterView("risks");
-          state.activeRiskFilter = k;
-          renderAlerts();
-        });
-
-        overviewGridEl.appendChild(card);
-      });
-
-      // Append PSI score card if available
-      const psiCard = document.createElement("div");
-      if (state.psiScores && state.psiScores.mobile != null) {
-        const mScore = state.psiScores.mobile;
-        const psiClass = mScore >= 90 ? "status-safe" : mScore >= 50 ? "status-warning" : "status-danger";
-        psiCard.className = `risk-component-card ${psiClass}`;
-        psiCard.style.cursor = "pointer";
-        psiCard.innerHTML = `
-          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">📱</div>
-          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">PSI Mobil</div>
-          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; font-weight: 600;">${mScore}/100</div>
-          <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">
-            ${state.psiScores.desktop != null ? `Desktop: ${state.psiScores.desktop}/100` : 'PageSpeed Insights'}
-          </div>
-        `;
-        psiCard.title = "Klicka för att se PageSpeed Insights under Datakällor";
-        psiCard.addEventListener("click", () => {
-          switchMasterView("inputs");
-          const psiSection = document.getElementById("psi-tool-section");
-          if (psiSection) psiSection.scrollIntoView({ behavior: "smooth" });
-        });
-      } else {
-        psiCard.className = "risk-component-card";
-        psiCard.style.cursor = "pointer";
-        psiCard.style.opacity = "0.75";
-        psiCard.innerHTML = `
-          <div style="font-size: 1.25rem; margin-bottom: 0.25rem;">📱</div>
-          <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">PSI Test</div>
-          <div class="risk-card-status" style="font-size: 0.72rem; margin-top: 0.25rem; color: var(--text-muted);">Ej körd</div>
-          <div style="font-size: 0.65rem; color: var(--accent-cyan); margin-top: 0.25rem; text-decoration: underline;">
-            Kör PSI test ➔
-          </div>
-        `;
-        psiCard.title = "Klicka för att köra live Google PageSpeed Insights test under Datakällor";
-        psiCard.addEventListener("click", () => {
-          switchMasterView("inputs");
-          const psiSection = document.getElementById("psi-tool-section");
-          if (psiSection) psiSection.scrollIntoView({ behavior: "smooth" });
-          const urlInput = document.getElementById("psi-url-input");
-          if (urlInput) urlInput.focus();
-        });
-      }
-
-      overviewGridEl.appendChild(psiCard);
-    }
-
     let isDropUriMeasured = false;
     let checkoutSecure = false;
     let cartSecure = false;
@@ -3241,11 +3169,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
 
         card.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.15rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem;">
-            <strong style="font-size: 0.8rem; color: #fff;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.15rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem; gap: 0.4rem;">
+            <strong style="font-size: 0.8rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;">
               ${escapeHtml(fn.name)}
             </strong>
-            <span style="font-size: 0.68rem; font-weight: 600; color: ${statusColor};">${escapeHtml(fn.statusText || "")}</span>
+            <span style="font-size: 0.68rem; font-weight: 600; color: ${statusColor}; white-space: nowrap; margin-left: auto; text-align: right; flex-shrink: 0;">${escapeHtml(fn.statusText || "")}</span>
           </div>
           <div style="display: flex; flex-direction: column; gap: 0.1rem;">
             ${toolsHtml}
@@ -3362,7 +3290,7 @@ document.addEventListener("DOMContentLoaded", () => {
             </span>
             <h4 style="margin: 0; font-size: 0.95rem;">${index + 1}. ${escapeHtml(alert.title)}</h4>
           </div>
-          <p style="margin-top: 0.25rem;">${escapeHtml(alert.desc)}</p>
+          <p style="margin-top: 0.25rem; white-space: pre-line;">${escapeHtml(alert.desc)}</p>
           ${sourceHtml}
           ${pathHtml}
           ${buttonHtml}
@@ -4642,7 +4570,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = payload.syncPluginVersion || data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.7.3";
+        const targetVersion = "2.8.3";
         if (companionVersion !== targetVersion) {
           apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
@@ -5704,7 +5632,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderHistoryLibrary();
   updateCompareDropdowns();
 
-  // Test/debug exports (v2.7.3)
+  // Test/debug exports (v2.8.3)
   try {
     window.detectPastedFormat = detectPastedFormat;
     window.escapeHtml = escapeHtml;

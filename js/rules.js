@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.7.3)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.8.3)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -93,7 +93,8 @@ function parseMemoryMB(memStr) {
   if (!memStr || typeof memStr !== "string") return null;
   const trimmed = memStr.trim();
   if (trimmed === "-1" || trimmed === "-1M" || trimmed === "-1G") return 999999;
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([KMGTP]?)/i);
+  const cleaned = trimmed.replace(/[\u00A0\s](?=\d)/g, "").replace(/\u00A0/g, " ");
+  const match = cleaned.match(/^(\d+(?:\.\d+)?)\s*([KMGTP]?)/i);
   if (!match) return null;
   const num = parseFloat(match[1]);
   const unit = match[2].toUpperCase();
@@ -101,6 +102,29 @@ function parseMemoryMB(memStr) {
   if (unit === "M") return num;
   if (unit === "K") return num / 1024;
   return num; // Default MB
+}
+
+// --- BYTE SIZE PARSER (Bytes Normalizer) ---
+function parseBytes(sizeStr) {
+  if (sizeStr === null || sizeStr === undefined) return null;
+  if (typeof sizeStr === "number") return sizeStr;
+  const s = String(sizeStr).trim();
+  // Check if contains "(12345 bytes)"
+  const bytesParenthesis = s.match(/\((\d+)\s*bytes?\)/i);
+  if (bytesParenthesis) return parseInt(bytesParenthesis[1], 10);
+  // Sanitize Swedish spaces/non-breaking spaces between digits (e.g. "1 234 KB")
+  const cleaned = s.replace(/[\u00A0\s](?=\d)/g, "").replace(/\u00A0/g, " ");
+  // Match number with optional Swedish decimal comma or dot
+  const m = cleaned.match(/^([\d.,]+)\s*([KMGTP]?B?)/i);
+  if (!m) return null;
+  const num = parseFloat(m[1].replace(/\s/g, "").replace(",", "."));
+  if (isNaN(num)) return null;
+  const unit = (m[2] || "").toUpperCase();
+  if (unit.startsWith("G")) return Math.round(num * 1024 * 1024 * 1024);
+  if (unit.startsWith("M")) return Math.round(num * 1024 * 1024);
+  if (unit.startsWith("K")) return Math.round(num * 1024);
+  if (unit.startsWith("T")) return Math.round(num * 1024 * 1024 * 1024 * 1024);
+  return Math.round(num);
 }
 
 // --- NATIVE LSCWP DEFAULTS MATRIX (Fresh Install Defaults) ---
@@ -156,18 +180,18 @@ function checkMissingExclusions(currentExclusionsStr, recommendedExclusionsStr) 
   if (!currentExclusionsStr) {
     return recommendedExclusionsStr
       .split(/\r?\n/)
-      .map(s => s.replace(/\r/g, "").trim())
+      .map(s => s.trim())
       .filter(Boolean);
   }
 
   const currentLines = currentExclusionsStr
     .split(/\r?\n/)
-    .map(s => s.replace(/\r/g, "").trim().toLowerCase())
+    .map(s => s.trim().toLowerCase())
     .filter(Boolean);
 
   const recommendedLines = recommendedExclusionsStr
     .split(/\r?\n/)
-    .map(s => s.replace(/\r/g, "").trim())
+    .map(s => s.trim())
     .filter(Boolean);
 
   const missing = [];
@@ -562,6 +586,16 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       } else if (opt.id === "wp_post_revisions") {
         isMeasured = true;
         rawMeasured = environment.wpPostRevisions || "5";
+      } else if (opt.id === "php_opcache_memory") {
+        if (environment.opcacheMemoryTotal || environment.opcacheMemoryUsed || environment.opcacheStatus) {
+          isMeasured = true;
+          rawMeasured = environment.opcacheMemoryUsed ? `${environment.opcacheMemoryUsed}` : (environment.opcacheStatus || "Aktiv");
+        }
+      } else if (opt.id === "wp_autoload_size") {
+        if (environment.autoloadOptionsSize) {
+          isMeasured = true;
+          rawMeasured = environment.autoloadOptionsSize;
+        }
       }
     }
   } else if (opt.tool === "theme" || (opt.id && opt.id.startsWith("theme_"))) {
@@ -1654,13 +1688,14 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     phpUploadMaxFilesize: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].upload_max_filesize || effectiveSysInfo["wp-server"].upload_max_size)) || "Okänd",
     wpVersion: (effectiveSysInfo["wp-core"] && (effectiveSysInfo["wp-core"].version || effectiveSysInfo["wp-core"].wp_version)) || "Okänd",
     wpMemoryLimit: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_MEMORY_LIMIT || effectiveSysInfo["wp-constants"].wp_memory_limit)) || (effectiveSysInfo["wp-server"] && effectiveSysInfo["wp-server"].memory_limit) || "40M",
-    wpMaxMemoryLimit: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_MAX_MEMORY_LIMIT || effectiveSysInfo["wp-constants"].wp_max_memory_limit)) || "256M",
+    wpMaxMemoryLimit: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_MAX_MEMORY_LIMIT || effectiveSysInfo["wp-constants"].wp_max_memory_limit)) || null,
     wpDebug: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_DEBUG === "true" || effectiveSysInfo["wp-constants"].WP_DEBUG === true || effectiveSysInfo["wp-constants"].wp_debug === "true")) || false,
     wpDebugDisplay: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY === "true" || effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY === true || effectiveSysInfo["wp-constants"].wp_debug_display === "true")) || false,
     disableWpCron: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].DISABLE_WP_CRON === "true" || effectiveSysInfo["wp-constants"].DISABLE_WP_CRON === true || effectiveSysInfo["wp-constants"].disable_wp_cron === "true")) || false,
     activeTheme: (effectiveSysInfo["wp-active-theme"] && (effectiveSysInfo["wp-active-theme"].name || effectiveSysInfo["wp-active-theme"].theme)) || "Okänt tema",
     theme: (effectiveSysInfo["wp-active-theme"] && (effectiveSysInfo["wp-active-theme"].name || effectiveSysInfo["wp-active-theme"].theme)) || "Okänt tema",
-    hasObjectCache: false,
+    hasObjectCache: !!((effectiveSysInfo["wp-dropins"] && (effectiveSysInfo["wp-dropins"]["object-cache.php"] === true || effectiveSysInfo["wp-dropins"]["object-cache.php"] === "true")) || (uploadedSettings && (uploadedSettings["cache_object"] === 1 || uploadedSettings["cache_object"] === "1" || uploadedSettings["cache_object"] === true))),
+    hposSyncEnabled: (wooInfo && wooInfo.hpos_sync_enabled !== undefined) ? wooInfo.hpos_sync_enabled : null,
     isLiteSpeedServer: false,
     hasLiteSpeedPlugin: false,
     lscwpVersion: BENCHMARK_VERSIONS.litespeed.benchmarkVersion,
@@ -1688,7 +1723,30 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     wfInfo: wfInfo || null,
     elemInfo: elemInfo ? sanitizeElementorGoogleFonts(elemInfo) : null,
     themeInfo: themeInfo || null,
-    scmInfo: scmInfo || null
+    scmInfo: scmInfo || null,
+    // v2.8.0: OPcache, Autoload and Storage fields
+    opcacheIsFull: (function() {
+      const s = effectiveSysInfo["wp-server"];
+      if (!s) return false;
+      const val = s.opcode_cache_full !== undefined ? s.opcode_cache_full :
+                 (s.opcache_is_full !== undefined ? s.opcache_is_full :
+                 (s.opcache_full !== undefined ? s.opcache_full :
+                 (s["är opcode-cachen fylld"] !== undefined ? s["är opcode-cachen fylld"] : s["is opcode cache full"])));
+      if (val === true || val === 1 || val === "1") return true;
+      if (typeof val === "string") {
+        const v = val.trim().toLowerCase();
+        return v === "true" || v === "ja" || v === "yes" || v === "sant";
+      }
+      return false;
+    })(),
+    opcacheMemoryUsed: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_memory_usage || effectiveSysInfo["wp-server"].opcache_memory_used || effectiveSysInfo["wp-server"]["opcache_memory_used"] || effectiveSysInfo["wp-server"]["opcode_cache_memory_usage"])) || null,
+    opcacheMemoryTotal: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcache_memory_total || effectiveSysInfo["wp-server"]["opcache_memory_total"])) || null,
+    opcacheInternedStrings: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_interned_strings_usage || effectiveSysInfo["wp-server"].opcache_interned_strings || effectiveSysInfo["wp-server"]["opcache_interned_strings"] || effectiveSysInfo["wp-server"]["opcode_cache_interned_strings_usage"])) || null,
+    opcacheHitRate: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_hit_rate || effectiveSysInfo["wp-server"].opcache_hit_rate || effectiveSysInfo["wp-server"]["opcache_hit_rate"] || effectiveSysInfo["wp-server"]["opcode_cache_hit_rate"])) || null,
+    opcacheStatus: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache !== undefined ? (effectiveSysInfo["wp-server"].opcode_cache === true || effectiveSysInfo["wp-server"].opcode_cache === "true" || effectiveSysInfo["wp-server"].opcode_cache === "enabled" ? "enabled" : effectiveSysInfo["wp-server"].opcode_cache) : (effectiveSysInfo["wp-server"].opcache_status || effectiveSysInfo["wp-server"]["opcode-cache"] || effectiveSysInfo["wp-server"].opcache))) || null,
+    autoloadOptionsSize: (effectiveSysInfo["wp-database"] && (effectiveSysInfo["wp-database"].autoload_options_size || effectiveSysInfo["wp-database"]["autoload_options_size"] || effectiveSysInfo["wp-database"].autoload_size || effectiveSysInfo["wp-database"]["autoload_size"])) || null,
+    uploadsSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].uploads_size || effectiveSysInfo["wp-paths-sizes"]["uploads_size"])) || null,
+    databaseSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].database_size || effectiveSysInfo["wp-paths-sizes"]["database_size"])) || null
   };
 
   // v2.7.3: site URL + optional QUIC live headers (from app probe / sync plugin)
@@ -2049,6 +2107,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
 
   // Memory checks (Parse numerical megabytes)
   const wpMemNum = parseMemoryMB(environment.wpMemoryLimit) || 40;
+  const wpMaxMemNum = parseMemoryMB(environment.wpMaxMemoryLimit);
   const phpMemNum = parseMemoryMB(environment.phpMemoryLimit);
 
   if (environment.hasWooCommerce && wpMemNum < 256) {
@@ -2069,6 +2128,47 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     });
   }
 
+  // v2.8.0: WP_MAX_MEMORY_LIMIT check (< 512M when WooCommerce or Elementor is active)
+  if ((environment.hasWooCommerce || environment.hasElementor) && wpMaxMemNum !== null && wpMaxMemNum < 512) {
+    alerts.push({
+      id: "alert_wp_max_memory_low",
+      type: "warning",
+      icon: "⚠️",
+      component: "server",
+      components: ["server", environment.hasWooCommerce ? "woocommerce" : "elementor"],
+      title: "Lågt admin-minne (WP_MAX_MEMORY_LIMIT)",
+      desc: `Ditt WP_MAX_MEMORY_LIMIT är ${environment.wpMaxMemoryLimit}. För webbplatser med WooCommerce eller Elementor rekommenderas minst 512M (Optimal ≥512M) för att förhindra minnesbrist vid bildskalning, produktimporter och tung administration.`,
+      source: "WordPress.org & Elementor Admin Requirements (Optimal ≥512M)",
+      compatibility: "Förhindrar minneskrascher vid bildbeskärning och administration.",
+      wpPath: "wp-config.php ➔ define('WP_MAX_MEMORY_LIMIT', '512M');",
+      targetTabId: "core_server",
+      targetSettingId: "wp_max_memory_limit",
+      impactCategory: "stability",
+      criticalLevel: "standard"
+    });
+  }
+
+  // v2.8.0: Ceiling check (WP_MEMORY_LIMIT > php memory_limit) -> Info tip, scoreImpact: 0 (Grok feedback)
+  if (phpMemNum !== null && wpMemNum > phpMemNum) {
+    alerts.push({
+      id: "alert_memory_ceiling_mismatch",
+      type: "info",
+      icon: "💡",
+      component: "server",
+      components: ["server"],
+      title: "Informativt: WP_MEMORY_LIMIT överskrider serverns PHP memory_limit",
+      desc: `WP_MEMORY_LIMIT (${environment.wpMemoryLimit}) är definierat högre än serverns PHP memory_limit (${environment.phpMemoryLimit}). Om webbhotellet har låst memory_limit på servernivå begränsas WordPress av PHP:s tak och körs i praktiken med ${environment.phpMemoryLimit}, men i miljöer där taket inte är låst kan WordPress själv i runtime höja gränsen. För att garantera stabilitet bör PHP memory_limit i php.ini matcha eller överstiga WP-gränsen.`,
+      source: "PHP Runtime Architecture & WordPress.org Core",
+      compatibility: "scoreImpact: 0 — informativ notis om att PHP:s tak gäller.",
+      wpPath: "php.ini ➔ memory_limit = 512M (eller högre)",
+      targetTabId: "core_server",
+      targetSettingId: "php_memory_limit",
+      impactCategory: "config",
+      criticalLevel: "standard",
+      scoreImpact: 0
+    });
+  }
+
   if (phpMemNum !== null && phpMemNum < 256) {
     alerts.push({
       type: "warning",
@@ -2082,6 +2182,27 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       wpPath: ".htaccess / php.ini ➔ php_value memory_limit 512M",
       impactCategory: "stability",
       criticalLevel: "high"
+    });
+  }
+
+  // v2.8.0: max_execution_time check (<= 30s when LiteSpeed is active)
+  const execTimeNum = parseInt(environment.phpMaxExecutionTime, 10);
+  if (!isNaN(execTimeNum) && execTimeNum > 0 && execTimeNum <= 30 && (environment.hasLiteSpeedPlugin || environment.isLiteSpeedServer)) {
+    alerts.push({
+      id: "alert_max_execution_time_low",
+      type: "warning",
+      icon: "⏱️",
+      component: "server",
+      components: ["server", "litespeed"],
+      title: "Kort max_execution_time (Varning ≤30s)",
+      desc: `PHP max_execution_time är satt till ${environment.phpMaxExecutionTime}s. Detta påverkar främst bakgrundsjobb som LiteSpeed Crawler, bildoptimering och säkerhetskopiering som riskerar att avbrytas med 504 Gateway Timeout. Rekommendation: höj till 120–300s. Obs: På delad hosting kan denna gräns vara låst av webbhotellet.`,
+      source: "LiteSpeed Crawler & Image Optimization Requirements (Optimal ≥120s)",
+      compatibility: "Säkerställer att bakgrundsjobb, bildkonvertering och sökspindlar hinner slutföras.",
+      wpPath: "php.ini ➔ max_execution_time = 300 (eller via cPanel / PHP INI Editor)",
+      targetTabId: "core_server",
+      targetSettingId: "php_max_execution_time",
+      impactCategory: "stability",
+      criticalLevel: "standard"
     });
   }
 
@@ -2099,6 +2220,252 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       impactCategory: "stability",
       criticalLevel: "standard"
     });
+  }
+
+  // v2.8.0: OPcache checks (Grok calibration: is_full OR hit_rate < 95% = danger; >= 95% mem usage = warning)
+  if (environment.opcacheStatus || environment.opcacheIsFull || environment.opcacheMemoryUsed || environment.opcacheHitRate) {
+    let opcacheHitNum = null;
+    if (environment.opcacheHitRate) {
+      const hitMatch = String(environment.opcacheHitRate).replace(",", ".").match(/([\d.]+)/);
+      if (hitMatch) {
+        opcacheHitNum = parseFloat(hitMatch[1]);
+        // Normalize fraction e.g. 0.995 => 99.5%
+        if (opcacheHitNum <= 1.0 && opcacheHitNum > 0) {
+          opcacheHitNum = opcacheHitNum * 100;
+        }
+      }
+    }
+
+    let opcacheMemUsedBytes = parseBytes(environment.opcacheMemoryUsed);
+    let opcacheMemTotalBytes = parseBytes(environment.opcacheMemoryTotal);
+    if (!opcacheMemTotalBytes && environment.opcacheMemoryUsed) {
+      // e.g. "512 MB av 512 MB" or "512 MB of 512 MB"
+      const avMatch = String(environment.opcacheMemoryUsed).match(/([\d.,]+)\s*([KMGTP]?B?)\s*(?:av|of)\s*([\d.,]+)\s*([KMGTP]?B?)/i);
+      if (avMatch) {
+        opcacheMemUsedBytes = parseBytes(`${avMatch[1]} ${avMatch[2]}`);
+        opcacheMemTotalBytes = parseBytes(`${avMatch[3]} ${avMatch[4]}`);
+      }
+    }
+
+    let opcacheMemPercent = null;
+    if (opcacheMemUsedBytes && opcacheMemTotalBytes && opcacheMemTotalBytes > 0) {
+      opcacheMemPercent = (opcacheMemUsedBytes / opcacheMemTotalBytes) * 1024; // ratio calculation
+      opcacheMemPercent = Math.round((opcacheMemUsedBytes / opcacheMemTotalBytes) * 100);
+    }
+
+    let isInternedHigh = false;
+    if (environment.opcacheInternedStrings) {
+      const intStr = String(environment.opcacheInternedStrings).toLowerCase();
+      if (intStr.includes("100%") || intStr.includes("0 b ledigt") || intStr.includes("0 bytes free") || intStr.includes("0 b free")) {
+        isInternedHigh = true;
+      } else {
+        const pctMatch = intStr.match(/(\d+(?:\.\d+)?)\s*%/);
+        if (pctMatch && parseFloat(pctMatch[1]) >= 95) {
+          isInternedHigh = true;
+        } else {
+          const intAvMatch = intStr.match(/([\d.,]+)\s*([KMGTP]?B?)\s*(?:av|of)\s*([\d.,]+)\s*([KMGTP]?B?)/i);
+          if (intAvMatch) {
+            const uBytes = parseBytes(`${intAvMatch[1]} ${intAvMatch[2]}`);
+            const tBytes = parseBytes(`${intAvMatch[3]} ${intAvMatch[4]}`);
+            if (uBytes && tBytes && (uBytes / tBytes) >= 0.95) {
+              isInternedHigh = true;
+            }
+          }
+        }
+      }
+    }
+
+    const isHighUsage = (opcacheMemPercent !== null && opcacheMemPercent >= 95) || isInternedHigh;
+    const isHitRateLow = opcacheHitNum !== null && opcacheHitNum < 80;
+    const isHitRateModerate = opcacheHitNum !== null && opcacheHitNum >= 80 && opcacheHitNum < 90;
+    const hitRateDisplay = environment.opcacheHitRate ? (String(environment.opcacheHitRate).includes("%") ? environment.opcacheHitRate : `${environment.opcacheHitRate}%`) : "Okänd";
+
+    if (isHitRateLow) {
+      alerts.push({
+        id: "alert_opcache_critical",
+        type: "info",
+        scoreImpact: 0,
+        icon: "ℹ️",
+        component: "server",
+        components: ["server"],
+        title: "Observation: Låg träffprocent i OPcache (<80%)",
+        desc: `OPcache har en träffprocent på ${hitRateDisplay} (Optimalt är ≥90%, acceptabelt på delat webbhotell är ≥80%). När träffprocenten sjunker tvingas PHP kompilera om skript från disk, vilket kan ge ojämn TTFB i kassan.\n\nPå delat webbhotell styrs OPcache globalt per server och kan inte ändras på ett enskilt konto. Förbättringen sker automatiskt om webbhotellet utökar serverns minnesallokering, eller om sajten flyttas till VPS/egen miljö.`,
+        source: "PHP OPcache Architecture Guide & Shared Hosting Performance",
+        compatibility: "Observation utan poängavdrag då servermiljön styrs globalt av webbhotellet.",
+        wpPath: "php.ini ➔ opcache.memory_consumption",
+        targetTabId: "core_server",
+        targetSettingId: "php_opcache_memory",
+        impactCategory: "performance",
+        criticalLevel: "standard"
+      });
+    } else if (isHitRateModerate) {
+      alerts.push({
+        id: "alert_opcache_warning",
+        type: "info",
+        scoreImpact: 0,
+        icon: "ℹ️",
+        component: "server",
+        components: ["server"],
+        title: "Information: OPcache träffprocent är acceptabel för delat webbhotell (80–89%)",
+        desc: `OPcache träffprocent är ${hitRateDisplay}. Detta är en normal och fullt acceptabel nivå på ett delat webbhotell där serverns minne delas mellan flera webbplatser.`,
+        source: "PHP OPcache Best Practice (Optimal ≥90%)",
+        compatibility: "Normal drift på delat webbhotell.",
+        wpPath: "php.ini ➔ opcache.memory_consumption",
+        targetTabId: "core_server",
+        targetSettingId: "php_opcache_memory",
+        impactCategory: "performance",
+        criticalLevel: "standard"
+      });
+    } else if (isHighUsage) {
+      alerts.push({
+        id: "alert_opcache_warning",
+        type: "info",
+        scoreImpact: 0,
+        icon: "ℹ️",
+        component: "server",
+        components: ["server"],
+        title: "Information: Högt utnyttjande av OPcache-buffert (≥95%)",
+        desc: `OPcache-bufferten eller interned strings har nått ${isInternedHigh ? "≥95% för interned strings" : "≥95% av minnet"}. På delat webbhotell är detta normalt då minnet delas mellan serverns alla webbplatser.`,
+        source: "PHP OPcache Best Practice",
+        compatibility: "Normal drift på delat webbhotell.",
+        wpPath: "php.ini ➔ opcache.memory_consumption",
+        targetTabId: "core_server",
+        targetSettingId: "php_opcache_memory",
+        impactCategory: "performance",
+        criticalLevel: "standard"
+      });
+    } else if (opcacheHitNum === null && environment.opcacheIsFull) {
+      alerts.push({
+        id: "alert_opcache_warning",
+        type: "info",
+        scoreImpact: 0,
+        icon: "ℹ️",
+        component: "server",
+        components: ["server"],
+        title: "Information: OPcache-minnet är fullt (Träffprocent ej inläst)",
+        desc: `OPcache-minnet har nått sin allokerade gräns. På delat webbhotell är detta normalt då minnet delas mellan serverns alla webbplatser.`,
+        source: "PHP OPcache Best Practice",
+        compatibility: "Normal drift på delat webbhotell.",
+        wpPath: "php.ini ➔ opcache.memory_consumption",
+        targetTabId: "core_server",
+        targetSettingId: "php_opcache_memory",
+        impactCategory: "performance",
+        criticalLevel: "standard"
+      });
+    }
+  }
+
+  // v2.8.2: WooCommerce Checkout Performance Rules (WP-Cron & HPOS Sync)
+  if (environment.hasWooCommerce && !environment.disableWpCron) {
+    alerts.push({
+      id: "alert_wc_cron_visitor",
+      type: "warning",
+      icon: "⏱️",
+      component: "woocommerce",
+      components: ["woocommerce", "server"],
+      title: "Server-Cron saknas: Kassan fördröjs av bakgrundsjobb (Besöksstyrd Cron)",
+      desc: `Webbplatsen saknar riktig Server-Cron (DISABLE_WP_CRON är inaktivt). När en kund besöker kassan eller genomför ett köp tvingas kundens webbläsare trigga schemalagda bakgrundsjobb (som e-post eller lagersynk), vilket fördröjer kassan och kan orsaka timeout i betalsteget.\n\nRekommenderad åtgärd:\n• Var: wp-config.php och webbhotellets kontrollpanel (Inleed cPanel/DirectAdmin).\n• Hur: Lägg till raden define( 'DISABLE_WP_CRON', true ); strax ovanför /* That's all, stop editing! */ i wp-config.php.\n• Inställning: Skapa ett schemalagt jobb (server-cron) i webbhotellets kontrollpanel som anropar wp-cron.php var 10:e minut.`,
+      source: "WooCommerce High-Performance Handbook & Server Cron Best Practice",
+      compatibility: "Säkerställer att kassan inte blockeras av bakgrundsprocesser vid orderläggning.",
+      wpPath: "wp-config.php ➔ define('DISABLE_WP_CRON', true);",
+      targetTabId: "core_server",
+      targetSettingId: "wp_cron_setting",
+      impactCategory: "stability",
+      criticalLevel: "standard"
+    });
+  }
+
+  if (environment.hasWooCommerce && (environment.hpos_enabled || (environment.wooInfo && environment.wooInfo.hpos_enabled))) {
+    const isDualWrite = environment.hposSyncEnabled === true || (environment.wooInfo && environment.wooInfo.hpos_sync_enabled === true);
+    if (isDualWrite) {
+      alerts.push({
+        id: "alert_wc_hpos_dual_write",
+        type: "warning",
+        icon: "🔄",
+        component: "woocommerce",
+        components: ["woocommerce"],
+        title: "HPOS Kompatibilitetsläge aktivt: Dubbelskrivning till databasen",
+        desc: `High-Performance Order Storage (HPOS) är aktivt, men synkronisering till de gamla post-tabellerna är påslaget. Detta gör att varje beställning sparas två gånger – både i wp_wc_orders och i wp_posts/wp_postmeta – vilket halverar databasens skrivprestanda i kassan.\n\nRekommenderad åtgärd:\n• Var: WooCommerce ➔ Inställningar ➔ Avancerat ➔ Funktioner.\n• Hur: Avbocka kryssrutan 'Aktivera kompatibilitetsläge (synkronisera beställningar till tabellen posts/postmeta)'.\n• Inställning: Avbockad / Inaktiv för ren HPOS-drift.`,
+        source: "WooCommerce High-Performance Order Storage (HPOS) Guide",
+        compatibility: "Halverar databasbelastningen vid orderläggning i kassan.",
+        wpPath: "WooCommerce ➔ Inställningar ➔ Avancerat ➔ Funktioner",
+        targetTabId: "core_server",
+        targetSettingId: "woo_hpos",
+        impactCategory: "performance",
+        criticalLevel: "standard"
+      });
+    }
+  }
+
+  // v2.8.0: Autoloaded options size check (WordPress Site Health Core Benchmark: 800 KB warning, 1.5 MB critical)
+  if (environment.autoloadOptionsSize) {
+    const autoloadBytes = parseBytes(environment.autoloadOptionsSize);
+    if (autoloadBytes !== null) {
+      const autoloadKB = Math.round(autoloadBytes / 1024);
+      if (autoloadBytes > 1.5 * 1024 * 1024) {
+        // Critical: > 1.5 MB
+        alerts.push({
+          id: "alert_autoload_critical",
+          type: "danger",
+          icon: "🚨",
+          component: "server",
+          components: ["server"],
+          title: `Hög autoload-storlek: Risk för fördröjd TTFB vid varje anrop (${environment.autoloadOptionsSize})`,
+          desc: `Storleken på automatiskt inlästa alternativ i wp_options är ${environment.autoloadOptionsSize} (Kritisk >1.5 MB). Dessa alternativ läses in i serverns minne vid varje enskild sidvisning innan WordPress börjar rendera sidan. Detta fördröjer TTFB märkbart. Se över gamla transients via LiteSpeed Databasrensning eller granska stora poster i wp_options via phpMyAdmin.`,
+          source: "WordPress Site Health Performance Benchmark (Tröskel: 800 KB)",
+          compatibility: "Direkt påverkan på serverns TTFB och minnesåtgång per PHP-process.",
+          wpPath: "LiteSpeed Cache ➔ Databas ➔ [1] Hantera ➔ Rensa alla transienter (eller phpMyAdmin)",
+          targetTabId: "core_server",
+          targetSettingId: "wp_autoload_size",
+          impactCategory: "performance",
+          criticalLevel: "high"
+        });
+      } else if (autoloadBytes > 800 * 1024) {
+        // Warning: > 800 KB
+        alerts.push({
+          id: "alert_autoload_warning",
+          type: "warning",
+          icon: "⚠️",
+          component: "server",
+          components: ["server"],
+          title: `Autoload-alternativ överstiger rekommendation (${environment.autoloadOptionsSize})`,
+          desc: `Storleken på automatiskt inlästa alternativ i wp_options är ${environment.autoloadOptionsSize} (Varning >800 KB). WordPress Site Health flaggar när autoload passerar 800 KB. Om webbplatsen har många tillägg kan transienter samlas på hög. Rensa expired transients via LiteSpeed Cache Databasoptimerare.`,
+          source: "WordPress Site Health Performance Benchmark (Tröskel: 800 KB)",
+          compatibility: "Förbättrar TTFB och håller wp_options-tabellen slimmad.",
+          wpPath: "LiteSpeed Cache ➔ Databas ➔ [1] Hantera ➔ Rensa transienter",
+          targetTabId: "core_server",
+          targetSettingId: "wp_autoload_size",
+          impactCategory: "performance",
+          criticalLevel: "standard"
+        });
+      }
+    }
+  }
+
+  // v2.8.0: Storage & Media Hygiene (Uploads size > 5-10 GB + LiteSpeed backup retention)
+  if (environment.uploadsSize) {
+    const uploadsBytes = parseBytes(environment.uploadsSize);
+    // If uploads > 5 GB and LiteSpeed img_optm_rm_bkup is OFF (0)
+    const isRmBkupOn = uploadedSettings && (uploadedSettings.img_optm_rm_bkup === "1" || uploadedSettings.img_optm_rm_bkup === 1 || uploadedSettings["img_optm-rm_bkup"] === "1" || uploadedSettings["img_optm-rm_bkup"] === 1);
+    if (uploadsBytes !== null && uploadsBytes > 5 * 1024 * 1024 * 1024 && !isRmBkupOn && (uploadedSettings && Object.keys(uploadedSettings).length > 0)) {
+      alerts.push({
+        id: "alert_uploads_backup_bloat",
+        type: "info",
+        icon: "💡",
+        component: "litespeed",
+        components: ["litespeed", "server"],
+        title: `Stor mediakatalog (${environment.uploadsSize}) – Överväg att radera originalbackuper`,
+        desc: `Din uploads-katalog upptar ${environment.uploadsSize} och inställningen 'Radera originalbackup' (img_optm_rm_bkup) är AV i LiteSpeed Cache. Efter att bilder har konverterats till WebP/optimerats kan radering av de sparade originalkopiorna spara flera gigabyte på serverns disk.`,
+        source: "LiteSpeed Image Optimization & Storage Audit",
+        compatibility: "scoreImpact: 0 — rådgivande tips för att spara diskutrymme.",
+        wpPath: "LiteSpeed Cache ➔ Image Optimization ➔ Image Optimization Settings ➔ Ta bort ursprungliga säkerhetskopior",
+        targetTabId: "image_optimization",
+        targetSettingId: "img_optm_rm_bkup",
+        impactCategory: "stability",
+        criticalLevel: "standard",
+        scoreImpact: 0
+      });
+    }
   }
 
   // --- B. WooCommerce Checkout & Cart Protection ---
@@ -2546,7 +2913,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   const sureRankKey = activePluginKeys.find(k => k.toLowerCase().includes("surerank"));
   if (sureRankKey && effectiveSysInfo && effectiveSysInfo["wp-plugins-active"] && effectiveSysInfo["wp-plugins-active"][sureRankKey]) {
     const sVer = effectiveSysInfo["wp-plugins-active"][sureRankKey].version || "";
-    if (sVer && sVer.startsWith("1.") && !sVer.startsWith("1.10.1") && !sVer.startsWith("1.11") && !sVer.startsWith("1.12")) {
+    if (sVer && compareVersions(sVer, "1.10.1") < 0) {
       alerts.push({
         type: "danger",
         icon: "🚨",
@@ -2863,7 +3230,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       version: environment.wpVersion !== "Okänd" ? `v${environment.wpVersion}` : "Inläst",
       status: "optimal",
       active: true,
-      subtext: environment.isLiteSpeedServer ? "LiteSpeed Server" : environment.server
+      subtext: environment.opcacheIsFull ? "OPcache FULL 🚨" : (environment.autoloadOptionsSize ? `Autoload ${environment.autoloadOptionsSize}` : (environment.isLiteSpeedServer ? "LiteSpeed Server" : environment.server))
     },
     {
       id: "litespeed",
@@ -3063,8 +3430,102 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         { name: "Wordfence", state: isWfActive ? "PÅ" : "AV" },
         { name: "LiteSpeed", state: isLsWafActive ? "PÅ" : "AV" }
       ]
-    }
-  ];
+    },
+    // v2.8.0: 6th Function Card: Serverresurser & PHP-motor
+    (function() {
+      // Determine overall status for server resources
+      let sResStatus = "optimal";
+      let sResText = "Optimal";
+
+      const hasAutoloadCrit = alerts.some(a => a.id === "alert_autoload_critical");
+      const hasAutoloadWarn = alerts.some(a => a.id === "alert_autoload_warning");
+      const hasMaxMemWarn = alerts.some(a => a.id === "alert_wp_max_memory_low");
+      const hasExecWarn = alerts.some(a => a.id === "alert_max_execution_time_low");
+
+      let opHitNum = null;
+      if (environment.opcacheHitRate) {
+        const hm = String(environment.opcacheHitRate).replace(",", ".").match(/([\d.]+)/);
+        if (hm) {
+          opHitNum = parseFloat(hm[1]);
+          if (opHitNum <= 1.0 && opHitNum > 0) opHitNum = opHitNum * 100;
+        }
+      }
+
+      if (hasAutoloadCrit) {
+        sResStatus = "danger";
+        sResText = "Autoload Kritisk 🚨";
+      } else if (opHitNum !== null && opHitNum < 80) {
+        sResStatus = "danger";
+        sResText = "Låg träffprocent 🚨";
+      } else if (hasAutoloadWarn || hasMaxMemWarn || hasExecWarn) {
+        sResStatus = "warning";
+        sResText = "Varning 🟡";
+      } else if (opHitNum !== null && opHitNum < 90) {
+        sResStatus = "warning";
+        sResText = "Acceptabel 🟡";
+      }
+
+      // OPcache tool state: ren träffprocent
+      let opcacheState = "Ej inläst";
+      if (opHitNum !== null) {
+        opcacheState = `${Math.round(opHitNum)}%`;
+      } else if (environment.opcacheIsFull) {
+        opcacheState = "100%";
+      } else if (environment.opcacheStatus) {
+        opcacheState = "Aktiv";
+      }
+
+      // WP/PHP Memory tool state
+      const wpMem = environment.wpMemoryLimit || "40M";
+      let memState = wpMem;
+
+      // Autoload tool state
+      let autoState = environment.autoloadOptionsSize || "Ej inläst";
+
+      return {
+        id: "server_res",
+        name: "🖥️ Serverresurser",
+        status: sResStatus,
+        statusText: sResText,
+        tools: [
+          { name: "opcache_hit_rate", state: opcacheState },
+          { name: "WP_MEMORY_LIMIT", state: memState },
+          { name: "autoload_options_size", state: autoState }
+        ]
+      };
+    })(),
+    // v2.8.3: 7th Function Card: Checkout (Performance & Stability)
+    (function() {
+      if (!environment.hasWooCommerce) return null;
+
+      const hasCronWarn = alerts.some(a => a.id === "alert_wc_cron_visitor");
+      const hasHposWarn = alerts.some(a => a.id === "alert_wc_hpos_dual_write");
+
+      let kassaStatus = "optimal";
+      let kassaText = "Optimal 🟢";
+      if (hasCronWarn || hasHposWarn) {
+        kassaStatus = "warning";
+        kassaText = "Bromsrisk 🟡";
+      }
+
+      const isDualWrite = environment.hposSyncEnabled === true || (environment.wooInfo && environment.wooInfo.hpos_sync_enabled === true);
+      const hposState = environment.hpos_enabled ? (isDualWrite ? "Synk på (Risk)" : "PÅ (Ren)") : "AV";
+      const cronState = environment.disableWpCron ? "PÅ (Server)" : "AV (Besökare)";
+      const redisState = environment.hasObjectCache ? "PÅ (Aktiv)" : "AV (Saknas)";
+
+      return {
+        id: "kassa_perf",
+        name: "🛒 Checkout",
+        status: kassaStatus,
+        statusText: kassaText,
+        tools: [
+          { name: "Redis Cache", state: redisState },
+          { name: "Server-Cron", state: cronState },
+          { name: "HPOS Drift", state: hposState }
+        ]
+      };
+    })()
+  ].filter(Boolean);
 
   return {
     environment,
@@ -4507,6 +4968,34 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           {
             litespeed: "Database Hygiene: Håller wp_posts- och wp_postmeta-tabellerna slimmade.",
             consensus: "WordPress Core Best Practice: 5 versioner räcker för historik utan att skapa tusentals överflödiga rader."
+          },
+          null,
+          "server"
+        ),
+        makeOpt(
+          "php_opcache_memory",
+          "OPcache Minnesallokering (opcache.memory_consumption)",
+          "512M",
+          "Allokerat RAM-minne för förkompilerad PHP-kod. Vid Elementor och WooCommerce rekommenderas 512M–1024M.",
+          "high",
+          "performance",
+          {
+            litespeed: "PHP OPcache Acceleration: Lagrar kompilerad PHP-bytekod i minnet för omedelbar exekvering.",
+            consensus: "PHP Documentation & Hosting Best Practice: Minst 512M (optimalt 768M-1024M för Elementor Pro + WooCommerce) förhindrar omkompilering vid varje anrop."
+          },
+          null,
+          "server"
+        ),
+        makeOpt(
+          "wp_autoload_size",
+          "Storlek på Autoload-alternativ (autoload_options_size)",
+          "< 800 KB",
+          "Total datamängd som automatiskt läses in i RAM från wp_options vid varje enskild HTTP-förfrågan.",
+          "high",
+          "performance",
+          {
+            litespeed: "Database Optimization: Hålls nere genom att rensa utgångna transienter och inaktiva plugin-inställningar.",
+            consensus: "WordPress Site Health Benchmark: Gränsvärde 800 KB (varning >800 KB, kritisk TTFB-påverkan >1.5 MB)."
           },
           null,
           "server"
