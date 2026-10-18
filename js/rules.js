@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.8.3)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.8.35)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -40,6 +40,56 @@ function maskSecretKey(val) {
   return s.slice(0, 4) + "…" + s.slice(-4);
 }
 
+/**
+ * Central Boolean Value Parser (v2.8.4).
+ * Robustly parses boolean-like values from WordPress Site Health, constants, and diagnostic dumps.
+ * Returns true for truthy values, false for falsy values, or null if unrecognized/undefined.
+ */
+function parseBooleanValue(val) {
+  if (val === true || val === 1) return true;
+  if (val === false || val === 0) return false;
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim().toLowerCase();
+  if (
+    s === "true" ||
+    s === "1" ||
+    s === "enabled" ||
+    s === "aktiverad" ||
+    s === "aktiverat" ||
+    s === "aktiv" ||
+    s === "aktivt" ||
+    s === "ja" ||
+    s === "yes" ||
+    s === "på" ||
+    s === "on" ||
+    s === "sant" ||
+    s === "✔" ||
+    s === "active" ||
+    s === "definierad (true)"
+  ) {
+    return true;
+  }
+  if (
+    s === "false" ||
+    s === "0" ||
+    s === "disabled" ||
+    s === "inaktiverad" ||
+    s === "inaktiverat" ||
+    s === "inaktiv" ||
+    s === "nej" ||
+    s === "no" ||
+    s === "av" ||
+    s === "off" ||
+    s === "falskt" ||
+    s === "definierad (false)" ||
+    s === "ej definierad" ||
+    s === "inte definierad"
+  ) {
+    return false;
+  }
+  return null;
+}
+
 
 
 /**
@@ -76,6 +126,25 @@ function isCoreWooCommercePlugin(pluginKey) {
 function isCoreElementorPlugin(pluginKey) {
   const { slug, baseName } = getPluginMatchTokens(pluginKey);
   return slug === "elementor" || baseName === "elementor";
+}
+
+/**
+ * Strips technical slug from theme name (e.g. "Astra (astra)" -> "Astra")
+ * while strictly preserving intentional parenthetical titles like "(Child Theme)" or "(v2)".
+ */
+function stripThemeSlug(name) {
+  if (!name) return "";
+  const s = String(name).trim();
+  const m = s.match(/^(.*?)\s*\(([^)]+)\)$/);
+  if (m) {
+    const base = m[1].trim();
+    const slug = m[2].trim().toLowerCase();
+    const slugifiedBase = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (slug === slugifiedBase || slug === base.toLowerCase() || slugifiedBase.startsWith(slug)) {
+      return base;
+    }
+  }
+  return s;
 }
 
 function normalizeExclusionPattern(pattern) {
@@ -412,58 +481,203 @@ function getOptionComparison(opt, uploadedSettings, environment) {
 
   // 1. Cross-tool & Environment Multi-Channel Resolution
   if (opt.tool === "woocommerce" || (opt.id && opt.id.startsWith("woo_"))) {
-    if (environment && environment.hasWooCommerce && (environment.wooInfo || environment.hpos_enabled !== undefined)) {
-      isMeasured = true;
+    const hasWooContext = !!(environment && (environment.hasWooCommerce || environment.wooInfo));
+    if (hasWooContext) {
       if (opt.id === "woo_hpos") {
-        rawMeasured = (environment.hpos_enabled || (environment.wooInfo && environment.wooInfo.hpos_enabled)) ? "1" : "0";
+        if (environment && (environment.wooInfo || environment.hpos_enabled !== undefined)) {
+          isMeasured = true;
+          rawMeasured = (environment.hpos_enabled || (environment.wooInfo && environment.wooInfo.hpos_enabled)) ? "1" : "0";
+        } else {
+          isMeasured = false;
+        }
       } else if (opt.id === "woo_cart_fragments") {
-        const isCartOpt = !!(
-          environment.cart_fragments_dequeued || 
-          (environment.wooInfo && (environment.wooInfo.cart_fragments_dequeued || environment.wooInfo.woo_cart_fragments === "1" || environment.wooInfo.woo_cart_fragments === 1)) ||
-          environment.hasSCM ||
-          (uploadedSettings && String(uploadedSettings["optm-js_exc"] || uploadedSettings.js_exclude || "").includes("wc-cart-fragments"))
+        const isCartDequeued = !!(
+          (environment && (environment.cart_fragments_dequeued === true || (environment.scmInfo && (environment.scmInfo.cart_fragments_dequeued === true || environment.scmInfo.cart_fragments === false || environment.scmInfo.cart_fragments_optimized === false || environment.scmInfo.cart_fragments === "0" || environment.scmInfo.cart_fragments === 0)))) ||
+          (environment && environment.wooInfo && (environment.wooInfo.cart_fragments_dequeued === true || environment.wooInfo.woo_cart_fragments === "0" || environment.wooInfo.woo_cart_fragments === 0))
         );
-        rawMeasured = isCartOpt ? "1" : "0";
+        const hasScmCartOpt = !!(
+          !isCartDequeued && environment && environment.scmInfo && (environment.scmInfo.cart_fragments === true || environment.scmInfo.cart_fragments_optimized === true || environment.scmInfo.cart_fragments === "1" || environment.scmInfo.cart_fragments === 1)
+        );
+        const hasLsExclude = !!(uploadedSettings && String(uploadedSettings["optm-js_exc"] || uploadedSettings.js_exclude || "").includes("wc-cart-fragments"));
+        const elemObj = environment ? (environment.elemInfo || environment.elementorInfo) : null;
+        const rawElem = (environment && environment.rawUploadTexts && typeof environment.rawUploadTexts.elementor === "string") ? environment.rawUploadTexts.elementor : "";
+        const themeFeat = environment && environment.themeFeatures ? String(environment.themeFeatures) : "";
+
+        // Negative check: If text explicitly says disabled, off, no, 0, false, it is NOT an active mini-cart!
+        const hasNegativeMiniCart = (
+          /\b(?:mini[-_]cart|header[-_]cart|menu[-_]cart|cart[-_]fragments)\s*[:=]\s*(?:disabled|off|no|0|false|inaktiv)\b/i.test(rawElem) ||
+          /\b(?:mini[-_]cart|header[-_]cart|menu[-_]cart)\s*[:=]\s*(?:disabled|off|no|0|false|inaktiv)\b/i.test(themeFeat)
+        );
+
+        const hasPositiveToggle = !!(environment && environment.manualToggles && (environment.manualToggles.elemMenuCart === true || environment.manualToggles.themeMiniCart === true));
+        let hasExplicitMiniCart = null; // null = unknown / unmeasured
+        if (
+          hasPositiveToggle ||
+          (environment && (environment.hasHeaderMiniCart === true || environment.hasMenuCart === true)) ||
+          (elemObj && (elemObj.hasMenuCart === true || elemObj.menu_cart === true)) ||
+          (themeFeat && /(?:mini[-_]cart|header[-_]cart|menu[-_]cart)\s*[:=]?\s*(?:enabled|active|yes|1|true|på|aktiv)?\b/i.test(themeFeat) && !hasNegativeMiniCart) ||
+          (rawElem && /(?:menu[-_]cart|woocommerce[-_]menu[-_]cart)/i.test(rawElem) && !hasNegativeMiniCart) ||
+          (environment && environment.wooInfo && environment.wooInfo.hasMenuCart === true)
+        ) {
+          hasExplicitMiniCart = true;
+        } else if (hasNegativeMiniCart || (environment && (environment.hasHeaderMiniCart === false || environment.hasMenuCart === false))) {
+          hasExplicitMiniCart = false;
+        }
+
+        if (isCartDequeued) {
+          if (hasExplicitMiniCart === null) {
+            isMeasured = false;
+          } else {
+            isMeasured = true;
+            rawMeasured = "dequeued";
+          }
+        } else if (hasScmCartOpt || hasLsExclude) {
+          isMeasured = true;
+          rawMeasured = "1";
+        } else if (hasExplicitMiniCart === true) {
+          isMeasured = true;
+          rawMeasured = "active_header_cart";
+        } else {
+          isMeasured = false;
+        }
       } else if (opt.id === "woo_transients_cleanup") {
-        const isTransClean = !!(
-          environment.transients_cleanup_enabled || 
-          (environment.wooInfo && (environment.wooInfo.transients_cleanup_enabled || environment.wooInfo.woo_transients_cleanup === "1" || environment.wooInfo.woo_transients_cleanup === 1)) ||
-          environment.hasSCM ||
-          (uploadedSettings && (uploadedSettings["db_optm_transient"] === "1" || uploadedSettings["db_optm_transient"] === 1))
+        const hasScmTransClean = !!(
+          environment && environment.scmInfo && (environment.scmInfo.transients === true || environment.scmInfo.transients_cleanup === true || environment.scmInfo.transients === "1" || environment.scmInfo.transients === 1)
         );
-        rawMeasured = isTransClean ? "1" : "0";
-      } else if (environment.wooInfo && environment.wooInfo[opt.id] !== undefined) {
+        const isTransEnabled = !!(environment && (environment.transients_cleanup_enabled === true || (environment.wooInfo && (environment.wooInfo.transients_cleanup_enabled === true || environment.wooInfo.woo_transients_cleanup === "1" || environment.wooInfo.woo_transients_cleanup === 1))));
+        const isScmTransExplicitOff = !!(
+          environment && environment.scmInfo && (environment.scmInfo.transients === false || environment.scmInfo.transients_cleanup === false || environment.scmInfo.transients === "0" || environment.scmInfo.transients === 0)
+        );
+        const isModernWoo = !!(
+          environment && (
+            (environment.wooVersion && environment.wooVersion !== "Okänd" && typeof compareVersions === "function" && compareVersions(environment.wooVersion, "7.8") >= 0) ||
+            (environment.wooInfo && environment.wooInfo.version && typeof compareVersions === "function" && compareVersions(environment.wooInfo.version, "7.8") >= 0) ||
+            environment.hposEnabled === true ||
+            (environment.wooInfo && environment.wooInfo.hpos_enabled === true)
+          )
+        );
+
+        if (hasScmTransClean || isTransEnabled) {
+          isMeasured = true;
+          rawMeasured = "1";
+        } else if (isModernWoo) {
+          isMeasured = true;
+          rawMeasured = "builtin_7.8";
+        } else if (isScmTransExplicitOff) {
+          isMeasured = true;
+          rawMeasured = "0";
+        } else {
+          isMeasured = false;
+        }
+      } else if (environment && environment.wooInfo && environment.wooInfo[opt.id] !== undefined) {
+        isMeasured = true;
         rawMeasured = environment.wooInfo[opt.id];
+      } else {
+        isMeasured = false;
       }
     } else {
       isMeasured = false;
     }
   } else if (opt.tool === "wordfence" || (opt.id && opt.id.startsWith("wf_"))) {
-    if (environment && environment.wfInfo) {
+    if (environment && (environment.wfInfo || environment.hasWordfence)) {
       isMeasured = true;
       if (opt.id === "wf_ip_header") {
-        let rawHeader = environment.wfIpHeader || (environment.wfInfo && (environment.wfInfo.ip_header || environment.wfInfo.howGetIPs)) || "REMOTE_ADDR";
+        let rawHeader = environment.wfIpHeader || (environment.wfInfo && (environment.wfInfo.ip_header || environment.wfInfo.howGetIPs));
+        if (rawHeader && typeof rawHeader === "string") {
+          if (rawHeader.toLowerCase().includes("methods of detecting") || rawHeader.startsWith("#") || rawHeader.endsWith("#") || rawHeader === "Okänd") {
+            rawHeader = null;
+          }
+        }
+        if (!rawHeader) {
+          rawHeader = "REMOTE_ADDR";
+        }
         rawHeader = String(rawHeader).replace(/\s*\([^)]*\)/g, "").trim();
         rawMeasured = rawHeader;
       } else if (opt.id === "wf_disable_live_traffic") {
-        const isLiveDisabled = environment.wfLiveTrafficDisabled || (environment.wfInfo && (
-          environment.wfInfo.live_traffic === false ||
-          environment.wfInfo.liveTrafficEnabled === false ||
-          environment.wfInfo.liveTrafficEnabled === "0" ||
-          environment.wfInfo.liveTrafficEnabled === 0 ||
-          environment.wfInfo.disable_live_traffic === true ||
-          environment.wfInfo.live_traffic_disabled === true
-        ));
-        rawMeasured = isLiveDisabled ? "1" : "0";
+        let hasLiveSource = false;
+        let isLiveDisabled = false;
+        let isManual = false;
+        const siteHasWf = !!(environment && (environment.hasWordfence || environment.wfInfo));
+
+        if (siteHasWf) {
+          // Priority 1: Direct diagnostic report data
+          if (environment.wfLiveTrafficDisabled !== undefined && environment.wfLiveTrafficDisabled !== null && !environment.wfLiveTrafficManual) {
+            hasLiveSource = true;
+            isLiveDisabled = !!environment.wfLiveTrafficDisabled;
+          } else if (environment.wfInfo && typeof environment.wfInfo === "object" && !environment.wfLiveTrafficManual) {
+            if (environment.wfInfo.liveTrafficEnabled === true || environment.wfInfo.liveTrafficEnabled === "1" || environment.wfInfo.liveTrafficEnabled === 1 || environment.wfInfo.live_traffic === "enabled" || environment.wfInfo.live_traffic === true || environment.wfInfo.live_traffic === "1" || environment.wfInfo.live_traffic === 1) {
+              hasLiveSource = true;
+              isLiveDisabled = false;
+            } else if (environment.wfInfo.live_traffic === "disabled" || environment.wfInfo.live_traffic === false || environment.wfInfo.live_traffic === "0" || environment.wfInfo.live_traffic === 0) {
+              hasLiveSource = true;
+              isLiveDisabled = true;
+            } else if (environment.wfInfo.live_traffic_disabled !== null && environment.wfInfo.live_traffic_disabled !== undefined) {
+              hasLiveSource = true;
+              isLiveDisabled = !!environment.wfInfo.live_traffic_disabled;
+            } else if (environment.wfInfo.disable_live_traffic !== null && environment.wfInfo.disable_live_traffic !== undefined) {
+              hasLiveSource = true;
+              isLiveDisabled = !!environment.wfInfo.disable_live_traffic;
+            }
+          }
+
+          // Priority 2: Manual toggle if not explicitly determined from report
+          if (!hasLiveSource) {
+            if (environment.wfLiveTrafficManual || (environment.manualToggles && environment.manualToggles.wfLiveTraffic === true)) {
+              hasLiveSource = true;
+              isLiveDisabled = true;
+              isManual = true;
+            }
+          }
+        }
+
+        if (hasLiveSource) {
+          isMeasured = true;
+          rawMeasured = isLiveDisabled ? (isManual ? "1_manual" : "1") : "0";
+        } else {
+          isMeasured = false;
+        }
       } else if (opt.id === "wf_low_resource") {
-        const isLowRes = environment.wfLowResource || (environment.wfInfo && (
-          environment.wfInfo.low_resource === true ||
-          environment.wfInfo.lowResourceScanSelection === true ||
-          environment.wfInfo.lowResourceScanSelection === "1" ||
-          environment.wfInfo.lowResourceScanSelection === 1 ||
-          environment.wfInfo.low_resource_scan === true
-        ));
-        rawMeasured = isLowRes ? "1" : "0";
+        let hasLowResSource = false;
+        let isLowRes = false;
+        if (environment.wfLowResource !== undefined && environment.wfLowResource !== null) {
+          hasLowResSource = true;
+          isLowRes = !!environment.wfLowResource;
+        } else if (environment.wfInfo) {
+          if (environment.wfInfo.low_resource_scan !== null && environment.wfInfo.low_resource_scan !== undefined) {
+            hasLowResSource = true;
+            isLowRes = !!environment.wfInfo.low_resource_scan;
+          } else if (environment.wfInfo.low_resource !== null && environment.wfInfo.low_resource !== undefined) {
+            hasLowResSource = true;
+            isLowRes = !!environment.wfInfo.low_resource;
+          } else if (environment.wfInfo.lowResourceScanSelection !== undefined && environment.wfInfo.lowResourceScanSelection !== null) {
+            hasLowResSource = true;
+            isLowRes = (
+              environment.wfInfo.lowResourceScanSelection === true ||
+              environment.wfInfo.lowResourceScanSelection === "1" ||
+              environment.wfInfo.lowResourceScanSelection === 1
+            );
+          }
+        }
+        if (hasLowResSource) {
+          isMeasured = true;
+          rawMeasured = isLowRes ? "1" : "0";
+        } else {
+          isMeasured = false;
+        }
+      } else if (opt.id === "wf_noabort") {
+        if (!environment || !environment.isLiteSpeedServer || !environment.hasWordfence) {
+          isMeasured = false;
+        } else {
+          const noabortVal = (environment && environment.noabortActive !== undefined && environment.noabortActive !== null)
+            ? environment.noabortActive 
+            : (environment && environment.wfInfo && environment.wfInfo.noabort_active !== undefined && environment.wfInfo.noabort_active !== null ? environment.wfInfo.noabort_active : null);
+          if (noabortVal === null || noabortVal === undefined) {
+            isMeasured = false;
+          } else {
+            isMeasured = true;
+            rawMeasured = noabortVal ? "1" : "0";
+          }
+        }
       } else if (environment.wfInfo && environment.wfInfo[opt.id] !== undefined) {
         rawMeasured = environment.wfInfo[opt.id];
       }
@@ -584,8 +798,12 @@ function getOptionComparison(opt, uploadedSettings, environment) {
           rawMeasured = environment.wpDebug ? "1" : "0";
         }
       } else if (opt.id === "wp_post_revisions") {
-        isMeasured = true;
-        rawMeasured = environment.wpPostRevisions || "5";
+        if (environment.wpPostRevisions !== undefined && environment.wpPostRevisions !== null && environment.wpPostRevisions !== "") {
+          isMeasured = true;
+          rawMeasured = String(environment.wpPostRevisions);
+        } else {
+          isMeasured = false;
+        }
       } else if (opt.id === "php_opcache_memory") {
         if (environment.opcacheMemoryTotal || environment.opcacheMemoryUsed || environment.opcacheStatus) {
           isMeasured = true;
@@ -634,26 +852,34 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     } else if (opt.id === "theme_header_footer_builder" || opt.id === "theme_elementor_header_footer") {
       if (hasThemeSource) {
         isMeasured = true;
-        rawMeasured = (environment && (environment.hasElementor || String(environment.themeFeatures || "").includes("header-footer-elementor") || String(environment.themeFeatures || "").includes("fl-theme-builder"))) ? "1" : "1";
+        const features = String(environment.themeFeatures || "").toLowerCase();
+        const hasHeaderFooterFeature = features.includes("header-footer-elementor") || 
+                                       features.includes("header-footer-builder") || 
+                                       features.includes("fl-theme-builder") ||
+                                       features.includes("custom-header");
+        rawMeasured = (environment && (environment.hasElementorPro || hasHeaderFooterFeature)) ? "1" : "0";
       } else {
         isMeasured = false;
       }
     } else if (opt.id === "theme_typography_fonts" || opt.id === "theme_google_fonts_local" || opt.id === "theme_preload_local_fonts") {
-      if (hasThemeSource) {
+      const hasSpecificTheme = !!(environment && (environment.hasThemeInfo || (environment.themeInfo && Object.keys(environment.themeInfo).length > 0) || (uploadedSettings && uploadedSettings.theme)));
+      if (hasSpecificTheme) {
         isMeasured = true;
         rawMeasured = "1";
       } else {
         isMeasured = false;
       }
     } else if (opt.id === "theme_color_palette") {
-      if (hasThemeSource) {
+      const hasSpecificTheme = !!(environment && (environment.hasThemeInfo || (environment.themeInfo && Object.keys(environment.themeInfo).length > 0) || (uploadedSettings && uploadedSettings.theme)));
+      if (hasSpecificTheme) {
         isMeasured = true;
         rawMeasured = "1";
       } else {
         isMeasured = false;
       }
     } else if (opt.id === "theme_woocommerce_synergy" || opt.id === "theme_woocommerce_minicart_ajax") {
-      if (hasThemeSource) {
+      const hasSpecificTheme = !!(environment && (environment.hasThemeInfo || (environment.themeInfo && Object.keys(environment.themeInfo).length > 0) || (uploadedSettings && uploadedSettings.theme)));
+      if (hasSpecificTheme) {
         isMeasured = true;
         rawMeasured = "1";
       } else {
@@ -662,7 +888,7 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     } else if (opt.id === "theme_site_logo") {
       if (hasThemeSource) {
         isMeasured = true;
-        rawMeasured = (environment && (String(environment.themeFeatures || "").includes("custom-logo") || environment.hasElementor)) ? "1" : "1";
+        rawMeasured = (environment && (String(environment.themeFeatures || "").includes("custom-logo") || (environment.themeInfo && environment.themeInfo.logo) || environment.hasElementor)) ? "1" : "0";
       } else {
         isMeasured = false;
       }
@@ -904,14 +1130,21 @@ function getOptionComparison(opt, uploadedSettings, environment) {
   const recNorm = (rec === "1" || rec === 1 || rec === "on" || rec === true || rec === "swap") ? 1 : (typeof rec === "string" ? rec : 0);
 
   if (!isMeasured) {
-    let unmeasuredLabel = "⚪ Ej inläst";
-    if (opt.tool === "theme" || (opt.id && opt.id.startsWith("theme_"))) unmeasuredLabel = "⚪ Ej inläst (Slot 4)";
-    else if (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_"))) unmeasuredLabel = "⚪ Ej inläst (Slot 5)";
-    else if (opt.tool === "woocommerce" || (opt.id && opt.id.startsWith("woo_"))) unmeasuredLabel = "⚪ Ej inläst (Slot 2)";
-    else if (opt.tool === "wordfence" || (opt.id && opt.id.startsWith("wf_"))) unmeasuredLabel = "⚪ Ej inläst (Slot 3)";
-    else if (opt.tool === "server") unmeasuredLabel = "⚪ Ej inläst (Slot 1)";
-    else if (opt.tool === "scm") unmeasuredLabel = "⚪ Ej inläst (Slot 6)";
-    else unmeasuredLabel = "⚪ Ej inläst (Slot 7)";
+    let unmeasuredLabel = "⚪ Värde saknas";
+    if (opt.id === "wf_noabort") unmeasuredLabel = "⚪ Värde saknas (Slot 8 / 4)";
+    else if (opt.id === "wf_disable_live_traffic") unmeasuredLabel = "⚪ Värde saknas (Slot 4 / 7)";
+    else if (opt.id === "woo_cart_fragments") unmeasuredLabel = "⚪ Värde saknas (Slot 6 / 7 / 9)";
+    else if (opt.id === "woo_transients_cleanup") unmeasuredLabel = "⚪ Värde saknas (Slot 3 / 7 / 9)";
+    else if (opt.id === "wp_post_revisions") unmeasuredLabel = "⚪ Värde saknas (Slot 7 / 4 / 1)";
+    else if (opt.id === "wp_autoload_size") unmeasuredLabel = "⚪ Värde saknas (Slot 2)";
+    else if (opt.tool === "theme" || (opt.id && opt.id.startsWith("theme_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 5)";
+    else if (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 6)";
+    else if (opt.tool === "woocommerce" || (opt.id && opt.id.startsWith("woo_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 3)";
+    else if (opt.tool === "wordfence" || (opt.id && opt.id.startsWith("wf_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 4)";
+    else if (opt.tool === "server") unmeasuredLabel = "⚪ Värde saknas (Slot 1)";
+    else if (opt.tool === "scm") unmeasuredLabel = "⚪ Värde saknas (Slot 7)";
+    else if (opt.tool === "htaccess") unmeasuredLabel = "⚪ Värde saknas (Slot 8)";
+    else unmeasuredLabel = "⚪ Värde saknas (Slot 9)";
 
     return {
       id: opt.id,
@@ -927,6 +1160,7 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       isMatches: false,
       isDeviant: false,
       isCritical: opt.criticalLevel === "critical",
+      scoreImpact: opt.scoreImpact,
       rawMeasured: null,
       rawRecommended: rec
     };
@@ -1031,6 +1265,126 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       currentDisplay = String(rawMeasured);
       recommendedDisplay = "128M (min 128M)";
     }
+  } else if (opt.id === "php_opcache_memory") {
+    let totalBytes = parseBytes(environment.opcacheMemoryTotal);
+    let usedBytes = parseBytes(environment.opcacheMemoryUsed);
+    if (!totalBytes && rawMeasured) {
+      const avMatch = String(rawMeasured).match(/([\d.,]+)\s*([KMGTP]?B?)\s*(?:av|of)\s*([\d.,]+)\s*([KMGTP]?B?)/i);
+      if (avMatch) {
+        usedBytes = parseBytes(`${avMatch[1]} ${avMatch[2]}`);
+        totalBytes = parseBytes(`${avMatch[3]} ${avMatch[4]}`);
+      } else {
+        totalBytes = parseBytes(rawMeasured);
+      }
+    }
+    const memMB = totalBytes ? Math.round(totalBytes / (1024 * 1024)) : parseMemoryMB(rawMeasured);
+    const isHighUsage = (totalBytes && usedBytes && (usedBytes / totalBytes) >= 0.95) || !!environment.opcacheIsFull;
+    let hitRateSuffix = "";
+    let isChronic = false;
+    if (environment && environment.opcacheHitRate) {
+      const hm = String(environment.opcacheHitRate).replace(",", ".").match(/([\d.]+)/);
+      if (hm) {
+        let hr = parseFloat(hm[1]);
+        if (hr <= 1.0 && hr > 0) hr = hr * 100;
+        if (hr < 90 || (isHighUsage && hr < 95)) {
+          isChronic = true;
+          hitRateSuffix = ` (${Math.round(hr)}% hitrate · Kroniskt)`;
+        }
+      }
+    } else if (environment.opcacheIsFull) {
+      isChronic = true;
+      hitRateSuffix = " (Full buffert · Kroniskt)";
+    }
+    isMatches = memMB !== null && memMB >= 512 && !isChronic;
+    currentDisplay = memMB ? `${memMB}M${hitRateSuffix}` : String(rawMeasured);
+    recommendedDisplay = "512M (min 512M)";
+  } else if (opt.id === "woo_cart_fragments") {
+    const isCartOpt = rawMeasured === "1" || rawMeasured === 1 || rawMeasured === true || rawMeasured === "true";
+    const isHeaderActive = rawMeasured === "active_header_cart";
+    const isDequeued = rawMeasured === "dequeued" || rawMeasured === "0" || rawMeasured === 0;
+    const hasLsCacheExplicit = !!(uploadedSettings && (uploadedSettings.cache !== undefined || uploadedSettings["cache-enable"] !== undefined || uploadedSettings.cache_enable !== undefined));
+    const isLsCacheExplicitOff = hasLsCacheExplicit && (uploadedSettings.cache === "0" || uploadedSettings.cache === 0 || uploadedSettings.cache === false || uploadedSettings["cache-enable"] === "0" || uploadedSettings.cache_enable === "0" || uploadedSettings["cache-enable"] === 0);
+    const isLsServerOrPlugin = !!(environment && (environment.isLiteSpeedServer || environment.hasLiteSpeedPlugin || environment.hasUploadedSettings || (uploadedSettings && Object.keys(uploadedSettings).length > 0)));
+    const isPageCacheActive = isLsServerOrPlugin ? !isLsCacheExplicitOff : false;
+    const elemObj = environment ? (environment.elemInfo || environment.elementorInfo) : null;
+    const rawElem = (environment && environment.rawUploadTexts && typeof environment.rawUploadTexts.elementor === "string") ? environment.rawUploadTexts.elementor : "";
+    const themeFeat = environment && environment.themeFeatures ? String(environment.themeFeatures) : "";
+
+    const hasNegativeMiniCart = (
+      /\b(?:mini[-_]cart|header[-_]cart|menu[-_]cart|cart[-_]fragments)\s*[:=]\s*(?:disabled|off|no|0|false|inaktiv)\b/i.test(rawElem) ||
+      /\b(?:mini[-_]cart|header[-_]cart|menu[-_]cart)\s*[:=]\s*(?:disabled|off|no|0|false|inaktiv)\b/i.test(themeFeat)
+    );
+
+    const hasPositiveToggle = !!(environment && environment.manualToggles && (environment.manualToggles.elemMenuCart === true || environment.manualToggles.themeMiniCart === true));
+    let hasExplicitMiniCart = null;
+    if (
+      hasPositiveToggle ||
+      (environment && (environment.hasHeaderMiniCart === true || environment.hasMenuCart === true)) ||
+      (elemObj && (elemObj.hasMenuCart === true || elemObj.menu_cart === true)) ||
+      (themeFeat && /(?:mini[-_]cart|header[-_]cart|menu[-_]cart)\s*[:=]?\s*(?:enabled|active|yes|1|true|på|aktiv)?\b/i.test(themeFeat) && !hasNegativeMiniCart) ||
+      (rawElem && /(?:menu[-_]cart|woocommerce[-_]menu[-_]cart)/i.test(rawElem) && !hasNegativeMiniCart) ||
+      (environment && environment.wooInfo && environment.wooInfo.hasMenuCart === true)
+    ) {
+      hasExplicitMiniCart = true;
+    } else if (hasNegativeMiniCart || (environment && (environment.hasHeaderMiniCart === false || environment.hasMenuCart === false))) {
+      hasExplicitMiniCart = false;
+    }
+    
+    const isManual = !!(environment && ((environment.hasMenuCartManual || environment.hasHeaderMiniCartManual) || (environment.manualToggles && (environment.manualToggles.elemMenuCart === true || environment.manualToggles.themeMiniCart === true))));
+
+    if (isDequeued) {
+      if (hasExplicitMiniCart === true) {
+        if (isPageCacheActive) {
+          isMatches = false;
+          currentDisplay = isManual
+            ? "AV (Avstängd via SCM · Risk för spökvarukorg vid sidcache · Manuellt angivet)"
+            : "AV (Avstängd via SCM · Risk för spökvarukorg vid sidcache)";
+          recommendedDisplay = "PÅ (Krävs för minivarukorg i header vid sidcache)";
+        } else {
+          isMatches = true;
+          currentDisplay = isManual
+            ? "AV (Avstängd via SCM · Minivarukorg finns, men sidcache ej aktiv · Manuellt angivet)"
+            : "AV (Avstängd via SCM · Minivarukorg finns, men sidcache ej aktiv)";
+          recommendedDisplay = "AV (Optimalt när sidcache är inaktiv)";
+        }
+      } else if (hasExplicitMiniCart === false) {
+        isMatches = true;
+        currentDisplay = isManual
+          ? "AV (Inaktiverad via SCM · Ingen minivarukorg i header · Manuellt angivet)"
+          : "AV (Inaktiverad via SCM · Ingen minivarukorg i header)";
+        recommendedDisplay = "AV (Optimalt utan minivarukorg)";
+      } else {
+        isMatches = false;
+        currentDisplay = "AV (Avstängd via SCM · Okänd minivarukorgsstatus)";
+        recommendedDisplay = "PÅ (Verifiera minivarukorg i header)";
+      }
+    } else if (isHeaderActive) {
+      isMatches = true;
+      currentDisplay = isManual 
+        ? "PÅ (Krävs för minivarukorg i header · Manuellt angivet)" 
+        : "PÅ (Krävs för minivarukorg i header)";
+      recommendedDisplay = "PÅ (Krävs för minivarukorg i header)";
+    } else if (isCartOpt) {
+      isMatches = true;
+      const isScmCart = !!(environment && environment.scmInfo && (environment.scmInfo.cart_fragments || environment.scmInfo.cart_fragments_optimized));
+      currentDisplay = isScmCart ? "PÅ (Optimerad via SCM)" : "PÅ (Undantagen i LiteSpeed)";
+      recommendedDisplay = "PÅ (Optimerad hantering)";
+    } else {
+      isMatches = false;
+      currentDisplay = String(rawMeasured);
+      recommendedDisplay = "PÅ";
+    }
+  } else if (opt.id === "woo_transients_cleanup") {
+    const isCleanOpt = rawMeasured === "1" || rawMeasured === 1 || rawMeasured === true || rawMeasured === "true" || rawMeasured === "builtin_7.8";
+    isMatches = isCleanOpt;
+    const isScmTrans = !!(environment && environment.scmInfo && (environment.scmInfo.transients || environment.scmInfo.transients_cleanup));
+    if (rawMeasured === "builtin_7.8") {
+      const vStr = (environment && (environment.wooVersion && environment.wooVersion !== "Okänd" ? environment.wooVersion : (environment.wooInfo && environment.wooInfo.version))) || "7.8+";
+      currentDisplay = `PÅ (Inbyggt i WC ${vStr})`;
+    } else {
+      currentDisplay = isCleanOpt ? (isScmTrans ? "PÅ (Hanteras av SCM)" : "PÅ") : "AV";
+    }
+    recommendedDisplay = "PÅ";
   } else if (opt.id === "php_max_input_vars") {
     const vars = parseInt(rawMeasured, 10);
     isMatches = !isNaN(vars) && vars >= 5000;
@@ -1041,6 +1395,30 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     isMatches = (!isNaN(secs) && (secs >= 300 || secs === -1 || secs === 0));
     currentDisplay = (secs === 0 || secs === -1) ? "Obegränsat (0s)" : String(rawMeasured) + (String(rawMeasured).endsWith("s") ? "" : "s");
     recommendedDisplay = "300s (min 300s)";
+  } else if (opt.id === "wp_post_revisions") {
+    const revNum = parseInt(rawMeasured, 10);
+    const recNum = parseInt(rec, 10) || 5;
+    if (rawMeasured === "false" || rawMeasured === false || revNum === 0) {
+      isMatches = true;
+      currentDisplay = "0 (Inaktiverad)";
+    } else if (!isNaN(revNum)) {
+      isMatches = revNum <= recNum;
+      currentDisplay = String(revNum);
+    } else {
+      isMatches = false;
+      currentDisplay = String(rawMeasured);
+    }
+    recommendedDisplay = String(recNum);
+  } else if (opt.id === "wp_autoload_size") {
+    const bytes = parseBytes(rawMeasured);
+    if (bytes !== null) {
+      isMatches = bytes <= 800 * 1024;
+      currentDisplay = String(rawMeasured);
+    } else {
+      isMatches = true;
+      currentDisplay = String(rawMeasured);
+    }
+    recommendedDisplay = "< 800 KB";
   } else if (opt.id === "wp_debug") {
     const isDeb = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === true || rawMeasured === "true");
     isMatches = !isDeb;
@@ -1344,6 +1722,52 @@ function getOptionComparison(opt, uploadedSettings, environment) {
       isMatches = (!isNaN(n) && !isNaN(r)) ? (n === r) : (String(rawMeasured) === String(rec));
     }
 
+  } else if (opt.id === "wf_ip_header") {
+    const cleanMeasured = String(rawMeasured || "").toUpperCase();
+    const cleanRec = String(rec || "").toUpperCase();
+    isMatches = cleanMeasured.includes(cleanRec) || (cleanRec === "REMOTE_ADDR" && (cleanMeasured.includes("REMOTE_ADDR") || cleanMeasured === "STANDARD"));
+    currentDisplay = rawMeasured ? String(rawMeasured) : "Ej inläst";
+    recommendedDisplay = rec;
+
+  } else if (opt.id === "wf_noabort") {
+    const isLs = !!(environment && environment.isLiteSpeedServer);
+    const hasWf = !!(environment && environment.hasWordfence);
+    const noabortSrc = (environment && environment.noabortSource) || "none";
+    const hasHt = !!(environment && environment.hasHtaccessFile);
+    isMatches = rawMeasured === "1" || rawMeasured === 1 || rawMeasured === true;
+
+    if (!isLs || !hasWf) {
+      isMatches = true;
+      currentDisplay = isLs ? "Inaktiv (Wordfence ej installerat)" : "Inaktiv (Ej LiteSpeed-server)";
+      recommendedDisplay = "Inaktiv";
+    } else if (isMatches) {
+      if (noabortSrc === "scm") {
+        currentDisplay = "PÅ (noabort:1 hanteras via SCM)";
+      } else if (noabortSrc === "wordfence") {
+        currentDisplay = "PÅ (noabort:1 aktiv enligt Wordfence)";
+      } else {
+        currentDisplay = "PÅ (noabort:1 aktiv i .htaccess)";
+      }
+      recommendedDisplay = "PÅ";
+    } else {
+      const isCompleteHt = !!(environment && environment.isCompleteHtaccess);
+      if (hasHt && isCompleteHt) {
+        currentDisplay = "AV (Saknas i .htaccess)";
+      } else if (hasHt && !isCompleteHt) {
+        currentDisplay = "AV (Enligt Wordfence · .htaccess ej komplett)";
+      } else {
+        currentDisplay = "AV (Enligt Wordfence · .htaccess ej inläst)";
+      }
+      recommendedDisplay = "PÅ (noabort:1 i .htaccess)";
+    }
+
+  } else if (opt.id === "wf_disable_live_traffic") {
+    const isManual = rawMeasured === "1_manual" || (environment && environment.wfLiveTrafficManual && (rawMeasured === "1" || rawMeasured === 1));
+    const measNorm = (rawMeasured === "1" || rawMeasured === 1 || rawMeasured === "1_manual" || rawMeasured === "on" || rawMeasured === true) ? 1 : 0;
+    isMatches = measNorm === 1;
+    currentDisplay = isMatches ? (isManual ? "PÅ (Manuellt angivet)" : "PÅ") : "AV";
+    recommendedDisplay = "PÅ (Inaktivera Live Traffic)";
+
   } else if (typeof rec === "string" && rec !== "1" && rec !== "0") {
     const rawStr = String(rawMeasured !== null && rawMeasured !== undefined ? rawMeasured : "").trim().toLowerCase();
     const recStr = String(rec || "").trim().toLowerCase();
@@ -1358,7 +1782,11 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     recommendedDisplay = targetNorm === 1 ? "PÅ" : "AV";
   }
 
+  const isCartFragConflict = opt.id === "woo_cart_fragments" && !isMatches;
   const isPolicyContext = (opt.id === "cache_priv" && isMatches && String(currentDisplay).includes("policy")) || (opt.id === "optm_ggfonts_rm") || (opt.id === "media_lazy" && isMatches && String(currentDisplay).includes("WP Native")) || (opt.id === "cdn" || opt.id === "cdn_quic" || opt.id === "cdn_cloudflare" || opt.id === "domain_key" || opt.id === "img_optm_lossless" || opt.id === "img_optm_exif" || opt.id === "img_optm_sizes_skipped" || opt.id === "img_optm_webp_attr" || opt.id === "img_optm_rm_bkup" || opt.id === "img_optm_webp" || opt.id === "img_optm_ori" || opt.id === "img_optm_webp_replace_srcset" || (opt.id === "img_optm_auto" && String(currentDisplay).toLowerCase().includes("policy")) || (opt.id === "media_webp" && isMatches) || (opt.id === "crawler" && isMatches && String(currentDisplay).includes("Policy")) || (opt.id === "crawler_usleep" && isMatches && String(currentDisplay).includes("Inaktiv")));
+  const isChronicSetting = (opt.id === "php_opcache_memory" && String(currentDisplay).includes("Kroniskt"));
+  const isZeroScoreImpact = (opt.scoreImpact === 0 || opt.impactCategory === "policy" || isPolicyContext);
+  const effectiveScoreImpact = isCartFragConflict ? 0 : opt.scoreImpact;
 
   return {
     id: opt.id,
@@ -1366,14 +1794,16 @@ function getOptionComparison(opt, uploadedSettings, environment) {
     tool: opt.tool || "litespeed",
     criticalLevel: opt.criticalLevel || "standard",
     isMeasured: true,
-    status: isPolicyContext ? "policy" : (isMatches ? "optimal" : "deviation"),
-    statusLabel: isPolicyContext ? "🔵 Policy/Context" : (isMatches ? "🟢 Optimal" : (opt.criticalLevel === "critical" ? "🚨 Avvikelse" : "🟡 Avvikelse")),
-    isPolicyContext: isPolicyContext,
+    status: isChronicSetting ? "chronic" : (isMatches ? "optimal" : "deviation"),
+    statusLabel: isChronicSetting ? "🔵 Kroniskt fel" : (isMatches ? "🟢 Optimal" : (effectiveScoreImpact === 0 ? "🟡 Avvikelse (0p)" : (opt.criticalLevel === "critical" ? "🚨 Avvikelse" : "🟡 Avvikelse"))),
+    isPolicyContext: isPolicyContext && isMatches,
+    isChronic: isChronicSetting,
     currentDisplay,
     recommendedDisplay,
     isMatches,
-    isDeviant: !isMatches,
+    isDeviant: isChronicSetting ? false : !isMatches,
     isCritical: opt.criticalLevel === "critical",
+    scoreImpact: effectiveScoreImpact,
     rawMeasured,
     rawRecommended: rec,
     missing: missingExclusions,
@@ -1388,31 +1818,31 @@ const BENCHMARK_VERSIONS = {
     name: "LiteSpeed Cache (LSCWP)",
     benchmarkVersion: "7.9.1",
     latestRelease: "7.9.1",
-    auditDate: "2026-09-18",
+    auditDate: "2026-10-16",
     source: "LiteSpeed Tech Official Docs & GitHub Trac",
     url: "https://docs.litespeedtech.com/lsc/lscwp/"
   },
   woocommerce: {
     name: "WooCommerce",
-    benchmarkVersion: "9.8.0",
-    latestRelease: "9.8.2",
-    auditDate: "2026-09-24",
+    benchmarkVersion: "9.8.5",
+    latestRelease: "9.8.5",
+    auditDate: "2026-10-16",
     source: "WooCommerce Developer Handbook & GitHub Releases",
     url: "https://developer.woocommerce.com/"
   },
   elementor: {
     name: "Elementor",
-    benchmarkVersion: "4.2.0",
+    benchmarkVersion: "4.2.1",
     latestRelease: "4.2.1",
-    auditDate: "2026-09-24",
+    auditDate: "2026-10-16",
     source: "Elementor Developer Hub & Performance Docs (4.x core baseline)",
     url: "https://developers.elementor.com/"
   },
   wordfence: {
     name: "Wordfence Security",
-    benchmarkVersion: "8.0.2",
-    latestRelease: "8.0.2",
-    auditDate: "2026-09-18",
+    benchmarkVersion: "8.0.4",
+    latestRelease: "8.0.4",
+    auditDate: "2026-10-16",
     source: "Wordfence Learning Center & LiteSpeed Guide",
     url: "https://www.wordfence.com/help/"
   },
@@ -1420,7 +1850,7 @@ const BENCHMARK_VERSIONS = {
     name: "Consent & Tag Manager (CTM)",
     benchmarkVersion: "1.9.0",
     latestRelease: "1.9.0",
-    releaseDate: "2026-09-24",
+    releaseDate: "2026-10-16",
     changelogSummary: "Egenutvecklad ersättare för GTM4WP, Complianz och PixelYourSite med noll externa beroenden.",
     docsUrl: "https://arewee.se/ctm-docs"
   },
@@ -1428,15 +1858,15 @@ const BENCHMARK_VERSIONS = {
     name: "SCM (Site Code Manager)",
     benchmarkVersion: "1.4.1",
     latestRelease: "1.4.1",
-    auditDate: "2026-09-24",
+    auditDate: "2026-10-16",
     source: "SCM Source Manual & Code Standards",
     url: "internal://site-code-manager"
   },
   wordpress: {
     name: "WordPress Core",
-    benchmarkVersion: "6.8",
-    latestRelease: "6.8",
-    auditDate: "2026-09-18",
+    benchmarkVersion: "6.8.2",
+    latestRelease: "6.8.2",
+    auditDate: "2026-10-16",
     source: "WordPress Developer Handbook & Trac",
     url: "https://developer.wordpress.org/"
   },
@@ -1444,7 +1874,7 @@ const BENCHMARK_VERSIONS = {
     name: "PHP Runtime",
     benchmarkVersion: "8.2 / 8.3",
     latestRelease: "8.3",
-    auditDate: "2026-09-18",
+    auditDate: "2026-10-16",
     source: "PHP.net Official Documentation",
     url: "https://www.php.net/supported-versions.php"
   },
@@ -1676,6 +2106,9 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   const pluginsActive = effectiveSysInfo["wp-plugins-active"] || {};
   const activePluginKeys = Object.keys(pluginsActive);
 
+  // v2.7.3 / v2.8.25: Server config context and live files (e.g. htaccess, autoload, probe)
+  const liveCtx = (serverConfigFiles && typeof serverConfigFiles === "object") ? serverConfigFiles : {};
+
   // 1. Environment and Plugin Detection
   const environment = {
     server: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].httpd_software || effectiveSysInfo["wp-server"].server_architecture || effectiveSysInfo["wp-server"].server)) || "Okänd",
@@ -1689,12 +2122,43 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     wpVersion: (effectiveSysInfo["wp-core"] && (effectiveSysInfo["wp-core"].version || effectiveSysInfo["wp-core"].wp_version)) || "Okänd",
     wpMemoryLimit: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_MEMORY_LIMIT || effectiveSysInfo["wp-constants"].wp_memory_limit)) || (effectiveSysInfo["wp-server"] && effectiveSysInfo["wp-server"].memory_limit) || "40M",
     wpMaxMemoryLimit: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_MAX_MEMORY_LIMIT || effectiveSysInfo["wp-constants"].wp_max_memory_limit)) || null,
-    wpDebug: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_DEBUG === "true" || effectiveSysInfo["wp-constants"].WP_DEBUG === true || effectiveSysInfo["wp-constants"].wp_debug === "true")) || false,
-    wpDebugDisplay: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY === "true" || effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY === true || effectiveSysInfo["wp-constants"].wp_debug_display === "true")) || false,
-    disableWpCron: (effectiveSysInfo["wp-constants"] && (effectiveSysInfo["wp-constants"].DISABLE_WP_CRON === "true" || effectiveSysInfo["wp-constants"].DISABLE_WP_CRON === true || effectiveSysInfo["wp-constants"].disable_wp_cron === "true")) || false,
+    wpPostRevisions: (() => {
+      if (effectiveSysInfo["wp-constants"]) {
+        const c = effectiveSysInfo["wp-constants"];
+        const val = c.WP_POST_REVISIONS !== undefined ? c.WP_POST_REVISIONS : c.wp_post_revisions;
+        if (val !== undefined && val !== null && val !== "") return val;
+      }
+      if (scmInfo && scmInfo.wpPostRevisions !== undefined && scmInfo.wpPostRevisions !== null && scmInfo.wpPostRevisions !== "") {
+        return scmInfo.wpPostRevisions;
+      }
+      if (wfInfo && wfInfo.wpPostRevisions !== undefined && wfInfo.wpPostRevisions !== null && wfInfo.wpPostRevisions !== "") {
+        return wfInfo.wpPostRevisions;
+      }
+      return null;
+    })(),
+    wpDebug: (() => {
+      if (!effectiveSysInfo["wp-constants"]) return false;
+      const b = parseBooleanValue(effectiveSysInfo["wp-constants"].WP_DEBUG !== undefined ? effectiveSysInfo["wp-constants"].WP_DEBUG : effectiveSysInfo["wp-constants"].wp_debug);
+      return b === true;
+    })(),
+    wpDebugDisplay: (() => {
+      if (!effectiveSysInfo["wp-constants"]) return false;
+      const b = parseBooleanValue(effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY !== undefined ? effectiveSysInfo["wp-constants"].WP_DEBUG_DISPLAY : effectiveSysInfo["wp-constants"].wp_debug_display);
+      return b === true;
+    })(),
+    disableWpCron: (() => {
+      // v2.8.5: Core Site Health does not export DISABLE_WP_CRON; WooCommerce status "WP Cron: –" does.
+      if (wooInfo && wooInfo.wp_cron_disabled !== undefined) return wooInfo.wp_cron_disabled === true;
+      if (wfInfo && wfInfo.disable_wp_cron !== undefined) return wfInfo.disable_wp_cron === true;
+      if (!effectiveSysInfo["wp-constants"]) return false;
+      const rawVal = effectiveSysInfo["wp-constants"].DISABLE_WP_CRON !== undefined 
+        ? effectiveSysInfo["wp-constants"].DISABLE_WP_CRON 
+        : effectiveSysInfo["wp-constants"].disable_wp_cron;
+      return parseBooleanValue(rawVal) === true;
+    })(),
     activeTheme: (effectiveSysInfo["wp-active-theme"] && (effectiveSysInfo["wp-active-theme"].name || effectiveSysInfo["wp-active-theme"].theme)) || "Okänt tema",
     theme: (effectiveSysInfo["wp-active-theme"] && (effectiveSysInfo["wp-active-theme"].name || effectiveSysInfo["wp-active-theme"].theme)) || "Okänt tema",
-    hasObjectCache: !!((effectiveSysInfo["wp-dropins"] && (effectiveSysInfo["wp-dropins"]["object-cache.php"] === true || effectiveSysInfo["wp-dropins"]["object-cache.php"] === "true")) || (uploadedSettings && (uploadedSettings["cache_object"] === 1 || uploadedSettings["cache_object"] === "1" || uploadedSettings["cache_object"] === true))),
+    hasObjectCache: !!((effectiveSysInfo["wp-dropins"] && parseBooleanValue(effectiveSysInfo["wp-dropins"]["object-cache.php"]) !== false && effectiveSysInfo["wp-dropins"]["object-cache.php"] !== undefined) || (uploadedSettings && parseBooleanValue(uploadedSettings["cache_object"] || uploadedSettings["cache-object"]) === true)),
     hposSyncEnabled: (wooInfo && wooInfo.hpos_sync_enabled !== undefined) ? wooInfo.hpos_sync_enabled : null,
     isLiteSpeedServer: false,
     hasLiteSpeedPlugin: false,
@@ -1702,6 +2166,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     hasWooCommerce: false,
     wooVersion: "Okänd",
     hasElementor: false,
+    hasElementorPro: false,
     elemVersion: "Okänd",
     hasWordfence: false,
     wfVersion: "Okänd",
@@ -1744,17 +2209,27 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     opcacheInternedStrings: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_interned_strings_usage || effectiveSysInfo["wp-server"].opcache_interned_strings || effectiveSysInfo["wp-server"]["opcache_interned_strings"] || effectiveSysInfo["wp-server"]["opcode_cache_interned_strings_usage"])) || null,
     opcacheHitRate: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_hit_rate || effectiveSysInfo["wp-server"].opcache_hit_rate || effectiveSysInfo["wp-server"]["opcache_hit_rate"] || effectiveSysInfo["wp-server"]["opcode_cache_hit_rate"])) || null,
     opcacheStatus: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache !== undefined ? (effectiveSysInfo["wp-server"].opcode_cache === true || effectiveSysInfo["wp-server"].opcode_cache === "true" || effectiveSysInfo["wp-server"].opcode_cache === "enabled" ? "enabled" : effectiveSysInfo["wp-server"].opcode_cache) : (effectiveSysInfo["wp-server"].opcache_status || effectiveSysInfo["wp-server"]["opcode-cache"] || effectiveSysInfo["wp-server"].opcache))) || null,
-    autoloadOptionsSize: (effectiveSysInfo["wp-database"] && (effectiveSysInfo["wp-database"].autoload_options_size || effectiveSysInfo["wp-database"]["autoload_options_size"] || effectiveSysInfo["wp-database"].autoload_size || effectiveSysInfo["wp-database"]["autoload_size"])) || null,
+    autoloadOptionsSize: (
+      (liveCtx.autoloadInfo && (liveCtx.autoloadInfo.size || liveCtx.autoloadInfo.autoloadOptionsSize)) ||
+      (effectiveSysInfo["wp-database"] && (effectiveSysInfo["wp-database"].autoload_options_size || effectiveSysInfo["wp-database"]["autoload_options_size"] || effectiveSysInfo["wp-database"].autoload_size || effectiveSysInfo["wp-database"]["autoload_size"])) ||
+      (effectiveSysInfo["database"] && (effectiveSysInfo["database"].autoload_options_size || effectiveSysInfo["database"]["autoload_options_size"] || effectiveSysInfo["database"].autoload_size || effectiveSysInfo["database"]["autoload_size"])) ||
+      (effectiveSysInfo["databas"] && (effectiveSysInfo["databas"].autoload_options_size || effectiveSysInfo["databas"]["autoload_options_size"] || effectiveSysInfo["databas"].autoload_size || effectiveSysInfo["databas"]["autoload_size"])) ||
+      (effectiveSysInfo["wp_database"] && (effectiveSysInfo["wp_database"].autoload_options_size || effectiveSysInfo["wp_database"]["autoload_options_size"] || effectiveSysInfo["wp_database"].autoload_size || effectiveSysInfo["wp_database"]["autoload_size"])) ||
+      effectiveSysInfo.autoloadOptionsSize ||
+      null
+    ),
     uploadsSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].uploads_size || effectiveSysInfo["wp-paths-sizes"]["uploads_size"])) || null,
     databaseSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].database_size || effectiveSysInfo["wp-paths-sizes"]["database_size"])) || null
   };
 
   // v2.7.3: site URL + optional QUIC live headers (from app probe / sync plugin)
-  const liveCtx = (serverConfigFiles && typeof serverConfigFiles === "object") ? serverConfigFiles : {};
   let detectedUrl = liveCtx.detectedSiteUrl || null;
   if (!detectedUrl && effectiveSysInfo && effectiveSysInfo["wp-core"]) {
     const core = effectiveSysInfo["wp-core"];
     detectedUrl = core.site_url || core.home_url || core.siteurl || core.home || null;
+  }
+  if (!detectedUrl && wooInfo) {
+    detectedUrl = wooInfo.site_url || wooInfo.home_url || null;
   }
   if (!detectedUrl && uploadedSettings) {
     detectedUrl = uploadedSettings.site_url || uploadedSettings.home_url || null;
@@ -1773,21 +2248,51 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   if (wooInfo) {
     environment.hasWooCommerce = true;
     environment.hpos_enabled = wooInfo.hpos_enabled;
-    environment.cart_fragments_dequeued = wooInfo.cart_fragments_dequeued;
-    environment.transients_cleanup_enabled = wooInfo.transients_cleanup_enabled;
+    environment.cart_fragments_dequeued = wooInfo.cart_fragments_dequeued === true ? true : null;
+    environment.transients_cleanup_enabled = wooInfo.transients_cleanup_enabled === true ? true : null;
   }
   if (wfInfo) {
     environment.hasWordfence = true;
     environment.wfIpHeader = wfInfo.ip_header || wfInfo.howGetIPs || "REMOTE_ADDR";
-    environment.wfLiveTrafficDisabled = wfInfo.live_traffic === false || wfInfo.liveTrafficEnabled === false || wfInfo.disable_live_traffic === true || wfInfo.live_traffic_disabled === true;
-    environment.wfLowResource = wfInfo.low_resource === true || wfInfo.lowResourceScanSelection === true || wfInfo.low_resource_scan === true;
+    if (wfInfo.liveTrafficEnabled === true || wfInfo.liveTrafficEnabled === "1" || wfInfo.liveTrafficEnabled === 1 || wfInfo.live_traffic === "enabled" || wfInfo.live_traffic === true || wfInfo.live_traffic === "1" || wfInfo.live_traffic === 1) {
+      environment.wfLiveTrafficDisabled = false;
+    } else if (wfInfo.live_traffic === "disabled" || wfInfo.live_traffic === false || wfInfo.live_traffic === "0" || wfInfo.live_traffic === 0) {
+      environment.wfLiveTrafficDisabled = true;
+    } else if (wfInfo.live_traffic_disabled !== null && wfInfo.live_traffic_disabled !== undefined) {
+      environment.wfLiveTrafficDisabled = !!wfInfo.live_traffic_disabled;
+    } else if (wfInfo.disable_live_traffic !== null && wfInfo.disable_live_traffic !== undefined) {
+      environment.wfLiveTrafficDisabled = !!wfInfo.disable_live_traffic;
+    } else if (wfInfo.liveTrafficEnabled !== undefined && wfInfo.liveTrafficEnabled !== null) {
+      environment.wfLiveTrafficDisabled = (wfInfo.liveTrafficEnabled === false || wfInfo.liveTrafficEnabled === "0" || wfInfo.liveTrafficEnabled === 0);
+    } else {
+      environment.wfLiveTrafficDisabled = null;
+    }
+
+    if (wfInfo.low_resource_scan !== null && wfInfo.low_resource_scan !== undefined) {
+      environment.wfLowResource = !!wfInfo.low_resource_scan;
+    } else if (wfInfo.low_resource !== null && wfInfo.low_resource !== undefined) {
+      environment.wfLowResource = !!wfInfo.low_resource;
+    } else if (wfInfo.lowResourceScanSelection !== undefined && wfInfo.lowResourceScanSelection !== null) {
+      environment.wfLowResource = (wfInfo.lowResourceScanSelection === true || wfInfo.lowResourceScanSelection === "1" || wfInfo.lowResourceScanSelection === 1);
+    } else {
+      environment.wfLowResource = null;
+    }
   }
   if (elemInfo) {
     environment.hasElementor = true;
     environment.elemVersion = elemInfo.version || environment.elemVersion || "";
-    environment.elemDomOpt = elemInfo.dom_optimization === true || elemInfo.e_dom_optimization === "active" || elemInfo.dom_optimization === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("dom") || e.toLowerCase().includes("optimized_dom")));
-    environment.elemAssetLoading = elemInfo.asset_loading === true || elemInfo.e_optimized_assets_loading === "active" || elemInfo.asset_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("asset") || e.toLowerCase().includes("optimized_assets")));
-    environment.elemCssLoading = elemInfo.css_loading === true || elemInfo.e_optimized_css_loading === "active" || elemInfo.css_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => e.toLowerCase().includes("css") || e.toLowerCase().includes("optimized_css")));
+    environment.elemDomOpt = elemInfo.dom_optimization === true || elemInfo.e_dom_optimization === "active" || elemInfo.dom_optimization === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => {
+      const el = e.toLowerCase();
+      return el === "e_dom_optimization" || el.includes("optimized_dom") || el.includes("optimerad märkkod");
+    }));
+    environment.elemAssetLoading = elemInfo.asset_loading === true || elemInfo.e_optimized_assets_loading === "active" || elemInfo.asset_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => {
+      const el = e.toLowerCase();
+      return el === "e_optimized_assets_loading" || el.includes("optimized_assets") || el.includes("resursladdning") || el.includes("tillgångsladdning");
+    }));
+    environment.elemCssLoading = elemInfo.css_loading === true || elemInfo.e_optimized_css_loading === "active" || elemInfo.css_loading === 1 || (elemInfo.experiments && elemInfo.experiments.some(e => {
+      const el = e.toLowerCase();
+      return el === "e_optimized_css_loading" || el.includes("optimized_css") || el.includes("css-inläsning") || el.includes("css inläsning") || el.includes("css-laddning");
+    }));
     environment.elemLazyLoad = elemInfo.lazy_load === false || elemInfo.e_lazy_load_images === "inactive" || elemInfo.lazy_load === 0 || (elemInfo.hasLazyLoad === false && !elemInfo.lazy_load);
   }
 
@@ -1825,8 +2330,11 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       environment.hasElementor = true;
       environment.elemVersion = pVer;
       if (pLatest) environment.elemLatestReported = pLatest;
+    } else if (kLower.includes("elementor pro") || kLower.includes("elementor-pro")) {
+      environment.hasElementor = true;
+      environment.hasElementorPro = true;
     } else if (kLower.includes("elementor")) {
-      // Presence of Elementor Pro / addons still marks Elementor ecosystem active,
+      // Presence of Elementor addons still marks Elementor ecosystem active,
       // but must not overwrite core Elementor version.
       environment.hasElementor = true;
     }
@@ -1860,6 +2368,9 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   }
   if (elemInfo) {
     environment.hasElementor = true;
+    if (elemInfo.is_pro || elemInfo.hasPro || elemInfo.proVersion || elemInfo.elementor_pro) {
+      environment.hasElementorPro = true;
+    }
     if (elemInfo.version && (!environment.elemVersion || environment.elemVersion === "Okänd" || environment.elemVersion === "Aktiv")) {
       environment.elemVersion = elemInfo.version;
     }
@@ -1867,6 +2378,42 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   if (wfInfo) {
     environment.hasWordfence = true;
   }
+
+  // Detect noabort status for LiteSpeed + Wordfence (v2.8.29: unified SSOT)
+  const htStatus = (liveCtx && liveCtx.htaccessStatus) 
+    ? liveCtx.htaccessStatus 
+    : (typeof getHtaccessStatus === "function" ? getHtaccessStatus() : null);
+
+  let noabortActive = null;
+  let noabortSource = "none";
+  let hasHtaccessFile = false;
+  let isCompleteHtaccess = false;
+
+  if (htStatus) {
+    hasHtaccessFile = !!htStatus.isLoaded;
+    isCompleteHtaccess = !!htStatus.isComplete;
+    noabortActive = htStatus.noabortValue;
+    noabortSource = htStatus.noabortSource;
+  } else {
+    const rawHt = (liveCtx && liveCtx.rawUploadTexts && liveCtx.rawUploadTexts.htaccess) || (liveCtx && liveCtx.htaccessInfo && liveCtx.htaccessInfo.rawText);
+    hasHtaccessFile = !!rawHt;
+    isCompleteHtaccess = !!((liveCtx && liveCtx.htaccessInfo && liveCtx.htaccessInfo.isCompleteHtaccess) || (liveCtx && liveCtx.isCompleteHtaccess) || (scmInfo && scmInfo.isCompleteHtaccess));
+    if (hasHtaccessFile && liveCtx.htaccessInfo && liveCtx.htaccessInfo.hasNoabort !== null && liveCtx.htaccessInfo.hasNoabort !== undefined) {
+      noabortActive = !!liveCtx.htaccessInfo.hasNoabort;
+      noabortSource = "htaccess";
+    } else if (scmInfo && scmInfo.hasNoabort !== null && scmInfo.hasNoabort !== undefined) {
+      noabortActive = !!scmInfo.hasNoabort;
+      noabortSource = "scm";
+    } else if (wfInfo && wfInfo.noabort_active !== null && wfInfo.noabort_active !== undefined) {
+      noabortActive = !!wfInfo.noabort_active;
+      noabortSource = "wordfence";
+    }
+  }
+
+  environment.noabortActive = noabortActive;
+  environment.noabortSource = noabortSource;
+  environment.hasHtaccessFile = hasHtaccessFile;
+  environment.isCompleteHtaccess = isCompleteHtaccess;
 
   // Collect WooCommerce Gateways
   const detectedGateways = [];
@@ -1892,10 +2439,12 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     if (kl.includes("stripe") && !detectedGateways.includes("Stripe")) detectedGateways.push("Stripe");
     if ((kl.includes("klarna") || kl.includes("kco")) && !detectedGateways.includes("Klarna")) detectedGateways.push("Klarna");
     if (kl.includes("paypal") && !detectedGateways.includes("PayPal")) detectedGateways.push("PayPal");
-    if (kl.includes("shipmondo") && !detectedGateways.includes("Shipmondo")) detectedGateways.push("Shipmondo");
-    if (kl.includes("kustom") && !detectedGateways.includes("Kustom")) detectedGateways.push("Kustom");
+    if (kl.includes("kustom") && !detectedGateways.includes("Kustom Checkout")) detectedGateways.push("Kustom Checkout");
   });
   environment.wooGateways = detectedGateways;
+  environment.hasKlarna = detectedGateways.some(g => /klarna|kco|kustom/i.test(String(g)));
+  environment.hasStripe = detectedGateways.some(g => /stripe/i.test(String(g)));
+  environment.hasPayPal = detectedGateways.some(g => /paypal/i.test(String(g)));
 
   environment.activePlugins = activePluginKeys;
   environment.wooOverrides = (wooInfo && wooInfo.overrides) || [];
@@ -1915,12 +2464,14 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   // Active theme & SCM information
   const activeThemeObj = (effectiveSysInfo && effectiveSysInfo["wp-active-theme"]) || themeInfo || {};
   const parentThemeObj = (effectiveSysInfo && effectiveSysInfo["wp-parent-theme"]) || {};
-  environment.activeTheme = activeThemeObj.name || (themeInfo && themeInfo.name) || "Aktivt Tema";
+  const rawActiveThemeName = activeThemeObj.name || (themeInfo && themeInfo.name) || "Aktivt Tema";
+  environment.activeTheme = stripThemeSlug(rawActiveThemeName) || rawActiveThemeName;
   environment.activeThemeVersion = activeThemeObj.version || (themeInfo && themeInfo.version) || "";
   if (activeThemeObj.latestVersion) {
     environment.activeThemeLatestReported = activeThemeObj.latestVersion;
   }
-  environment.parentTheme = activeThemeObj.parent_theme || parentThemeObj.name || "";
+  const rawParentThemeName = activeThemeObj.parent_theme || parentThemeObj.name || "";
+  environment.parentTheme = stripThemeSlug(rawParentThemeName) || rawParentThemeName;
   environment.parentThemeVersion = parentThemeObj.version || "";
   environment.hasChildTheme = !!environment.parentTheme && environment.parentTheme.toLowerCase() !== "none";
   environment.themeFeatures = activeThemeObj.theme_features || "";
@@ -1929,21 +2480,43 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   environment.hasSCM = !!(scmInfo || (effectiveSysInfo && (effectiveSysInfo.scm || (effectiveSysInfo["wp-plugins-active"] && Object.keys(effectiveSysInfo["wp-plugins-active"]).some(p => p.toLowerCase().includes("scm") || p.toLowerCase().includes("site-code") || p.toLowerCase().includes("site code"))))));
   
   // Normalized Wordfence fields
+  environment.wfInfo = wfInfo || null;
+  environment.hasWordfence = environment.hasWordfence || !!wfInfo;
   environment.wfFirewallMode = (wfInfo && (wfInfo.firewall_mode || wfInfo.firewallMode)) || "Standard";
   environment.wfIpHeader = (wfInfo && (wfInfo.ip_header || wfInfo.ipHeader || wfInfo.howGetIPs)) || "Standard";
 
+  // Manual slot quick toggles (Wordfence live traffic, Elementor Menu Cart, Tema minicart)
+  const manualToggles = (liveCtx && liveCtx.manualToggles) || (effectiveSysInfo && effectiveSysInfo.manualToggles) || (typeof state !== "undefined" && state && state.manualToggles) || {};
+  environment.manualToggles = manualToggles;
+  if (manualToggles.wfLiveTraffic === true) {
+    if (environment.hasWordfence || wfInfo) {
+      if (environment.wfLiveTrafficDisabled === null || environment.wfLiveTrafficDisabled === undefined) {
+        environment.wfLiveTrafficDisabled = true;
+        environment.wfLiveTrafficManual = true;
+      }
+    }
+  }
+  if (manualToggles.elemMenuCart === true) {
+    environment.hasMenuCart = true;
+    environment.hasMenuCartManual = true;
+  }
+  if (manualToggles.themeMiniCart === true) {
+    environment.hasHeaderMiniCart = true;
+    environment.hasHeaderMiniCartManual = true;
+  }
+
   // Redis object cache check (drop-ins, PHP modules, or uploaded LiteSpeed settings)
-  const hasDropinRedis = !!(effectiveSysInfo && effectiveSysInfo["wp-dropins"] && (effectiveSysInfo["wp-dropins"]["object-cache.php"] || effectiveSysInfo["wp-dropins"]["advanced-cache.php"]));
-  const hasPhpRedis = !!(effectiveSysInfo && effectiveSysInfo["wp-server"] && typeof effectiveSysInfo["wp-server"].php_extensions === "string" && effectiveSysInfo["wp-server"].php_extensions.toLowerCase().includes("redis"));
+  // v2.8.4/v2.8.5: Only object-cache.php is object cache/Redis. advanced-cache.php is LiteSpeed's page cache dropin!
+  // php "redis" extension only means the module is installed, not that object cache is active.
+  const hasDropinRedis = !!(effectiveSysInfo && effectiveSysInfo["wp-dropins"] && parseBooleanValue(effectiveSysInfo["wp-dropins"]["object-cache.php"]) !== false && effectiveSysInfo["wp-dropins"]["object-cache.php"] !== undefined);
   const hasUploadedRedis = !!(uploadedSettings && (
-    uploadedSettings.cache_object === "1" || uploadedSettings.cache_object === 1 || uploadedSettings.cache_object === true ||
-    uploadedSettings["cache-object"] === "1" || uploadedSettings["cache-object"] === 1 || uploadedSettings["cache-object"] === true ||
-    uploadedSettings.object_cache === "1" || uploadedSettings.object_cache === 1 ||
-    uploadedSettings["cache-object_kind"] === "1" || uploadedSettings["cache-object_kind"] === 1 ||
-    (uploadedSettings.options && (uploadedSettings.options["cache-object"] === "1" || uploadedSettings.options["cache-object"] === 1 || uploadedSettings.options.cache_object === "1"))
+    parseBooleanValue(uploadedSettings.cache_object) === true ||
+    parseBooleanValue(uploadedSettings["cache-object"]) === true ||
+    parseBooleanValue(uploadedSettings.object_cache) === true ||
+    (uploadedSettings.options && (parseBooleanValue(uploadedSettings.options["cache-object"]) === true || parseBooleanValue(uploadedSettings.options.cache_object) === true))
   ));
 
-  if (hasDropinRedis || hasPhpRedis || hasUploadedRedis || environment.hasRedis) {
+  if (hasDropinRedis || hasUploadedRedis || environment.hasRedis) {
     environment.hasRedis = true;
     environment.isRedisConnected = true;
   }
@@ -2275,47 +2848,61 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       }
     }
 
-    const isHighUsage = (opcacheMemPercent !== null && opcacheMemPercent >= 95) || isInternedHigh;
+    const isHighUsage = (opcacheMemPercent !== null && opcacheMemPercent >= 95) || isInternedHigh || environment.opcacheIsFull;
     const isHitRateLow = opcacheHitNum !== null && opcacheHitNum < 80;
-    const isHitRateModerate = opcacheHitNum !== null && opcacheHitNum >= 80 && opcacheHitNum < 90;
-    const hitRateDisplay = environment.opcacheHitRate ? (String(environment.opcacheHitRate).includes("%") ? environment.opcacheHitRate : `${environment.opcacheHitRate}%`) : "Okänd";
+    const isHitRateSuboptimal = (opcacheHitNum !== null && opcacheHitNum < 90) || (isHighUsage && opcacheHitNum !== null && opcacheHitNum < 95);
+    const isChronicServer = isHitRateLow || isHitRateSuboptimal || (isHighUsage && opcacheHitNum === null);
+    const hitRateDisplay = environment.opcacheHitRate ? (String(environment.opcacheHitRate).includes("%") ? environment.opcacheHitRate : `${environment.opcacheHitRate}%`) : (opcacheHitNum !== null ? `${Math.round(opcacheHitNum)}%` : "Okänd");
+    const bufferDesc = isHighUsage ? "och minnesbufferten är full (≥95%)" : "i en delad servermiljö";
 
-    if (isHitRateLow) {
+    if (isChronicServer) {
       alerts.push({
         id: "alert_opcache_critical",
-        type: "info",
-        scoreImpact: 0,
+        type: "chronic",
+        scoreImpact: 5,
+        isChronic: true,
         icon: "ℹ️",
         component: "server",
         components: ["server"],
-        title: "Observation: Låg träffprocent i OPcache (<80%)",
-        desc: `OPcache har en träffprocent på ${hitRateDisplay} (Optimalt är ≥90%, acceptabelt på delat webbhotell är ≥80%). När träffprocenten sjunker tvingas PHP kompilera om skript från disk, vilket kan ge ojämn TTFB i kassan.\n\nPå delat webbhotell styrs OPcache globalt per server och kan inte ändras på ett enskilt konto. Förbättringen sker automatiskt om webbhotellet utökar serverns minnesallokering, eller om sajten flyttas till VPS/egen miljö.`,
+        title: `Kroniskt fel: Delad OPcache-pool på webbhotell (${hitRateDisplay} hitrate)`,
+        desc: `OPcache har en träffprocent på ${hitRateDisplay} ${bufferDesc} (Optimalt är ≥95%, acceptabelt på delat webbhotell är ≥90%). När träffprocenten sjunker tvingas PHP kompilera om skript från disk vid kassanrop (varukorg och kassa kan aldrig sidcachas), vilket direkt orsakar ojämn svarstid (TTFB) och gör att Checkout-kortet flaggar "Ojämn TTFB 🔵".\n\nGrundorsak (Kroniskt fel): Webbplatsen ligger på ett delat webbhotell (Inleed) där serverns OPcache-pool (512 MB) delas globalt mellan hundratals konton på samma server. När grannkonton uppdaterar plugins eller belastar servern spolas cachen ut för alla, vilket du som enskild kontoinnehavare inte kan styra via php.ini eller WordPress-inställningar.\n\nÅtgärd: Kontakta webbhotellet och be dem utöka servernodens globala OPcache-minne, eller överväg flytt till VPS/egen molninstans för 100% isolerad bytekod.`,
         source: "PHP OPcache Architecture Guide & Shared Hosting Performance",
-        compatibility: "Observation utan poängavdrag då servermiljön styrs globalt av webbhotellet.",
-        wpPath: "php.ini ➔ opcache.memory_consumption",
+        compatibility: "Kroniskt fel med 5p avdrag på Total Sajthälsa (extern serverbegränsning; undantagen från Config Score).",
+        wpPath: "Inleed cPanel ➔ Välj PHP-version ➔ Alternativ ➔ opcache.memory_consumption",
         targetTabId: "core_server",
         targetSettingId: "php_opcache_memory",
         impactCategory: "performance",
         criticalLevel: "standard"
       });
-    } else if (isHitRateModerate) {
-      alerts.push({
-        id: "alert_opcache_warning",
-        type: "info",
-        scoreImpact: 0,
-        icon: "ℹ️",
-        component: "server",
-        components: ["server"],
-        title: "Information: OPcache träffprocent är acceptabel för delat webbhotell (80–89%)",
-        desc: `OPcache träffprocent är ${hitRateDisplay}. Detta är en normal och fullt acceptabel nivå på ett delat webbhotell där serverns minne delas mellan flera webbplatser.`,
-        source: "PHP OPcache Best Practice (Optimal ≥90%)",
-        compatibility: "Normal drift på delat webbhotell.",
-        wpPath: "php.ini ➔ opcache.memory_consumption",
-        targetTabId: "core_server",
-        targetSettingId: "php_opcache_memory",
-        impactCategory: "performance",
-        criticalLevel: "standard"
-      });
+
+      if (environment.hasWooCommerce) {
+        const optList = [];
+        if (environment.hasObjectCache || environment.hasRedis) optList.push("Redis");
+        if (environment.hpos_enabled) optList.push("HPOS");
+        if (environment.disableWpCron) optList.push("Server-Cron");
+        const optClause = optList.length > 0 
+          ? `trots att ${optList.join(", ")} är aktivt konfigurerat`
+          : "oberoende av övriga WordPress-optimeringar";
+
+        alerts.push({
+          id: "alert_wc_checkout_ttfb",
+          type: "chronic",
+          scoreImpact: 0,
+          isChronic: true,
+          icon: "ℹ️",
+          component: "woocommerce",
+          components: ["woocommerce"],
+          title: `Kroniskt fel: Risk för ojämn TTFB i kassan (${hitRateDisplay} i OPcache)`,
+          desc: `Kassan och varukorgen kan aldrig sidcachas (ingen HTML-cache tillåts vid dynamiska kundsessioner). Vid ${hitRateDisplay} träffprocent i OPcache tvingas PHP kontinuerligt kompilera om skriptfiler direkt från disk vid kassanrop och AJAX-uppdateringar (cart fragments). Detta orsakar ojämn svarstid (TTFB 200–1200 ms) ${optClause}.\n\nGrundorsak: Direkt konsekvens av serverns delade OPcache-pool på Inleed (se motsvarande larm under Serverresurser).`,
+          source: "WooCommerce Dynamic Request Lifecycle & Bytecode Cache",
+          compatibility: "Kroniskt fel utan separat poängavdrag (0p för att undvika dubbelbestraffning; direkt symptom på OPcache-larmet).",
+          wpPath: "WooCommerce ➔ Kassa & Systemstatus",
+          targetTabId: "core_woocommerce",
+          targetSettingId: "woo_cart_fragments",
+          impactCategory: "performance",
+          criticalLevel: "standard"
+        });
+      }
     } else if (isHighUsage) {
       alerts.push({
         id: "alert_opcache_warning",
@@ -2476,8 +3063,8 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         icon: "ℹ️",
         component: "woocommerce",
         components: ["woocommerce", "litespeed"],
-        title: "LiteSpeed .data-fil ej inläst (Slot 7) – Verifiera kassaexkluderingar",
-        desc: "Ladda upp din litespeed.data-fil i Slot 7 för att verifiera att kassa- och varukorgssidor är undantagna från cachelagring.",
+        title: "LiteSpeed .data-fil ej inläst (Slot 9) – Verifiera kassaexkluderingar",
+        desc: "Ladda upp din litespeed.data-fil i Slot 9 för att verifiera att kassa- och varukorgssidor är undantagna från cachelagring.",
         source: "WooCommerce Developer Handbook & LiteSpeed E-Commerce Standards",
         compatibility: "Kritiskt för alla betalningslösningar (Klarna Checkout, Kustom Checkout, Stripe, PayPal, Svea Checkout m.fl.).",
         wpPath: "LiteSpeed Cache ➔ Inställningar ➔ Cache ➔ [4] Exkludera ➔ Exkludera sökvägar (drop_uri)",
@@ -2824,7 +3411,13 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     }
   }
 
-  if (isAstra && environment.hasElementor) {
+  const hasElemThemeBuilder = environment.hasElementor && (
+    activePluginKeys.some(k => k.toLowerCase().includes("elementor pro")) ||
+    (elemInfo && elemInfo.theme_builder !== false)
+  );
+
+  // Single Source of Truth: Om Elementor Theme Builder styr sidhuvudet är Astras varukorg automatiskt ersatt
+  if (isAstra && environment.hasElementor && !hasElemThemeBuilder) {
     alerts.push({
       id: "alert_astra_elementor_cart",
       type: "info",
@@ -2843,7 +3436,9 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
   }
 
   // Google Fonts lokala renderingstips för Astra & Blocksy
-  if (isAstra || isBlocksy) {
+  // Single Source of Truth: Om Elementor styr typografin centralt sker inga Google Fonts-anrop från temat
+  const hasElemGlobalFonts = environment.hasElementor;
+  if ((isAstra || isBlocksy) && !hasElemGlobalFonts) {
     alerts.push({
       id: "alert_theme_google_fonts_local",
       type: "info",
@@ -2909,6 +3504,30 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     }
   }
 
+    // LiteSpeed + Wordfence noabort check (v2.8.29: contextual gating & single 5p deduction)
+    if (environment.isLiteSpeedServer && environment.hasWordfence && environment.noabortActive === false) {
+      const isHtLoaded = !!environment.hasHtaccessFile;
+      alerts.push({
+        id: "alert_litespeed_noabort",
+        type: "warning",
+        icon: "⚠️",
+        component: "wordfence",
+        components: ["wordfence", "server"],
+        title: isHtLoaded ? "LiteSpeed noabort saknas i .htaccess" : "LiteSpeed noabort saknas (enligt Wordfence · .htaccess ej inläst)",
+        desc: isHtLoaded 
+          ? "Wordfence varnar för att LiteSpeed kan avbryta långkörande processer och bakgrundsskanningar i förtid. Lägg till regeln RewriteRule .* - [E=noabort:1] i sajtens .htaccess-fil."
+          : "Wordfence rapporterar att långkörande skanningar avbryts av webbservern. Ladda upp eller klistra in sajtens .htaccess i Slot 8 för att verifiera noabort:1 direkt.",
+        source: "Wordfence LiteSpeed Compatibility Guide & LiteSpeed Web Server Docs",
+        compatibility: "Förhindrar att säkerhetsskanningar och tunga bakgrundsprocesser avbryts av servern.",
+        wpPath: ".htaccess ➔ RewriteRule .* - [E=noabort:1]",
+        targetTabId: "wordfence",
+        targetSettingId: "wf_noabort",
+        impactCategory: "stability",
+        criticalLevel: "standard",
+        scoreImpact: 5
+      });
+    }
+
   // --- E2. SureRank Security Audit (< v1.10.1) ---
   const sureRankKey = activePluginKeys.find(k => k.toLowerCase().includes("surerank"));
   if (sureRankKey && effectiveSysInfo && effectiveSysInfo["wp-plugins-active"] && effectiveSysInfo["wp-plugins-active"][sureRankKey]) {
@@ -2941,9 +3560,9 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         String(uploadedSettings.optm_js_defer_exc || uploadedSettings["optm-js_defer_exc"] || "")
       ).toLowerCase();
       const missingCheckoutTokens = [];
-      const hasKlarna = environment.hasKlarna || (effectiveSysInfo && JSON.stringify(effectiveSysInfo).toLowerCase().includes("klarna"));
-      const hasStripe = environment.hasStripe || (effectiveSysInfo && JSON.stringify(effectiveSysInfo).toLowerCase().includes("stripe"));
-      if (hasKlarna && !allJsExcl.includes("klarna") && !allJsExcl.includes("kco")) missingCheckoutTokens.push("klarna");
+      const hasKlarna = environment.hasKlarna;
+      const hasStripe = environment.hasStripe;
+      if (hasKlarna && !allJsExcl.includes("klarna") && !allJsExcl.includes("kco") && !allJsExcl.includes("kustom")) missingCheckoutTokens.push("klarna/kustom");
       if (hasStripe && !allJsExcl.includes("stripe")) missingCheckoutTokens.push("stripe");
       if (!allJsExcl.includes("woocommerce") && !allJsExcl.includes("wc-checkout") && !allJsExcl.includes("wc-cart")) missingCheckoutTokens.push("woocommerce");
       if (environment.hasCtm && !allJsExcl.includes("ctm") && !allJsExcl.includes("cookieconsent") && !allJsExcl.includes("datalayer")) missingCheckoutTokens.push("ctm");
@@ -3432,6 +4051,7 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       ]
     },
     // v2.8.0: 6th Function Card: Serverresurser & PHP-motor
+    // v2.8.0 / v2.8.6: 6th Function Card: Serverresurser & PHP-motor
     (function() {
       // Determine overall status for server resources
       let sResStatus = "optimal";
@@ -3451,18 +4071,17 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         }
       }
 
+      const hasOpcacheChronic = alerts.some(a => a.id === "alert_opcache_critical");
+
       if (hasAutoloadCrit) {
         sResStatus = "danger";
         sResText = "Autoload Kritisk 🚨";
-      } else if (opHitNum !== null && opHitNum < 80) {
-        sResStatus = "danger";
-        sResText = "Låg träffprocent 🚨";
       } else if (hasAutoloadWarn || hasMaxMemWarn || hasExecWarn) {
         sResStatus = "warning";
         sResText = "Varning 🟡";
-      } else if (opHitNum !== null && opHitNum < 90) {
-        sResStatus = "warning";
-        sResText = "Acceptabel 🟡";
+      } else if (hasOpcacheChronic) {
+        sResStatus = "chronic";
+        sResText = (opHitNum !== null && opHitNum < 80) ? "Låg hitrate 🔵" : "Delad pool 🔵";
       }
 
       // OPcache tool state: ren träffprocent
@@ -3494,24 +4113,32 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         ]
       };
     })(),
-    // v2.8.3: 7th Function Card: Checkout (Performance & Stability)
+    // v2.8.3 / v2.8.6: 7th Function Card: Checkout (Performance & Stability - SSOT)
     (function() {
       if (!environment.hasWooCommerce) return null;
 
       const hasCronWarn = alerts.some(a => a.id === "alert_wc_cron_visitor");
       const hasHposWarn = alerts.some(a => a.id === "alert_wc_hpos_dual_write");
+      const hasTtfbWarn = alerts.some(a => a.id === "alert_wc_checkout_ttfb");
+      const hasRedis = !!(environment.hasObjectCache || environment.hasRedis);
 
       let kassaStatus = "optimal";
       let kassaText = "Optimal 🟢";
       if (hasCronWarn || hasHposWarn) {
         kassaStatus = "warning";
         kassaText = "Bromsrisk 🟡";
+      } else if (!hasRedis) {
+        kassaStatus = "warning";
+        kassaText = "Saknar Redis 🟡";
+      } else if (hasTtfbWarn) {
+        kassaStatus = "chronic";
+        kassaText = "Ojämn TTFB 🔵";
       }
 
       const isDualWrite = environment.hposSyncEnabled === true || (environment.wooInfo && environment.wooInfo.hpos_sync_enabled === true);
       const hposState = environment.hpos_enabled ? (isDualWrite ? "Synk på (Risk)" : "PÅ (Ren)") : "AV";
       const cronState = environment.disableWpCron ? "PÅ (Server)" : "AV (Besökare)";
-      const redisState = environment.hasObjectCache ? "PÅ (Aktiv)" : "AV (Saknas)";
+      const redisState = hasRedis ? "PÅ (Aktiv)" : "AV (Saknas)";
 
       return {
         id: "kassa_perf",
@@ -4651,17 +5278,25 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
         ),
         makeOpt(
           "woo_cart_fragments",
-          "Optimera Cart Fragments (wc-cart-fragments.js)",
+          "Kundkorgssynk / Cart Fragments (wc-cart-fragments.js)",
           1,
-          "Inaktiverar onödiga AJAX-anrop till admin-ajax.php på icke-butikssidor.",
-          "high",
-          "performance",
+          "Säkerställer att minivarukorgen i headern visar rätt antal och summa vid sidcache (LiteSpeed).",
+          "standard",
+          "config",
           {
-            litespeed: "WooCommerce Optimization: Minskar frekvensen av admin-ajax-anrop.",
-            consensus: "WooCommerce Performance Best Practice: Förhindrar att wc-cart-fragments.js sänker sidladdningen på icke-e-handelssidor."
+            litespeed: "LiteSpeed & WooCommerce Sidcache: wc-cart-fragments.js synkroniserar varukorgsikonen i headern på cachade HTML-sidor.",
+            consensus: "WooCommerce 7.8+ & Elementor Pro 3.14+: WooCommerce laddar inte skriptet globalt längre, men Elementor Menu Cart och temaspecifika minikorgar i headern kräver det för att undvika spökkorg (visar 0 varor) på cachade sidor. För att eliminera skriptet utan att bryta korgen rekommenderas byte till moderna WooCommerce Gutenberg Mini-Cart Block (Store API)."
           },
+          {
+            overlappingTools: ["Elementor Menu Cart", "WooCommerce Mini-Cart Block", "SCM"],
+            primaryTool: "WooCommerce / Elementor Header Cart (Aktiv)",
+            whyRecommended: "Aktivt skript är nödvändigt om du använder Elementor Menu Cart eller Astra minivarukorg ihop med LiteSpeed sidcache. Avregistrera INTE skriptet blint med PHP-snippets då det gör att kundkorgsikonen visar 0 varor för kunder som navigerar på cachade sidor.",
+            actionForSecondary: "Långsiktig optimering: Byt ut Elementors Menu Cart mot WooCommerces moderna Mini-Cart Block (som använder Store REST API istället för admin-ajax) om du vill slippa AJAX-anrop helt."
+          },
+          "woocommerce",
           null,
-          "woocommerce"
+          null,
+          { scoreImpact: 0, wpPath: "WooCommerce ➔ Inställningar / Elementor Theme Builder ➔ Header ➔ Menu Cart" }
         ),
         makeOpt(
           "woo_transients_cleanup",
@@ -4680,7 +5315,10 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
             whyRecommended: "SCM kör kontrollerad rensning på natten utan att låsa databastabellerna under dagtid.",
             actionForSecondary: "Låt SCM sköta den automatiska rensningen och kör LiteSpeed manuellt vid behov."
           },
-          "woocommerce"
+          "woocommerce",
+          null,
+          null,
+          { wpPath: "SCM (Site Code Manager) ➔ Schemalagd Cron / LiteSpeed Cache ➔ Databas ➔ Databasrensning" }
         )
       ]
     },
@@ -4708,11 +5346,11 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "elem_dom_optimization",
           "Optimerad DOM-utmatning (Optimized DOM)",
           1,
-          "Tar bort onödiga omslutande div-taggar och minskar sidans DOM-djup. Källa: Slot 5 (Elementor System Info) — LSCWP .data uppdaterar aldrig denna status.",
+          "Tar bort onödiga omslutande div-taggar och minskar sidans DOM-djup. Källa: Slot 6 (Elementor System Info) — LSCWP .data uppdaterar aldrig denna status.",
           "standard",
           "performance",
           {
-            litespeed: "Elementor Features (Slot 5): DOM-flaggan läses enbart från Elementor-rapporten, aldrig från LiteSpeed .data.",
+            litespeed: "Elementor Features (Slot 6): DOM-flaggan läses enbart från Elementor-rapporten, aldrig från LiteSpeed .data.",
             consensus: "Google Lighthouse & PageSpeed: Mindre DOM-djup ger snabbare layoutrendering och lägre minnesanvändning."
           },
           null,
@@ -4805,11 +5443,39 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "performance",
           {
             litespeed: "Database Load Reduction: Inaktiverar realtidsskrivning av varje sidvisning till databasen.",
-            consensus: "Wordfence Documentation & High-Traffic Best Practice: Avlastar serverdatabasen med upp till 80% under hög belastning."
+            consensus: "Wordfence Documentation & Best Practice: Avlastar databasen med upp till 80% under belastning genom att endast logga säkerhetshändelser (Security Only). Rekommendation: Ställ in 'Security Only' under Wordfence ➔ All Options ➔ Live Traffic Options ➔ Traffic logging mode."
           },
+          {
+            overlappingTools: ["Wordfence Live Traffic Options", "SCM / wp-config.php"],
+            recommendedTool: "Wordfence All Options",
+            primaryTool: "Wordfence All Options",
+            whyRecommended: "Avlastar databasen genom att begränsa loggning till säkerhetshändelser (Security Only). Bekräftas under Traffic logging mode.",
+            actionOtherTools: "Ställ in 'Security Only' under Live Traffic Options för maximal databasavlastning."
+          },
+          "wordfence",
           null,
-          "wordfence"
-        )
+          null,
+          { wpPath: "Wordfence ➔ All Options ➔ Live Traffic Options ➔ Traffic logging mode: Security Only" }
+        ),
+        ...(env.isLiteSpeedServer && env.hasWordfence ? [
+          makeOpt(
+            "wf_noabort",
+            "LiteSpeed noabort skydd (E=noabort:1 i .htaccess)",
+            "PÅ",
+            "Säkerställer att LiteSpeed inte avbryter Wordfence långkörande bakgrundsskanningar i förtid via miljövariabeln noabort.",
+            "high",
+            "stability",
+            {
+              litespeed: "LiteSpeed Web Server Rewrite Directive: Förhindrar att servern dödar långsammare PHP-processer och skanningar.",
+              consensus: "Wordfence LiteSpeed Compatibility Guide: Kräver RewriteRule .* - [E=noabort:1] i .htaccess för att garantera fullständiga skanningar och undvika krascher."
+            },
+            null,
+            "wordfence",
+            null,
+            null,
+            { scoreImpact: 0, wpPath: ".htaccess ➔ RewriteRule .* - [E=noabort:1]" }
+          )
+        ] : [])
       ]
     },
 
@@ -4976,15 +5642,18 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
           "php_opcache_memory",
           "OPcache Minnesallokering (opcache.memory_consumption)",
           "512M",
-          "Allokerat RAM-minne för förkompilerad PHP-kod. Vid Elementor och WooCommerce rekommenderas 512M–1024M.",
+          "Allokerat RAM-minne för förkompilerad PHP-kod. På delat webbhotell (Inleed) delas 512 MB globalt mellan hundratals konton. Låg träffprocent (<80%) ger ojämn TTFB i kassan.",
           "high",
           "performance",
           {
             litespeed: "PHP OPcache Acceleration: Lagrar kompilerad PHP-bytekod i minnet för omedelbar exekvering.",
-            consensus: "PHP Documentation & Hosting Best Practice: Minst 512M (optimalt 768M-1024M för Elementor Pro + WooCommerce) förhindrar omkompilering vid varje anrop."
+            consensus: "PHP Documentation & Hosting Best Practice: 512M är allokerat, men delas i gemensam pool (kroniskt fel). Kan endast åtgärdas via webbhotellet eller isolerad VPS."
           },
           null,
-          "server"
+          "server",
+          null,
+          null,
+          { wpPath: "Inleed cPanel ➔ Välj PHP-version ➔ Alternativ ➔ opcache.memory_consumption" }
         ),
         makeOpt(
           "wp_autoload_size",
@@ -5211,6 +5880,9 @@ if (typeof window !== "undefined") {
   window.sanitizeElementorGoogleFonts = sanitizeElementorGoogleFonts;
   window.isActiveGoogleFontsValue = isActiveGoogleFontsValue;
   window.evaluateQuicCloudLiveEdge = evaluateQuicCloudLiveEdge;
+  window.parseBooleanValue = parseBooleanValue;
+  window.stripThemeSlug = stripThemeSlug;
+  window.BENCHMARK_VERSIONS = BENCHMARK_VERSIONS;
 }
 
 // Node.js export for test runner
@@ -5219,6 +5891,8 @@ if (typeof module !== "undefined" && module.exports) {
     analyzeSystem,
     BENCHMARK_VERSIONS,
     maskSecretKey,
+    parseBooleanValue,
+    stripThemeSlug,
     checkMissingExclusions,
     getFulfilledExclusions,
     mergeExclusions,

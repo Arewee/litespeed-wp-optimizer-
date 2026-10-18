@@ -15,9 +15,9 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AreWee-Optimizer - WordPress prestanda & stabilitetsoptimerare (v2.8.3)</title>
+  <title>AreWee-Optimizer - WordPress prestanda & stabilitetsoptimerare (v2.8.35)</title>
   <meta name="description" content="AreWee-Optimizer analyserar din WordPress-systemfil och rekommenderar säkra, stabila prestandainställningar för LiteSpeed Cache, WooCommerce, Elementor och Wordfence.">
-  <link rel="stylesheet" href="css/styles.css?v=2.8.3">
+  <link rel="stylesheet" href="css/styles.css?v=2.8.35">
   <style>
     .btn-pulse {
       animation: pulse-glow 2s infinite alternate;
@@ -178,7 +178,7 @@
       <div class="logo-container">
         <span class="logo-icon">⚡</span>
         <h1 class="logo-text">AreWee-Optimizer</h1>
-        <span class="logo-tag">v2.8.3</span>
+        <span class="logo-tag">v2.8.35</span>
       </div>
       <!-- Active Site Dropdown (Header bar widget) -->
       <div class="active-site-dropdown-wrapper" style="position: relative; display: flex; align-items: center; gap: 0.75rem;">
@@ -193,7 +193,7 @@
             <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: 500;">Aktiv sajt</span>
             <strong id="status-bar-site-name" style="color: #fff; font-weight: 600;">Ingen sajt inläst</strong>
           </div>
-          <span id="header-active-site-summary" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.4rem; padding-left: 0.4rem; border-left: 1px solid rgba(255,255,255,0.1);">0 av 7 filer (idag)</span>
+          <span id="header-active-site-summary" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.4rem; padding-left: 0.4rem; border-left: 1px solid rgba(255,255,255,0.1);">0 av 9 filer (idag)</span>
           <span id="header-active-site-arrow" style="font-size: 0.65rem; color: var(--text-muted); margin-left: 0.25rem;">▼</span>
         </div>
 
@@ -276,11 +276,24 @@
             <input type="file" id="sysinfo-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 2: WooCommerce Status -->
+          <!-- Slot 2: Autoload Status (Hälsokontroll / LiteSpeed Databas) -->
+          <div class="upload-zone compact-slot" id="autoload-dropzone">
+            <button type="button" class="btn-slot-clear" data-slot-clear="autoload" title="Rensa Autoload-data">✖</button>
+            <span class="upload-icon">🗄️</span>
+            <h4 class="upload-title">2. Autoload Status</h4>
+            <div class="slot-hint-text" id="autoload-hint">Hälsokontroll / LS Databas</div>
+            <div class="slot-action-row">
+              <span class="file-status" id="autoload-status">Valfri</span>
+              <button type="button" class="btn-paste-trigger" data-slot="autoload" title="Klistra in direkt från urklipp">📋 Klistra in</button>
+            </div>
+            <input type="file" id="autoload-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
+          </div>
+
+          <!-- Slot 3: WooCommerce Status -->
           <div class="upload-zone compact-slot" id="woocommerce-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="woocommerce" title="Rensa WooCommerce-data">✖</button>
             <span class="upload-icon">🛒</span>
-            <h4 class="upload-title">2. WooCommerce</h4>
+            <h4 class="upload-title">3. WooCommerce</h4>
             <div class="slot-hint-text" id="woocommerce-hint">SystemStatusReport_*.txt</div>
             <div class="slot-action-row">
               <span class="file-status" id="woocommerce-status">Valfri</span>
@@ -289,50 +302,62 @@
             <input type="file" id="woocommerce-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 3: Wordfence Report -->
+          <!-- Slot 4: Wordfence Report -->
           <div class="upload-zone compact-slot" id="wordfence-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="wordfence" title="Rensa Wordfence-data">✖</button>
             <span class="upload-icon">🔒</span>
-            <h4 class="upload-title">3. Wordfence</h4>
+            <h4 class="upload-title">4. Wordfence</h4>
             <div class="slot-hint-text" id="wordfence-hint">diagnostics_for_*.txt</div>
             <div class="slot-action-row">
               <span class="file-status" id="wordfence-status">Valfri</span>
               <button type="button" class="btn-paste-trigger" data-slot="wordfence" title="Klistra in direkt från urklipp">📋 Klistra in</button>
             </div>
+            <label class="slot-toggle-label" style="position: relative; z-index: 10; display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="toggle-wf-live-traffic" style="cursor: pointer; accent-color: var(--color-success, #10b981);">
+              <span>Live Traffic: Security Only</span>
+            </label>
             <input type="file" id="wordfence-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 4: Tema & Mallar -->
+          <!-- Slot 5: Tema & Mallar -->
           <div class="upload-zone compact-slot" id="theme-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="theme" title="Rensa temadata">✖</button>
             <span class="upload-icon">🎭</span>
-            <h4 class="upload-title">4. Tema</h4>
+            <h4 class="upload-title">5. Tema</h4>
             <div class="slot-hint-text" id="theme-hint">astra-settings.json / options</div>
             <div class="slot-action-row">
               <span class="file-status" id="theme-status">Valfri</span>
               <button type="button" class="btn-paste-trigger" data-slot="theme" title="Klistra in direkt från urklipp">📋 Klistra in</button>
             </div>
+            <label class="slot-toggle-label" style="position: relative; z-index: 10; display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="toggle-theme-mini-cart" style="cursor: pointer; accent-color: var(--accent-cyan, #06b6d4);">
+              <span>Temats minivarukorg i header</span>
+            </label>
             <input type="file" id="theme-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 5: Elementor System Info -->
+          <!-- Slot 6: Elementor System Info -->
           <div class="upload-zone compact-slot" id="elementor-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="elementor" title="Rensa Elementor-data">✖</button>
             <span class="upload-icon">🎨</span>
-            <h4 class="upload-title">5. Elementor</h4>
+            <h4 class="upload-title">6. Elementor</h4>
             <div class="slot-hint-text" id="elementor-hint">system-info-*.txt</div>
             <div class="slot-action-row">
               <span class="file-status" id="elementor-status">Valfri</span>
               <button type="button" class="btn-paste-trigger" data-slot="elementor" title="Klistra in direkt från urklipp">📋 Klistra in</button>
             </div>
+            <label class="slot-toggle-label" style="position: relative; z-index: 10; display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="toggle-elem-menu-cart" style="cursor: pointer; accent-color: var(--accent-cyan, #06b6d4);">
+              <span>Elementor Menu Cart i header</span>
+            </label>
             <input type="file" id="elementor-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 6: SCM -->
+          <!-- Slot 7: SCM -->
           <div class="upload-zone compact-slot" id="customcode-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="customcode" title="Rensa SCM-data">✖</button>
             <span class="upload-icon">💻</span>
-            <h4 class="upload-title">6. SCM</h4>
+            <h4 class="upload-title">7. SCM</h4>
             <div class="slot-hint-text" id="customcode-hint">scm-export-*.json / *.php</div>
             <div class="slot-action-row">
               <span class="file-status" id="customcode-status">Valfri</span>
@@ -341,11 +366,24 @@
             <input type="file" id="customcode-input" accept=".txt,.json,.data,.php,.css,.log,.conf,text/plain,application/json">
           </div>
 
-          <!-- Slot 7: LiteSpeed Export Settings -->
+          <!-- Slot 8: .htaccess -->
+          <div class="upload-zone compact-slot" id="htaccess-dropzone">
+            <button type="button" class="btn-slot-clear" data-slot-clear="htaccess" title="Rensa .htaccess-data">✖</button>
+            <span class="upload-icon">🌐</span>
+            <h4 class="upload-title">8. .htaccess</h4>
+            <div class="slot-hint-text" id="htaccess-hint">.htaccess / Rewrite-regler</div>
+            <div class="slot-action-row">
+              <span class="file-status" id="htaccess-status">Valfri</span>
+              <button type="button" class="btn-paste-trigger" data-slot="htaccess" title="Klistra in direkt från urklipp">📋 Klistra in</button>
+            </div>
+            <input type="file" id="htaccess-input" accept=".txt,.htaccess,.conf,.log,text/plain">
+          </div>
+
+          <!-- Slot 9: LiteSpeed Export Settings -->
           <div class="upload-zone compact-slot" id="settings-dropzone">
             <button type="button" class="btn-slot-clear" data-slot-clear="settings" title="Rensa LiteSpeed-data">✖</button>
             <span class="upload-icon">⚡</span>
-            <h4 class="upload-title">7. LiteSpeed</h4>
+            <h4 class="upload-title">9. LiteSpeed</h4>
             <div class="slot-hint-text" id="settings-hint">LSCWP_*.data</div>
             <div class="slot-action-row">
               <span class="file-status" id="settings-status">Valfri</span>
@@ -445,12 +483,14 @@
             </h4>
             <ul style="list-style-type: none; padding: 0; margin: 0; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.45rem; line-height: 1.45;">
               <li><strong style="color: #fff;">1. WP-system:</strong> <em>Verktyg ➔ Hälsokontroll ➔ Info ➔ "Kopiera webbplatsinformation till urklipp"</em></li>
-              <li><strong style="color: #fff;">2. WooCommerce:</strong> <em>WooCommerce ➔ Status ➔ Systemstatus ➔ "Hämta systemrapport"</em></li>
-              <li><strong style="color: #fff;">3. Wordfence:</strong> <em>Wordfence ➔ Verktyg ➔ Diagnostik ➔ "Export Diagnostic"</em></li>
-              <li><strong style="color: #fff;">4. Tema:</strong> <em>Utseende ➔ Temainställningar (eller temats exportfil i .json)</em></li>
-              <li><strong style="color: #fff;">5. Elementor:</strong> <em>Elementor ➔ System Info ➔ "Kopiera & klistra in"</em></li>
-              <li><strong style="color: #fff;">6. SCM:</strong> <em>Site Code Manager (.json) eller Code Snippets export (.php / .json)</em></li>
-              <li><strong style="color: #fff;">7. LiteSpeed:</strong> <em>LiteSpeed Cache ➔ Verktygslåda ➔ Import / Export ➔ "Export" (.data)</em></li>
+              <li><strong style="color: #fff;">2. Autoload Status:</strong> <em>Verktyg ➔ Hälsokontroll ➔ Status ➔ Klarade prov ➔ "Automatiskt laddade inställningar..." (eller LiteSpeed ➔ Databas)</em></li>
+              <li><strong style="color: #fff;">3. WooCommerce:</strong> <em>WooCommerce ➔ Status ➔ Systemstatus ➔ "Hämta systemrapport"</em></li>
+              <li><strong style="color: #fff;">4. Wordfence:</strong> <em>Wordfence ➔ Verktyg ➔ Diagnostik ➔ "Export Diagnostic"</em></li>
+              <li><strong style="color: #fff;">5. Tema:</strong> <em>Utseende ➔ Temainställningar (eller temats exportfil i .json)</em></li>
+              <li><strong style="color: #fff;">6. Elementor:</strong> <em>Elementor ➔ System Info ➔ "Kopiera & klistra in"</em></li>
+              <li><strong style="color: #fff;">7. SCM:</strong> <em>Site Code Manager (.json) eller Code Snippets export (.php / .json)</em></li>
+              <li><strong style="color: #fff;">8. .htaccess:</strong> <em>Webbrotens .htaccess-fil eller LSCWP-rewrite-regler</em></li>
+              <li><strong style="color: #fff;">9. LiteSpeed:</strong> <em>LiteSpeed Cache ➔ Verktygslåda ➔ Import / Export ➔ "Export" (.data)</em></li>
             </ul>
           </div>
           <div class="glass-card" style="padding: 1.1rem; font-size: 0.8rem; background: rgba(99, 102, 241, 0.03); border: 1px solid rgba(99, 102, 241, 0.2);">
@@ -495,15 +535,28 @@
             <div class="health-gauge-outer" id="health-gauge">
               <div class="health-gauge-inner">
                 <span class="health-score-val" id="health-score-value">0</span>
-                <span class="health-score-label">Hälsa</span>
+                <span class="health-score-label" style="line-height: 1.15; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;">Overall<br>Score</span>
               </div>
             </div>
-            <!-- Update notice below gauge: only count -->
-            <div id="health-score-updates" style="display: none; margin-top: 0.5rem; font-size: 0.72rem; color: #38bdf8; font-weight: 600; cursor: pointer; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 9999px; padding: 2px 10px;" title="Klicka för att granska uppdateringar"></div>
-            <h3 id="health-score-title" style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 700; color: #fff; margin-top: 0.75rem; margin-bottom: 0.25rem;">Optimerad</h3>
-            <p id="health-score-desc" style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.35; margin: 0;">Prestanda- och stabilitetsindex baserat på analyserade systemrapporter.</p>
+            <h3 id="health-score-title" style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 700; color: #fff; margin-top: 0.75rem; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+              <span id="health-score-title-text">Optimerad</span>
+              <span id="btn-toggle-health-breakdown" style="cursor: pointer; font-size: 0.95rem; opacity: 0.85; transition: opacity 0.2s;" title="Klicka för att se hur poängen beräknas">ℹ️</span>
+            </h3>
+            <p id="health-score-desc" style="display: none;"></p>
             
-            <!-- Health Summary Metric Rows (Konfliktvarningar & Avvikelser) -->
+            <!-- Config Completion: Liggande stapeldiagram (Större stapel med 100% inuti) -->
+            <div class="config-score-container" id="config-score-wrapper">
+              <div style="margin-bottom: 0.4rem; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; text-align: left;">
+                Config Completion
+              </div>
+              <div class="config-score-bar-track">
+                <div id="config-score-bar-fill" class="config-score-bar-fill" style="width: 100%;">
+                  <span id="config-score-bar-label" class="config-score-bar-label">100%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Health Summary Metric Rows (Konfliktvarningar, Avvikelser & Kroniska fel) -->
             <div class="health-summary-metrics">
               <div id="metric-conflict-warnings" class="health-metric-row" title="Klicka för att granska alla konfliktvarningar">
                 <span class="metric-label">
@@ -517,13 +570,14 @@
                 </span>
                 <span id="metric-deviation-count" class="badge">0 st</span>
               </div>
+              <div id="metric-chronic-observations" class="health-metric-row" title="Klicka för att granska kroniska fel (externa miljöbegränsningar)">
+                <span class="metric-label">
+                  <span id="metric-chronic-icon">🌐</span> Kroniska fel
+                </span>
+                <span id="metric-chronic-count" class="badge">0 st</span>
+              </div>
             </div>
             
-            <!-- Transparent Breakdown Toggle -->
-            <button id="btn-toggle-health-breakdown" style="margin-top: 0.85rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #c7d2fe; font-size: 0.75rem; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;">
-              <span>💡</span> Hur beräknas min poäng?
-            </button>
-
             <!-- Breakdown Detail Panel (Collapsible) -->
             <div id="health-breakdown-panel" class="health-breakdown-card" style="width: 100%; margin-top: 0.75rem;">
               <h4 style="font-size: 0.78rem; color: #fff; margin-bottom: 0.4rem; font-weight: 700;">Poängnedbrytning per kategori:</h4>
@@ -616,31 +670,41 @@
               </p>
             </div>
             
-            <div style="display: flex; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
               <span class="badge-risk zero" id="risk-count-critical-badge" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">0 Kritiska</span>
               <span class="badge-risk zero" id="risk-count-warning-badge" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">0 Varningar</span>
+              <span class="badge-risk zero" id="risk-count-chronic-badge" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; display: none;">0 Kroniska fel</span>
             </div>
           </div>
 
           <!-- Cockpit Rad 1: Verktyg -->
-          <div style="margin-bottom: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #94a3b8;">
-            Verktyg
+          <div style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.15); padding-bottom: 0.3rem;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: #93c5fd; display: flex; align-items: center; gap: 0.35rem;">
+              🛠️ Verktyg & Moduler
+            </span>
+            <span style="font-size: 0.68rem; color: #94a3b8;">Klicka för att filtrera risker</span>
           </div>
           <div id="risk-cockpit-tools" class="risk-status-grid">
             <!-- Dynamically populated in app.js -->
           </div>
 
           <!-- Cockpit Rad 2: Funktioner -->
-          <div style="margin-bottom: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #94a3b8;">
-            Funktioner
+          <div style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 0.3rem;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 0.35rem;">
+              ⚡ Drift- & Prestandafunktioner
+            </span>
+            <span style="font-size: 0.68rem; color: #94a3b8;">Mäter samverkan mellan server, cache och kassa</span>
           </div>
           <div id="risk-cockpit-functions" class="risk-functions-grid">
             <!-- Dynamically populated in app.js -->
           </div>
 
           <!-- Cockpit Rad 3: Identifierade risker -->
-          <div style="margin-bottom: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #94a3b8;">
-            Identifierade risker
+          <div style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 0.3rem;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 0.35rem;">
+              🔍 Identifierade risker & avvikelser
+            </span>
+            <span style="font-size: 0.68rem; color: #94a3b8;">Prioriterade åtgärder och kroniska externa observationer</span>
           </div>
 
           <!-- Component Filter Toolbar -->
@@ -683,13 +747,16 @@
           <div class="settings-filter-bar" id="settings-filter-bar">
             <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 600; margin-right: 0.25rem;">Filtrera vy:</span>
             <button class="filter-btn active" data-filter="all_deviations" id="filter-btn-all-deviations">
-              <span>🌐</span> Alla avvikelser
+              <span>🌐</span> Åtgärdslista
             </button>
             <button class="filter-btn" data-filter="deviations" id="filter-btn-deviations">
               <span>⚠️</span> Endast avvikelser (flik)
             </button>
             <button class="filter-btn" data-filter="all" id="filter-btn-all">
               <span>📋</span> Alla inställningar
+            </button>
+            <button class="filter-btn" data-filter="unmeasured" id="filter-btn-unmeasured">
+              <span>⚪</span> Värde saknas
             </button>
             <button class="filter-btn" data-filter="critical" id="filter-btn-critical">
               <span>🚨</span> Endast kritiska
@@ -804,20 +871,49 @@
           <!-- Dynamically populated sources metadata cards -->
         </div>
 
-        <!-- Pedagogisk Guide: Avvikelser vs Konflikter -->
-        <div class="glass-card" style="margin-bottom: 2rem; padding: 1.25rem; background: rgba(99, 102, 241, 0.04); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px;">
-          <h3 style="font-family: var(--font-heading); color: #c7d2fe; font-size: 1.05rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-            <span>💡</span> Skillnaden mellan Avvikelser och Konflikter
+        <!-- Pedagogisk Guide: Avvikelser vs Konflikter vs Kroniska fel -->
+        <div class="glass-card" style="margin-bottom: 2rem; padding: 1.25rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;">
+          <h3 style="font-family: var(--font-heading); color: #fff; font-size: 1.05rem; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>💡</span> Tolkning av resultat: Avvikelser, Konflikter & Kroniska fel
           </h3>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; font-size: 0.82rem; line-height: 1.45; color: var(--text-muted);">
-            <div style="background: rgba(0,0,0,0.25); padding: 0.85rem; border-radius: 8px; border-left: 3px solid #38bdf8;">
-              <strong style="color: #38bdf8; display: block; margin-bottom: 0.25rem;">🔍 Avvikelser (1:1 mot Benchmark)</strong>
-              En avvikelse uppstår när en enskild inställning i LiteSpeed eller WordPress inte matchar den rekommenderade standarden för den specifika versionen (t.ex. att Object Cache eller HTML Minify är avstängt).
+          <p style="color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; margin-bottom: 1rem;">
+            För att ge en pedagogisk och rättvisande bild av din sajt skiljer optimeraren strikt mellan tre olika typer av observationer:
+          </p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; font-size: 0.82rem; line-height: 1.45;">
+            
+            <!-- Avvikelser mot rekommendation -->
+            <div style="background: rgba(234, 179, 8, 0.05); border: 1px solid rgba(234, 179, 8, 0.25); border-left: 3px solid #fbbf24; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 700; color: #fbbf24; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span>🟡</span> Avvikelser mot rekommendation (1:1 mot Benchmark)
+              </div>
+              <div style="color: #cbd5e1; line-height: 1.45;">
+                En enskild inställning i LiteSpeed eller WordPress som skiljer sig från vår rekommenderade prestandaprofil (t.ex. CSS/JS Combine eller WebP-generering ej aktiv). 
+                Detta orsakar <strong>inga driftstörningar</strong> och ger begränsat eller inget poängavdrag om kompenserande moduler finns.
+              </div>
             </div>
-            <div style="background: rgba(0,0,0,0.25); padding: 0.85rem; border-radius: 8px; border-left: 3px solid #f59e0b;">
-              <strong style="color: #f59e0b; display: block; margin-bottom: 0.25rem;">⚠️ Konflikter (Kollision mellan verktyg)</strong>
-              En konflikt uppstår när två eller flera aktiva plugins krockar i samma funktion (t.ex. dubbel lazyload i Elementor och LiteSpeed, eller när JS Delay kraschar Klarna Checkout eller CTM-samtycke).
+
+            <!-- Konflikter & Stabilitetsrisker -->
+            <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.25); border-left: 3px solid #f87171; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 700; color: #f87171; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span>🚨</span> Konflikter & Stabilitetsrisker (Kollision mellan verktyg)
+              </div>
+              <div style="color: #cbd5e1; line-height: 1.45;">
+                Två eller flera aktiva plugins/funktioner som krockar i samma funktion (t.ex. JS Defer aktivt samtidigt som Klarna/Stripe checkout saknar nödvändiga skript-exkluderingar, eller dubbel lazyload i Elementor och LiteSpeed). 
+                Risk för <strong>krascher, brutna betalningar eller trasig layout</strong> som måste åtgärdas direkt.
+              </div>
             </div>
+
+            <!-- Kroniska fel -->
+            <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-left: 3px solid #38bdf8; border-radius: 10px; padding: 1rem;">
+              <div style="font-weight: 700; color: #38bdf8; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span>🔵</span> Kroniska fel (Externa hostingbegränsningar)
+              </div>
+              <div style="color: #cbd5e1; line-height: 1.45;">
+                Begränsningar i webbhotellets servermiljö som <strong>inte kan åtgärdas via WordPress eller plugins</strong> (t.ex. delad OPcache-pool eller ojämn backend-TTFB på grund av grann-sajter). 
+                Undantas från din påverkbara Config Completion, men visas ärligt med blå färg och ger ett transparent avdrag på Overall Score.
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -877,9 +973,9 @@
         </h3>
         <div style="background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 1.25rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1.5rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-            <span style="font-size: 0.8rem; color: #94a3b8;">Verifierade och granskade: <strong>2026-09-20</strong></span>
+            <span style="font-size: 0.8rem; color: #94a3b8;">Verifierade och granskade: <strong>2026-10-16</strong></span>
             <div style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.3); color: #22d3ee; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
-              <span>🔍</span> Nuvarande rekommendationer (v2.8.3)
+              <span>🔍</span> Nuvarande rekommendationer (v2.8.35)
             </div>
           </div>
 
@@ -902,6 +998,8 @@
             </div>
           </div>
         </div>
+
+
 
         <div id="sources-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
           <!-- Dynamically populated by renderSourcesTab() -->
@@ -937,8 +1035,8 @@
   </div>
 
   <!-- Include App Javascript modules in strict dependency order -->
-  <script src="js/exporter.js?v=2.8.3"></script>
-  <script src="js/rules.js?v=2.8.3"></script>
-  <script src="js/app.js?v=2.8.3"></script>
+  <script src="js/exporter.js?v=2.8.35"></script>
+  <script src="js/rules.js?v=2.8.35"></script>
+  <script src="js/app.js?v=2.8.35"></script>
 </body>
 </html>

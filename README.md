@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.8.3)
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.8.35)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -29,8 +29,8 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 2. Klicka på **Exportera** för att ladda ner din nuvarande konfiguration. Du får en fil som heter något i stil med `litespeed.data`.
 
 ### 3. Kör analysen i Optimizer-appen
-1. Öppna denna app och ladda upp dina filer (källkodsanalys, WooCommerce-status, samt din nyligen exporterade `litespeed.data`-fil i slot 7).
-   - *Tips:* Om du startar en helt ny sajt och inte har någon `litespeed.data`-fil än, lämnar du bara Slot 7 tom. Appen kommer då automatiskt att generera en optimal profil från scratch!
+1. Öppna denna app och ladda upp dina filer (källkodsanalys, WooCommerce-status, .htaccess i Slot 7 samt din nyligen exporterade `litespeed.data`-fil i Slot 8).
+   - *Tips:* Om du startar en helt ny sajt och inte har någon `litespeed.data`-fil än, lämnar du bara Slot 8 tom. Appen kommer då automatiskt att generera en optimal profil från scratch!
 2. Gå till fliken **LSCWP Inställningar** för att se rekommendationer skräddarsydda efter din sajts unika källkod.
 3. Anpassa inställningarna direkt i appen vid behov.
 
@@ -45,6 +45,17 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 ---
 
 ## 🗺️ Roadmap & Kommande Versioner
+
+### 🚀 Release v2.8.17: Grok Deep-Audit Paritet & Robust No-Abort Skydd
+- **No-Abort Telemetri & Apache/LiteSpeed REDIRECT:** Fullt stöd för `[REDIRECT_noabort] => 1` och `$_SERVER['REDIRECT_noabort']` i Wordfence diagnostic dumps.
+- **Normalisering av citattecken:** Typografiska citattecken (`‘ ’ “ ”`) konverteras deterministiskt till raka citattecken så att varningsfraser matchas exakt och aldrig felaktigt identifieras som aktiva.
+- **Svenska varningsfraser:** Utökat stöd för lokala formuleringar i Wordfence (t.ex. *kan inte avgöra om "noabort"*).
+- **Kommentarsfiltrering i .htaccess:** Rader som inleds med `#` eller `//` hoppas över, så bortkommenterade rewrite-regler tolkas inte som aktiva.
+- **Prioritetsordning & Direkt .htaccess-bevis:** Uppladdad `.htaccess`-fil har företräde framför föråldrad Wordfence-diagnostik. Saknas regeln i en uppladdad `.htaccess` sätts mätningen ärligt till `AV` (`hasNoabort: false`).
+- **Objektsammanfogning för SCM & .htaccess:** Separata kodsnuttar och `.htaccess`-direktiv skrivs inte längre över i samma dataplats utan samverkar.
+- **Eliminering av dubbel poängsänkning:** `wf_noabort` i inställningstabellen har `scoreImpact: 0`, medan `alert_litespeed_noabort` hanterar den samlade stabilitetssänkningen (-5p).
+- **Kontextuell filtrering:** `wf_noabort`-larm och `.htaccess`-rekommendation visas endast på sajter med både LiteSpeed och Wordfence.
+- **Språk & Benchmarks:** Export skriver alltid svenskt `[KRONISKT]` och `BENCHMARK_VERSIONS.wordpress` är uppdaterad till 6.8.2.
 
 ### 🔧 Hotfix v2.6.10.2: Policy/Context för Google Fonts, VPI-kontext & Uppdateringsnotiser
 - **Google Fonts (Ta bort / optm_ggfonts_rm):** PÅ klassificeras nu som **🔵 Policy/Context** (inte röd avvikelse eller poängavdrag) för sajter som avsiktligt tagit bort Google Fonts för GDPR eller lokal hosting. Trafikljus visar neutral/grön konsensus istället för 3 röda prickar.
@@ -82,6 +93,162 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 - **Förfinad copy:** `js_delayed_exclude` visar tydligt `Inaktiv (Delay ej aktiv)` när både defer och delay är av.
 
 
+
+### 🚀 Release v2.8.15: Rättning av 4 falska avvikelser, robust noabort & Ej uppmätt-filter/sortering
+- **Rättning av 4 falska avvikelser i Rekommenderade inställningar:**
+  - **`wf_ip_header`:** Sanerad från sektionsrubriker i Wordfence diagnostic (`## How Wordfence gets IPs: Methods of detecting a visitor's IP address. ##`) som tidigare orsakade en felaktig avvikelse (`-15p`). Standardiserad till `REMOTE_ADDR` (🟢 Optimal).
+  - **`wf_disable_live_traffic`:** Outfylld diagnos sätter inte längre ett falskt `❌ AV` (`-10p`). När data saknas klassas inställningen ärligt som `⚪ Ej uppmätt` (0p avdrag).
+  - **`woo_cart_fragments` & `woo_transients_cleanup`:** Standardiserade med `null`-default i WooCommerce-parsern. `woo_transients_cleanup` är frikopplad från LiteSpeed DB `db_optm_transient`, vilket eliminerar falska avvikelser (`❌ AV` `-10p`) för sajter med standard `.data`-fil.
+- **Robust No-Abort detektering (`wf_noabort` & `.htaccess`):**
+  - Stöd för flexibla regex-mönster (`noabort: 1`, `[noabort] => 1`, `e=noabort:1`) i Wordfence diagnostic, `.htaccess` och serverrapporter.
+- **Nytt filter och sortering `⚪ Ej uppmätt / Okänd`:**
+  - Ny snabbfilterknapp `⚪ Ej uppmätt / Okänd` i inställningspanelen som samlar alla oidentifierade inställningar över hela webbplatsen i en enda vy med hopp-brickor till respektive flik.
+  - Ny sorteringsordning i dropdownen (`⚪ Ej uppmätt / Okänd först`) för snabb och pedagogisk felsökning av saknade indatafiler.
+
+### 🚀 Release v2.8.14: LiteSpeed + Wordfence No-Abort Telemetri & Pedagogisk 3-kolumnersguide
+- **Aktiv No-Abort Telemetri (`wf_noabort` & `alert_litespeed_noabort`):**
+  - Optimeraren läser av Wordfence diagnostic och `.htaccess` för direkt detektering av `E=noabort:1` rewrite-direktivet.
+  - Visar `🟢 PÅ (noabort:1 aktiv)` när regeln finns aktiv.
+  - Visar `⚠️ AV (Wordfence varnar)` och genererar stabilitetslarm under Identifierade risker endast när servern är LiteSpeed och Wordfence flaggar bakgrundsavbrott eller saknad regel.
+  - Visar `⚪ Ej inläst` (0p poängavdrag) om data saknas, så att sajter inte varnas i onödan.
+  - Fullständig paritet i gränssnittet under Inställningar (Tab 9 Wordfence) och i den exporterade Site-Reporten.
+- **Pedagogisk 3-kolumnersguide under Referenser & Källor:**
+  - De två separata förklaringsrutorna har bakats ihop till en enda komplett och enhetlig guide direkt under systemfilsöversikten:
+    1. 🟡 **Avvikelser mot rekommendation (1:1 mot Benchmark):** Enskilda inställningsval som skiljer sig från standarden men som inte ger driftstörningar.
+    2. 🚨 **Konflikter & Stabilitetsrisker (Kollision mellan verktyg):** Funktioner som krockar med risk för trasig kassa eller layoutkrasch som måste åtgärdas direkt.
+    3. 🔵 **Kroniska fel (Externa hostingbegränsningar):** Begränsningar i webbhotellets servermiljö som inte kan lösas i WordPress och undantas från Config Completion.
+  - Granskningsdatumet för konsensus och källor har uppdaterats till **2026-10-16**.
+
+### 🚀 Release v2.8.13: Wordfence IP & Live Traffic Paritet, Grok Audit & No-Abort Skydd
+- **Wordfence IP Header Paritet (`wf_ip_header`):**
+  - Stöd för strängbaserade värden (`REMOTE_ADDR`, `CF-Connecting-IP`, etc.) i inställningspanelen under Wordfence med grön statusbricka (`🟢 REMOTE_ADDR`).
+  - Single Source of Truth: Wordfence miljö och diagnostik kopplas direkt via `environment.wfInfo` till regelsystemet.
+- **Wordfence Live Traffic Skydd (`wf_disable_live_traffic`):**
+  - Strikt prioritering av "Traffic logging mode: Security Only". Generiska rader som "Live traffic: Enabled" tillåts inte längre skriva över ett aktivt "Security Only"-val.
+- **LiteSpeed No-Abort (.htaccess) Skydd:**
+  - Dokumentation och exportguidning för `E=noabort:1` rewrite-block i `.htaccess` för att säkra bakgrundsprocesser och cron-anrop på delade LiteSpeed-servrar (t.ex. Inleed).
+- **Grok Deep-Audit Rättningar:**
+  - **Top Finding & Pluralgrammatik:** Visar både kvarvarande optimeringar och kroniska fel när avvikelser finns; korrekt svensk grammatik (`1 externt kroniskt fel` / `X externa kroniska fel`).
+  - **Cart Fragments & Transients:** Slutat gissa "PÅ via SCM" baserat på enbart plugin-närvaro eller rå kodsökning. Endast verifierade mätningar godkänns, annars visas ärligt `⚪ Ej inläst` (0p påverkan).
+  - **Config Completion Dynamisk Copy:** Påståendet *"allt du kan påverka är optimalt"* visas strikt vid 100% Config Completion; vid < 100% anges exakt antal poängavvikelser kvar att åtgärda i WordPress.
+  - **Export- och Tabellparitet:** Engelsk `[CHRONIC]` ersatt med svensk `[KRONISKT]` i export; batch-tabellens kolumn omdöpt till `Overall Score / Config` och visar båda poängen.
+  - **Info-larm:** Standardavdrag för informationsnotiser utan explicit värde ändrat från 2p till 0p.
+  - **Temanamnssanering (`stripThemeSlug`):** Rensar endast tekniska slugs som matchar temanamnet (t.ex. `Astra (astra)` $\rightarrow$ `Astra`), medan meningsfulla tillägg som `(Child Theme)` bevaras intakta.
+  - **Benchmark-uppdatering:** Synkade officiella benchmarks för WordPress 6.8.0, WooCommerce 9.8.5, LiteSpeed 7.9.1 och Wordfence 8.0.4.
+- **Verifiering:** hard-reload `?v=2.8.13`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.12: Grok Deep-Audit Paritet & Pedagogisk Källförklaring
+- **Pedagogisk Förklaring i Referenser & Källor:**
+  - Ny 3-kolumners pedagogisk översiktsruta i modalen under *Referenser & Källor* som tydliggör skillnaden mellan:
+    1. **Avvikelser mot rekommendation (Gult 🟡):** Enskilda inställningsavvikelser utan driftstörningsrisk.
+    2. **Konflikter & Stabilitetsrisker (Rött 🚨):** Direkt krock mellan aktiva moduler med risk för krascher, brutna sessioner eller trasig layout.
+    3. **Kroniska fel (Blått 🔵):** Externa hostingbegränsningar (delad OPcache, grann-sajters påverkan på TTFB) som inte kan lösas i WP/plugins.
+- **Dedikerad Alert-typ `type: "chronic"`:**
+  - Kroniska larm (`alert_opcache_critical`, `alert_wc_checkout_ttfb`) har nu `type: "chronic"`, vilket förhindrar att de någonsin feltolkas som generella kompatibilitetsvarningar (`warning`).
+  - Top finding-rubriken och sammanfattningskortet visar **🟢 Säkrad OK** och ren status när endast kroniska larm föreligger.
+- **Återställd Multikomponent-filtrering (W1):**
+  - Återaktiverat `a.components.includes(compKey)` i verktygskort, toolbar-filter och `displayAlerts` så att tvärgående larm (t.ex. Tema + LiteSpeed) visas korrekt under båda berörda verktyg utan att TTFB dubbelräknas på servern.
+- **Kassa & Resurs-optimeringar:**
+  - Kassa-kortet (Kort 7) prioriterar åtgärdbara brister som **`Saknar Redis 🟡`** före kronisk **`Ojämn TTFB 🔵`**.
+  - Dynamiska avdragsbrickor: `🔵 Kroniskt fel (-5p)` för OPcache och `🔵 Kroniskt fel (0p)` för TTFB.
+  - Flik [1] Server Core för `php_opcache_memory` visar **`🔵 Kroniskt fel`** med synkade buffer-full-kriterier.
+- **Förbättrad Dataintegritet:**
+  - Revisioner gissas inte längre till 5 om data saknas (`isMeasured: false`).
+  - SCM cart fragments & transients markeras endast om SCM-kod faktiskt detekterats.
+- **Verifiering:** hard-reload `?v=2.8.12`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.11: Blå standard för Kroniska fel & Renodlad Miljökarta
+- **Enhetlig Blå Färgkod för Kroniska fel (`#38bdf8`):**
+  - **Identifierade risker & konflikter:** Larm med `isChronic: true` (OPcache & TTFB) renderas nu i en dedikerad blå container (`.alert-item.chronic`) med mjuk himmelsblå bakgrund och blå kantlinje istället för varningsgult.
+  - Brickan i larmet uppdaterad till **`🔵 Kroniskt fel (0p)`** i enhetligt blått.
+- **Verktygskort utan Dubbelräkning (SSOT):**
+  - Varje larm binds strikt till sitt primära verktyg (`a.component === compKey`).
+  - Larmet för ojämn TTFB tillhör nu strikt WooCommerce (`components: ["woocommerce"]`), vilket eliminerar den tidigare dubbelräkningen på WordPress Core / WP-system.
+  - `wp_system` visar **`🔵 1 Kroniskt fel`**, `woocommerce` visar **`🔵 1 Kroniskt fel`** och övriga visar **`🟢 Optimal`**.
+  - Total summan över verktygskorten är exakt 2 (1 + 1), i perfekt 1:1 paritet med listan under Identifierade risker. Varningar (påverkbara) är 0 st.
+- **Funktionskort med Blå Status:**
+  - Kort 6 (Serverresurser) och Kort 7 (Checkout) visar informativ blå status (**`Delad pool 🔵`** / **`Ojämn TTFB 🔵`**) med textfärg `#38bdf8` vid kroniska serverbegränsningar.
+- **Renodlad Miljökarta (Conflict Topology):**
+  - Kroniska fel filtreras bort från `drawTopologyMap()` (`!a.isChronic`).
+  - WordPress Core och WooCommerce ritas **100% Gröna (🟢)** med gröna förbindelselinjer utan falska gula varningskrockar.
+- **Verifiering:** hard-reload `?v=2.8.11`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.10: Renodlad Overall Score & Config Completion
+- **Overall Score Typografi & Layout:**
+  - Texten inuti den cirkulära Gauge-mätaren har ändrats från "Hälsa" till **`Overall`<br>`Score`** uppdelat på två rader med balanserad radhöjd och versaler.
+  - Rubriken under mätaren har renodlats till **`95% Overall Score 🟢 ℹ️`**.
+  - Den tidigare textraden under rubriken ("Din sajt är optimalt konfigurerad...") har tagits bort helt för en ren, minimalistisk och professionell presentation.
+- **Config Completion (Större stapel med centrerat 100%):**
+  - Rubriken har döpts till **`Config Completion`** (onödigt kugghjul ⚙️, parentes och dubblerat "100%" till höger har avlägsnats).
+  - Själva stapeldiagrammet har gjorts större och kraftigare (höjd ökad till 32px med 16px border-radius).
+  - Inuti den gröna stapeln visas nu en framträdande, ren och centrerad procentsats: **`100%`**.
+- **Verifiering:** hard-reload `?v=2.8.10`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.9: Ärlig Total Sajthälsa, Config Score & Card Overflow Fix
+- **Två Tydliga Grafer (Mätare & Stapel):**
+  - **Total Sajthälsa (Gauge-mätare som idag):** Visar verklig sajthälsa med ärligt och proportionerligt avdrag för externa hostingbegränsningar (5p för delad OPcache-pool på Inleed $\rightarrow$ **95% 🟢**). Ingen skönmålning!
+  - **Ingen dubbelbestraffning för TTFB:** TTFB-larmet i kassan klassas som ett direkt symptom/konsekvens av delad OPcache och ges **0p separat avdrag**, vilket ger en metodiskt rättvis Total Score på 95%.
+  - **Config Score (Liggande stapeldiagram):** Ny liggande stapel direkt i score-kortet som visar användarens påverkansgrad (**100% – Allt du kan påverka är optimalt**).
+- **Renodlad Konflikträkning (Grok V1 Fix):** Kroniska fel räknas inte längre som vanliga konfliktvarningar (`warningCount` filtrerar bort `isChronic`). Sajten visar därför "Konfliktvarningar: 0 st 🟢" och "Kroniska fel: 2 st 🌐", och rubriken skrivs inte längre felaktigt över med "Bra status med varningar 🟡".
+- **Lösning på Card Overflow (Media Image Fix):**
+  - Gridkolumnerna i Riskdetektorns Rad 1 och Rad 2 har breddats till `minmax(205px, 1fr)`.
+  - `overflow: hidden;` har lagts till på `.risk-component-card` och `.risk-function-card`.
+  - Funktionskortens headrar har fått `flex-wrap: wrap; gap: 0.25rem;` så att långa statustexter (t.ex. `Låg hitrate 🟡`) bryts snyggt utan att svämma över 41px på grannkortet.
+  - Värdebrickorna har fått `white-space: nowrap;` så att `Ej inläst` inte delas upp på två rader.
+- **Grok Audit Rättningar (V2, V3, V4):**
+  - **V4:** Rättat variabelnamnet `opHitNum` $\rightarrow$ `opcacheHitNum`.
+  - **V3:** Texten om full minnesbuffert är nu villkorad på `isHighUsage` istället för att alltid påstås vid låg hitrate.
+  - **V2:** TTFB-larmtexten är nu dynamisk och nämner endast Redis, HPOS och Server-Cron om de faktiskt är aktiverade i miljön.
+  - **Kassakortet:** `Ojämn TTFB 🟡` prioriteras före `Saknar Redis 🟡` så att kopplingen till OPcache-larmet syns direkt på kortet.
+- **Verifiering:** hard-reload `?v=2.8.9`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.8: SSOT Riskdetektor, Kortlayout & Grok Djupaudit
+- **Renodlat Temakort (`Astra`):** Slug-parentesen `(astra)` rensas bort automatiskt så att temat visas rent och enhetligt som `Astra` (eller `Astra v4.8.7`) utan upprepning.
+- **Responsiv Kortlayout & Skilda Bakgrunder:** Verktygskorten i Rad 1 har breddats till samma storlek som funktionskorten (`minmax(175px, 1fr)`) och tillåts bryta över flera rader så att versionstexter (WooCommerce, Tema etc.) aldrig trycks ihop. Rad 1 har fått en subtil skifferblå bakgrund medan Rad 2 (Funktioner) har en mörkare grafitkolsyta för tydlig visuell separation.
+- **SSOT för Kroniska Fel under Riskdetektor:** Kroniska externa observationer visas nu i risklistan med egen distinkt badge `🟡 Kroniskt fel (0p)`. Klick på kort 6 (`🖥️ Serverresurser`) eller kort 7 (`🛒 Checkout`) scrollar direkt ned till motsvarande förklaring.
+- **Inleed OPcache-tröskel & Kassa TTFB-korrelering:** Sätter kronisk observation även vid full buffert ($\ge 95\%$) med träffprocent under 95% (syns därmed på delade Inleed-sajter). Genererar dedikerat larm `alert_wc_checkout_ttfb` under WooCommerce så att TTFB-varningen i kassan är 100% förklarad.
+- **Flik [1] `php_opcache_memory`:** Visar gult märke `🟡 Kroniskt fel` istället för missvisande `🟢 Optimal` när serverns delade pool belastas.
+- **Grok Deep-Audit Sanering:**
+  - Rå textsökning efter betalsätt borttagen; `Shipmondo` borttagen som betalsätt (fraktlösning).
+  - Kustom Checkout räknas som Klarna Checkout i JS-exkluderingar för att förhindra falska kassa-larm.
+  - Wordfence Live Traffic lämnas som `Ej uppmätt` om data saknas istället för att felaktigt antas vara aktiv.
+  - Pluralgrammatik i Health Score rättad ("X kroniska fel undantagna").
+- **Verifiering:** hard-reload `?v=2.8.8`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.7: Kroniska Fel, Score-renodling & Transparent Kassa-korrelering
+- **Kroniska fel (Icke påverkbara observationer):** Ny metrikrad under Health Score: `🌐 Kroniska fel: 1 st`. Tydliggör att externa serverbegränsningar (som Inleeds delade 512 MB OPcache-pool) inte kan styras via WordPress-inställningar och därför undantas från poängavdrag (0 p avdrag).
+- **Kompakt Info-ikon (`ℹ️`):** Den stora knappen "Hur beräknas min poäng?" under mätaren har ersatts med ett klickbart info-ikon direkt efter rubriken `100% LSCWP Advanced Preset! 🟢 ℹ️` som fäller ut poängnedbrytningen vid klick.
+- **Sanering av Phantom Update Counters:** Notisen "1 uppdatering tillgänglig" under mätaren har tagits bort helt för att undvika förvirring när inga åtgärder krävs.
+- **Tydligt samband för Ojämn TTFB i Kassan:** `alert_opcache_critical` och Flik [1] `php_opcache_memory` förklarar explicit att låg OPcache-träffprocent tvingar PHP att kompilera om 3 av 10 filer från disk vid dynamiska kassanrop (varukorg/kassa kan inte sidcachas), vilket direkt orsakar att Checkout-kortet flaggar `Ojämn TTFB 🟡`.
+- **Grok Deep-Audit Paritet (Gateways & Autoload):** Betalmetoder i WooCommerce härleds automatiskt från aktiva betal-plugins om statusrapporten saknar gateways-sektion; Autoload visar ärligt "Ej inläst" när telemetry saknas.
+- **Verifiering:** hard-reload `?v=2.8.7`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.6: Single Source of Truth, Kassa-korrelering & OPcache cPanel-guidning
+- **OPcache 512M Minnesparitet:** Site Health exporterar minne i råbytes (`536863296 of 536870912`). Dedikerad parser konverterar till MB och matchar $\ge$ 512M som Optimal 🟢 istället för falsk strängmatchning och 10 p avdrag.
+- **Förtydligad OPcache-observation på Delad Server:** Observationen kvarstår vid hit rate < 80 % och full minnesbuffert, men förtydligar att grundorsaken är delad hosting (Inleed) med delad 512M pool över hundratals sajter som inte kan ändras via php.ini. Exakt cPanel-sökväg anges (`Inleed cPanel ➔ Välj PHP-version ➔ Alternativ ➔ opcache.memory_consumption`).
+- **Aktionsbara Sökvägar (`wpPath`):** Lagt till konkreta sökvägar för var inställningar ändras för `php_opcache_memory`, `woo_cart_fragments` och `woo_transients_cleanup`.
+- **Single Source of Truth för SCM:** Om SCM är aktivt hanteras både `woo_cart_fragments` och `woo_transients_cleanup` via SCM:s dedikerade moduler och schemalagda cron, vilket visas som `PÅ (Optimerad via SCM)` / `PÅ (Hanteras av SCM)` med 0 falska straffpoäng.
+- **Elementor Theme Builder Överstyrning:** När Elementor Theme Builder och Global Fonts är aktiva undertrycks redundanta och motsägelsefulla Astra-varningar för minicart och Google Fonts.
+- **Kassa-korrelering (🛒 Checkout):** Funktionskort 7 korreleras mot helheten: saknas Redis visas `Saknar Redis 🟡` och vid låg OPcache hit rate visas `Ojämn TTFB 🟡` istället för falskt `Optimal 🟢`.
+- **Kompakt Header & Textskydd:** Korta statustexter (`Låg hitrate 🚨`) och `flex-shrink: 0` på korttiteln säkerställer att `🖥️ Serverresurser` aldrig klipps (`Serverr...`).
+- **Verifiering:** hard-reload `?v=2.8.6`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.5: Fullständig Tolkningssanering (Grok Audit) för Cron, URL, Wordfence & Redis
+- **WooCommerce WP Cron: – Detektering:** Site Health exporterar aldrig `DISABLE_WP_CRON`. Läser nu `WP Cron: –` från WooCommerce statusrapport (`–` = visitor cron av = server-cron på).
+- **HPOS & Sync Isolering:** Separerat `hpos_enabled` från synkrader; stöd för tankstreck (`–`, `—`, `-`) som falskt värde i båda raderna.
+- **Dynamisk URL-uppdatering:** Ny uppladdning skriver över `detectedSiteUrl`; WooCommerce `Site address (URL)` och `WordPress address (URL)` tolkas som pålitlig källa.
+- **Wordfence IP-header & Live Traffic:** IP-header matchar inte längre rader i IP-värdetabeller; Live Traffic låter inte generisk `security only` i fulltexten skriva över explicit radvärde som "All traffic".
+- **Strikt Redis-aktivering:** PHP-extension `redis` eller `cache-object_kind=1` tolkas inte längre som aktiv cache utan `object-cache.php` drop-in.
+- **Gateway & Checkout-avgränsning:** JS Defer-kassavarning för Klarna/Stripe kontrollerar faktiskt aktiva plugins/gateways (`environment.wooGateways`) istället för heltextssökning i dumpen.
+- **Verifiering:** hard-reload `?v=2.8.5`. Full testsvit i `scratch/test-v280.js`.
+
+### 🚀 Release v2.8.4: Telemetrifix & Feltolkningssanering för Cron, HPOS & Webbplats-URL
+
+- **Träffsäker URL-detektering:** `extractSiteUrl()` prioriterar `wp-core` (`home` / `siteurl`) och filtrerar bort externa temadomäner som `wpastra.com` och plugin-leverantörer. Sajtens faktiska domän (inkl. punycode och svenska tecken) identifieras alltid korrekt.
+- **Robust Server-Cron tolkning (`DISABLE_WP_CRON`):** Stöd för Site Health-värden som `"Enabled"`, `"Aktiverad"`, `"Aktiv"`, `"1"` och `"Ja"` istället för enbart strikt `"true"`. Eliminerar falska varningar om saknad Server-Cron när `define('DISABLE_WP_CRON', true);` är aktivt i `wp-config.php`.
+- **Eliminerat falskt larm för HPOS Kompatibilitetsläge:** Åtgärdat en parser-bugg i WooCommerce System Status där närvaron av ordet "enabled" / "aktiverad" i etiketterna (`HPOS data sync enabled: no` / `HPOS-datasynkronisering aktiverad: nej`) felaktigt tolkades som aktiv dubbelskrivning. Värdedelen efter kolon utvärderas nu isolerat med företräde för negativa värden (`no`, `nej`, `false`, `disabled`, `inaktiv`).
+- **Objektcache-detektering:** Utökat stöd för `object-cache.php` drop-ins så att aktiva Redis-kopplingar registreras tillförlitligt oavsett strängrepresentation.
+- **Verifiering:** hard-reload `?v=2.8.4`. Full testsvit i `scratch/test-v280.js`.
 
 ### 🚀 Release v2.8.3: Renodlad Checkout & Högerställd Statusdesign
 
@@ -150,6 +317,15 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 - **Parkerat (löst i v2.7.3):** quic.cloud live-edge (`x-qc-cache`) detektion.
 
 ### 🩹 Release v2.7.1.5: audit remediation (crawl_interval, write maps, aliases)
+### 🚀 Release v2.8.18: Grok Audit Paritet, Korrekt Poängriktning, SCM-skydd & Pedagogisk Ej Uppmätt-guidning
+- **Korrekt poängriktning för No-Abort:** `alert_litespeed_noabort` har `scoreImpact: 5` (dras av korrekt från stabilitet: $100 - 5 = 95$ istället för att felaktigt addera $+5$).
+- **Eliminering av dubbelbestraffning i inställningstabellen:** Inställningar med `scoreImpact === 0` (t.ex. `wf_noabort` och Policy-flaggor) blockeras från automatisk extra sänkning (-3p) i `configSettingsScore`.
+- **Skydd mot feltolkning av SCM-export och PHP-kod:** Kod med PHP-taggar (`<?php`) eller SCM-export tolkas aldrig felaktigt som en ofullständig `.htaccess` även om de innehåller nyckelord som `RewriteRule` eller `<IfModule>`.
+- **Kontextuell filtrering av `wf_noabort`:** Inställningsbrickan inkluderas endast i granskningen när sajten faktiskt kör både LiteSpeed och Wordfence.
+- **WP_POST_REVISIONS telemetri & extraktion:** Tolkning av `define('WP_POST_REVISIONS', ...)` från `wp-config.php`/SCM (Slot 6), `wp-constants` (Slot 1) samt fallback till LiteSpeed DB-revisioner.
+- **Pedagogisk vägledning för "Ej uppmätt":** Varje outfyllt inställningskort har en tydlig instruktionsruta: `💡 För att mäta detta: Klistra in [fil] i [Slot X]`.
+- **Synkade versioner (v2.8.18):** Synkroniserat över UI, script, regler, export och dokumentation.
+
 - **crawler_usleep ↔ crawler-crawl_interval:** INTERNAL `crawler-crawl_interval` → `crawler_usleep`; WRITE `crawler_usleep` → `crawler-crawl_interval` (LSCWP 7.x). Legacy `crawler-usleep` still read. Soft-cover när crawler AV behålls. UI-titel: Crawl Interval.
 - **WRITE maps (KEY_MAPPING_TO_LSCWP):** `optm_font_display` → `optm-css_font_display`; `optm_emojis_rm` → `optm-emoji_rm`; `cache_object` → `object`; `domain_key` → `hash` (export skriver endast `hash`).
 - **READ:** `api_key` → intern `domain_key` (överwrites inte befintlig längre `hash`).
@@ -195,7 +371,26 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 ### 🗄️ Release v2.8.0: Lagring & Mediahygien (Storage & Media Audit)
 - **Katalogstorlekar:** Automatisk kontroll av `wp-content/uploads` och databasstorlek från WordPress Site Health.
 - **Kontextkänsliga trösklar:** Separata varningsnivåer för standard innehållssajter vs WooCommerce/e-handel.
-- **Korsregel med LSCache Backup:** Varnar om originalbackup behålls på disken samtidigt som mediakatalogen är stor.
+### 🩹 Release v2.8.19: SCM Pipeline, Profil-omtolkning, Slot-korrigering & Ärlig Temamätning
+- **SCM Data Pipeline & Parsning:** Åtgärdat felet där SCM-funktioner (`cart_fragments`, `transients_cleanup`) och SCM-version inte kopplades till granskningsreglerna. Parsar nu avregistrering och cron-funktioner från anpassad PHP-kod och JSON i Slot 6 så att de verifieras korrekt.
+- **Råtext-bevarande i Profiler & Omtolkning vid Inläsning:** Sparade profiler sparar nu råtexter (`rawUploadTexts`) och kör den aktuella versionens parsers vid inläsning (`loadProfile`), vilket förhindrar att äldre profilögonblicksbilder fryser inaktuella tolkningsbeslut.
+- **Korrekt Slot-kartläggning och vägledning:** Åtgärdat felaktig hänvisning i tipsrutor och granskning (Wordfence är Slot 3, Elementor Slot 5, SCM/kod Slot 6).
+- **Ärlig Temamätning:** Tema-inställningar (`theme_site_logo`, `theme_header_footer_builder`, paletter och typsnitt) antas inte längre blint vara aktiva utan kräver faktisk mätning från inlästa temadata.
+### 🩹 Release v2.8.21: Dedikerad .htaccess-källa (Slot 7), 8 Slots, Värde saknas & Profilkorts-layout
+- **Dedikerad .htaccess-datakälla (Slot 7):** Introducerat en separat dropzone och parser för `.htaccess`. SCM (Slot 6) renodlas till PHP-källkod och JSON-paket, medan `.htaccess` har sin egen slot med oberoende filstatus och verifiering. LiteSpeed (.data) numreras om till Slot 8.
+- **8 Slots & Statusbar-paritet:** Headerns aktiva sajt-sammanfattning visar nu `0 av 8 filer`, och statusbaren listar alla 8 källor med egna ikoner och tidsstämplar.
+- **Profilkort i Profiler & Historik:** Korttiteln tar nu full bredd (100%), och poängen flyttas till en egen rad under datum/titel med tydliga `Overall score: XX%` och `Config Score: XX%` som separata textbadges.
+- **Terminologibyte "⚪ Värde saknas":** Bytet från "Ej uppmätt / Okänd" till "⚪ Värde saknas" har genomförts konsekvent över filterknappar, sorteringsalternativ, statusbrickor och tipsrutor.
+- **"Alla avvikelser" som komplett åtgärdslista:** Standardfiltret `all_deviations` visar nu både uppmätta avvikelser och saknade värden så att användaren får en samlad översikt över allt som behöver åtgärdas.
+
+### 🩹 Release v2.8.20: Strikt Nyckelordsmatchning, Profil-separering & Avvikelse-paritet
+- **Strikt Nyckelordsmatchning i SCM:** Eliminerat gissningar på lösa ord: `cart_fragments` kräver nu explicit anropsmönster (`wp_dequeue_script`, `wp_deregister_script`, `remove_action` etc.), och transientrensning accepterar endast faktiska batch-rutiner (`delete_expired_transients`, `wc_delete_expired_transients`) och inte vanlig `delete_transient()`.
+- **SCM Version & WooCommerce-isolering:** SCM-version extraheras strikt från SCM-specifika metadata och förväxlas inte med PHP- eller allmänna plugin-headers. WooCommerce-regler utvärderas endast om sajten faktiskt kör WooCommerce (`hasWooCommerce`).
+- **WP_POST_REVISIONS med värdet 0:** Strikt typkontroll säkerställer att `0` (eller `false`) för inaktiverade revisioner inte tolkas som saknat värde eller faller igenom till LiteSpeed DB-standard.
+- **Profilhygien & Samtidig .htaccess/SCM-lagring:** `state.rawUploadTexts` bevarar nu både `.htaccess` och anpassad PHP/SCM i separata fält så att de inte skriver över varandra. Vid tömning av en slot (`clearSlot`) nollställs råtexten korrekt. Äldre profiler flaggas med versionsmeddelande vid inläsning.
+- **LocalStorage Skydd:** Bekräftelse inhämtas från användaren innan äldsta profilen tas bort vid fullt minnesutrymme (`QuotaExceededError`).
+- **Avvikelse- och Policyparitet:** Inställningar med `scoreImpact: 0` (t.ex. `wf_noabort` och policyinställningar) visas med `🔵 Policy / 0p` och räknas inte som poängsänkande avvikelser.
+- **Tydlig Autoload-guidning:** Tipset för `wp_autoload_size` instruerar användaren att klicka på knappen *Kopiera webbplatsinformation till urklipp* i WordPress.
 
 ### ⚡ Release v3.0.0: AreWee Sync Bridge (1-klicks API Sync: Push & Pull)
 - **1-klicks import:** Lättviktig WordPress MU-Plugin / snippet-brygga.

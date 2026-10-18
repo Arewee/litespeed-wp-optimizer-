@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Stylesheet (v2.8.3)
+ * AreWee WP-Optimizer - Stylesheet (v2.8.35)
  * Modern Dark Mode Cockpit UI with Glassmorphism, Neon Accents, and Responsive Layouts
  */
 
@@ -444,6 +444,12 @@ body {
   background: var(--color-info-bg);
   color: #bae6fd;
   border-color: rgba(14, 165, 233, 0.2);
+}
+
+.alert-item.chronic {
+  background: rgba(56, 189, 248, 0.08);
+  color: #bae6fd;
+  border-color: rgba(56, 189, 248, 0.25);
 }
 
 .alert-icon {
@@ -1319,10 +1325,10 @@ input:checked + .slider:before {
 
 .history-card-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.65rem;
 }
 
 .history-card-title {
@@ -1330,10 +1336,15 @@ input:checked + .slider:before {
   font-size: 1.05rem;
   font-weight: 700;
   color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
+  white-space: normal;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.history-card-scores-row {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
 }
 
 .history-card-date {
@@ -1686,6 +1697,27 @@ input:checked + .slider:before {
   transform: translateY(-1px);
 }
 
+/* Quick Slot Toggle Labels */
+.slot-toggle-label {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.4rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.slot-toggle-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent-cyan, #06b6d4);
+  position: relative;
+  z-index: 11;
+}
+
 /* Paste Modal */
 .paste-modal-overlay {
   position: fixed;
@@ -1912,12 +1944,12 @@ input:checked + .slider:before {
 }
 
 /* Risk Component Overview Grids & Cards
- * v2.7.3: auto-fill + min-width:0 so all Verktyg cards wrap/shrink —
- * never clip Wordfence (or Tema/Elementor/SCM/CTM) off-screen via body overflow-x. */
+ * v2.8.9: Broadened to minmax(205px, 1fr) with overflow: hidden and flex-wrap to prevent card overflows
+ * Distinct background styling: Verktyg (Skifferblå) vs Funktioner (Grafitkol) */
 .risk-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 0.6rem;
   margin-bottom: 1.25rem;
   width: 100%;
   box-sizing: border-box;
@@ -1925,41 +1957,43 @@ input:checked + .slider:before {
 
 @media (min-width: 1100px) {
   .risk-status-grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
   }
 }
 
 .risk-functions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 0.6rem;
   margin-bottom: 1.25rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (min-width: 1100px) {
   .risk-functions-grid {
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
   }
 }
 
 .risk-component-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 8px;
-  padding: 0.5rem 0.6rem;
+  padding: 0.55rem 0.65rem;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
   min-width: 0; /* allow grid shrink below nowrap subtext min-content */
   overflow: hidden;
   box-sizing: border-box;
 }
 
 .risk-function-card {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   padding: 0.55rem 0.65rem;
   display: flex;
@@ -1967,18 +2001,63 @@ input:checked + .slider:before {
   gap: 0.3rem;
   transition: all 0.2s ease;
   min-width: 0;
-  box-sizing: border-box;
   overflow: hidden;
+  box-sizing: border-box;
+  cursor: pointer;
 }
 
 .risk-function-card:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
 }
 
-.risk-component-card:hover, .risk-component-card.active {
-  background: rgba(99, 102, 241, 0.08);
-  border-color: rgba(99, 102, 241, 0.35);
+/* Config Completion Horizontal Progress Bar (Liggande stapeldiagram) */
+.config-score-container {
+  width: 100%;
+  margin: 0.85rem 0 0.4rem 0;
+  padding: 0.65rem 0.85rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.config-score-bar-track {
+  width: 100%;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+}
+
+.config-score-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+}
+
+.config-score-bar-label {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.risk-component-card:hover, .risk-component-card.selected {
+  background: rgba(49, 46, 129, 0.35);
+  border-color: rgba(99, 102, 241, 0.45);
   transform: translateY(-1px);
 }
 
@@ -1992,6 +2071,10 @@ input:checked + .slider:before {
 
 .risk-component-card.danger {
   border-left: 3px solid var(--color-danger);
+}
+
+.risk-component-card.chronic {
+  border-left: 3px solid #38bdf8;
 }
 
 /* Risk Filter Buttons */

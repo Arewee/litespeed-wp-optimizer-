@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Exporter / Serializer (v2.8.3)
+ * AreWee WP-Optimizer - Exporter / Serializer (v2.8.35)
  * Provides high-fidelity serialization and deserialization between JavaScript objects,
  * PHP serialized format (.data), LiteSpeed v7 JSON tuple formats, and JSON.
  */
@@ -783,7 +783,7 @@ function generateAutoOptimizerSnippet(editedSettings) {
 /**
  * Plugin Name: AreWee-Optimizer Performance & Compatibility Helper
  * Description: Programmatically configures WooCommerce, Elementor, and Wordfence optimal settings and adds compatibility hooks based on AreWee-Optimizer analysis.
- * Version: 2.8.3
+ * Version: 2.8.35
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1022,7 +1022,7 @@ function generateSyncPluginPhp() {
 /**
  * Plugin Name: AreWee-Optimizer REST Sync Bridge
  * Description: Säker REST API-brygga för att exportera och importera diagnos- och inställningsdata till AreWee-Optimizer.
- * Version: 2.8.3
+ * Version: 2.8.35
  * Author: AreWee-Optimizer
  * License: GPL2
  */
@@ -1315,7 +1315,7 @@ function wp_optimizer_sync_get_diagnostics() {
 
     return array(
         'status' => 'success',
-        'syncPluginVersion' => '2.8.3',
+        'syncPluginVersion' => '2.8.35',
         'generated_at' => current_time('mysql'),
         'sysInfo' => $sysinfo,
         'wooInfo' => $wooinfo,
@@ -1324,7 +1324,7 @@ function wp_optimizer_sync_get_diagnostics() {
         'uploadedSettings' => $lscwp_options,
         'quicLiveHeaders' => $quic_live_headers,
         'data' => array(
-            'syncPluginVersion' => '2.8.3',
+            'syncPluginVersion' => '2.8.35',
             'sysInfo' => $sysinfo,
             'sysinfo' => $sysinfo,
             'wooInfo' => $wooinfo,
@@ -1386,7 +1386,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   const phpVer = env.phpVersion || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].php_version) || "Okänd";
   const server = env.server || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].httpd_software) || "Okänd";
   const theme = env.theme || (state.sysInfo && state.sysInfo["wp-active-theme"] && state.sysInfo["wp-active-theme"].name) || "Okänt";
-  const phpMem = env.phpMemoryLimit || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].php_memory_limit) || "Ej uppmätt";
+  const phpMem = env.phpMemoryLimit || (state.sysInfo && state.sysInfo["wp-server"] && state.sysInfo["wp-server"].php_memory_limit) || "Värde saknas";
   const wpMem = env.wpMemoryLimit || (state.sysInfo && state.sysInfo["wp-constants"] && state.sysInfo["wp-constants"].WP_MEMORY_LIMIT) || "Ej definierad (WP default: 40M)";
   const wpMaxMem = env.wpMaxMemoryLimit || (state.sysInfo && state.sysInfo["wp-constants"] && state.sysInfo["wp-constants"].WP_MAX_MEMORY_LIMIT) || "Ej definierad (WP default: 256M)";
   const disableCron = env.disableWpCron;
@@ -1401,7 +1401,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
     return fallback;
   }
 
-  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.8.3)\n\n`;
+  let md = `# AreWee-Optimizer: Fullständig Site-Report & Second Opinion (v2.8.35)\n\n`;
   md += `**Sajt:** \`${siteUrl}\`\n`;
   md += `**Genererad:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n`;
   md += `**Syfte:** Oberoende granskning (Second Opinion) av WordPress prestanda, stabilitet och säkerhetskonfiguration mot LiteSpeed Cache, WooCommerce, Elementor, Wordfence, SCM, CTM och Aktivt Tema.\n\n`;
@@ -1433,7 +1433,8 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
 
     let out = `**Identifierade risker & avvikelser (${compAlerts.length} st):**\n\n`;
     compAlerts.forEach((a, i) => {
-      out += `#### ${i + 1}. [${a.type.toUpperCase()}] ${a.title}\n`;
+      const typeLabel = (a.isChronic || a.type === "chronic") ? "KRONISKT" : (a.type === "danger" ? "KRITISK" : (a.type === "warning" ? "VARNING" : a.type.toUpperCase()));
+      out += `#### ${i + 1}. [${typeLabel}] ${a.title}\n`;
       out += `- **Beskrivning:** ${a.desc}\n`;
       if (a.source) out += `- **Källa:** ${a.source}\n`;
       if (a.compatibility) out += `- **Kompatibilitet:** ${a.compatibility}\n`;
@@ -1476,9 +1477,9 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
           const hasSettings = !!(state.uploadedSettings && Object.keys(state.uploadedSettings).length > 0);
           const hasMeas = state.uploadedSettings && state.uploadedSettings.hasOwnProperty(opt.id);
           comp = {
-            currentDisplay: hasMeas ? String(state.uploadedSettings[opt.id]) : (hasSettings ? "Standardvärde (ej modifierad i .data)" : "Ej inläst (Kräver Slot 7)"),
+            currentDisplay: hasMeas ? String(state.uploadedSettings[opt.id]) : (hasSettings ? "Standardvärde (ej modifierad i .data)" : "Ej inläst (Kräver Slot 9)"),
             recommendedDisplay: String(opt.recommendedRaw),
-            statusLabel: hasMeas ? "🟢 Optimal" : (hasSettings ? "⚪ LSCWP Standard" : "⚪ Ej uppmätt")
+            statusLabel: hasMeas ? "🟢 Optimal" : (hasSettings ? "⚪ LSCWP Standard" : "⚪ Värde saknas")
           };
         }
 
@@ -1501,6 +1502,9 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
     });
     return out;
   }
+
+  // --- 1B. SERVER & WORDPRESS CORE SETTINGS ---
+  md += renderSettingsSection(["core_server"]);
 
   // --- 2. LITESPEED CACHE ---
   md += `## 2. ⚡ LiteSpeed Cache (LSCWP)\n`;
@@ -1538,7 +1542,26 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   // --- 5. WORDFENCE SECURITY ---
   md += `## 5. 🔒 Wordfence Security\n`;
   md += `- **Installerad version:** ${env.hasWordfence ? env.wfVersion : "Ej installerad"}\n`;
-  md += `- **IP-header bakom proxy/LiteSpeed:** \`${getMeasuredVal("wf_ip_header", "HTTP_X_FORWARDED_FOR")}\`\n\n`;
+  md += `- **IP-header (How Wordfence gets IPs):** \`${getMeasuredVal("wf_ip_header", "REMOTE_ADDR")}\`\n`;
+  if (env.hasWordfence && env.isLiteSpeedServer) {
+    let noabortReport = "⚪ Värde saknas (Kontrollera att följande rewrite-block finns i .htaccess):";
+    if (env.noabortActive === true) {
+      const srcStr = env.noabortSource === "scm" ? "SCM" : (env.noabortSource === "wordfence" ? "Wordfence" : ".htaccess");
+      noabortReport = `🟢 PÅ (noabort:1 aktiv via ${srcStr})`;
+    } else if (env.noabortActive === false) {
+      const isHt = !!env.hasHtaccessFile;
+      const isComplete = !!env.isCompleteHtaccess;
+      noabortReport = (isHt && isComplete)
+        ? "⚠️ AV (Saknas i .htaccess) - Lägg till följande rewrite-block överst i .htaccess:"
+        : (isHt && !isComplete)
+          ? "⚠️ AV (Enligt Wordfence · .htaccess ej komplett) - Lägg till följande rewrite-block överst i .htaccess:"
+          : "⚠️ AV (Enligt Wordfence · .htaccess ej inläst) - Lägg till följande rewrite-block överst i .htaccess:";
+    }
+    md += `- **LiteSpeed No-Abort (.htaccess):** ${noabortReport}\n\n`;
+    if (env.noabortActive !== true) {
+      md += `\`\`\`apache\n# BEGIN litespeed noabort\n<IfModule rewrite_module>\nRewriteEngine On\nRewriteRule .* - [E=noabort:1]\n</IfModule>\n# END litespeed noabort\n\`\`\`\n\n`;
+    }
+  }
   md += renderComponentAlerts("wordfence");
   md += renderSettingsSection(["wordfence"]);
 
@@ -1579,7 +1602,7 @@ function generateSecondOpinionMarkdown(arg1, arg2) {
   md += `2. **Online Media Masters (Tom Dupuis):** Beprövade riktlinjer för LSCWP + Elementor/WooCommerce.\n`;
   md += `3. **WordPress Core / WooCommerce Handbook:** Officiella standarder för stabilitet och säkerhet.\n\n`;
 
-  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.8.3*\n`;
+  md += `---\n*Genererad automatiskt av AreWee WP-Optimizer v2.8.35*\n`;
 
   return md;
 }
@@ -1592,11 +1615,11 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     return "# AreWee-Optimizer: Ingen sparad historik tillgänglig.";
   }
 
-  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.8.3)\n\n`;
+  let md = `# AreWee-Optimizer: Multi-Site Sammanställning (Batch Second Opinion v2.8.35)\n\n`;
   md += `**Antal analyserade sajter:** ${historyList.length}\n`;
   md += `**Datum:** ${new Date().toISOString().replace('T', ' ').substring(0, 19)}\n\n`;
 
-  md += `| Sajt / Domän | WP | PHP | Server | Tema | WooCommerce | Elementor | Wordfence | Health Score |\n`;
+  md += `| Sajt / Domän | WP | PHP | Server | Tema | WooCommerce | Elementor | Wordfence | Overall Score / Config |\n`;
   md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
   historyList.forEach(item => {
@@ -1608,12 +1631,16 @@ function generateBatchSecondOpinionMarkdown(historyList) {
     const woo = item.hasWoo ? "Ja" : "Nej";
     const elem = item.hasElem ? "Ja" : "Nej";
     const wf = item.hasWordfence ? "Aktiv" : (item.wfVersion ? `v${item.wfVersion}` : "Nej");
-    const score = item.healthScore ? `${item.healthScore}/100` : "-";
+    const overall = item.healthScore !== undefined ? `${item.healthScore}%` : "-";
+    const conf = item.configScore !== undefined ? `${item.configScore}%` : (item.healthScore !== undefined ? `${item.healthScore}%` : "-");
+    const score = (item.healthScore !== undefined && item.configScore !== undefined && item.healthScore !== item.configScore)
+      ? `${overall} / ${conf}`
+      : overall;
     md += `| **${siteName}** | ${wp} | ${php} | ${srv} | ${theme} | ${woo} | ${elem} | ${wf} | ${score} |\n`;
   });
 
   md += `\n\n---\n\n`;
-  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.8.3*\n`;
+  md += `*Genererad automatiskt av AreWee WP-Optimizer v2.8.35*\n`;
 
   return md;
 }

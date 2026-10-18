@@ -1,6 +1,6 @@
 /**
  * LiteSpeed & WordPress Optimizer - Main Application Controller
- * Version: 2.8.3
+ * Version: 2.8.35
  * Multi-file upload handlers, advanced WooCommerce, Wordfence, Elementor status parsers,
  * Custom PHP/CSS code static analyzer, three-tiered auditing, and settings comparison.
  * Implements permanently visible top bar slots, collapsible sidebar elements,
@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
-  const APP_VERSION = "2.8.3";
+  const APP_VERSION = "2.8.35";
   try { window.APP_VERSION = APP_VERSION; } catch (e) {}
 
   // Prevent browser from navigating away and opening dropped files globally
@@ -33,11 +33,27 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- STATE ---
   let state = {
     sysInfo: null,
+    autoloadInfo: null,
     wooInfo: null,
     wfInfo: null,
+    themeInfo: null,
     elemInfo: null,
     customCodeInfo: null,
+    scmInfo: null,
+    htaccessInfo: null,
     customCss: "", // Paste CSS string
+    rawUploadTexts: {
+      sysinfo: null,
+      autoload: null,
+      woocommerce: null,
+      wordfence: null,
+      theme: null,
+      elementor: null,
+      customcode: null,
+      htaccess: null,
+      settings: null,
+      customcss: null
+    },
     uploadedSettings: null,
     analysisResults: null,
     activeTabId: "general",
@@ -48,50 +64,65 @@ document.addEventListener("DOMContentLoaded", () => {
     psiScores: null,
     quicLiveHeaders: undefined, // undefined=unprobed; null=probed/failed; object=header map
     editedSettings: {}, // Active options configuration (1 for ON, 0 for OFF, or strings)
+    manualToggles: {
+      wfLiveTraffic: false,
+      themeMiniCart: false,
+      elemMenuCart: false
+    },
     apiUrl: "",
     apiToken: "",
     uploadMetadata: {
       sysInfo: { name: "", timestamp: "" },
+      autoloadInfo: { name: "", timestamp: "" },
       wooInfo: { name: "", timestamp: "" },
       wfInfo: { name: "", timestamp: "" },
       themeInfo: { name: "", timestamp: "" },
       elemInfo: { name: "", timestamp: "" },
       customCodeInfo: { name: "", timestamp: "" },
+      htaccessInfo: { name: "", timestamp: "" },
       uploadedSettings: { name: "", timestamp: "" }
     }
   };
 
   // --- DOM ELEMENT REFERENCES ---
   const sysInfoDropzone = document.getElementById("sysinfo-dropzone");
+  const autoloadDropzone = document.getElementById("autoload-dropzone");
   const woocommerceDropzone = document.getElementById("woocommerce-dropzone");
   const wordfenceDropzone = document.getElementById("wordfence-dropzone");
   const themeDropzone = document.getElementById("theme-dropzone");
   const elementorDropzone = document.getElementById("elementor-dropzone");
   const customcodeDropzone = document.getElementById("customcode-dropzone");
+  const htaccessDropzone = document.getElementById("htaccess-dropzone");
   const settingsDropzone = document.getElementById("settings-dropzone");
 
   const sysInfoInput = document.getElementById("sysinfo-input");
+  const autoloadInput = document.getElementById("autoload-input");
   const woocommerceInput = document.getElementById("woocommerce-input");
   const wordfenceInput = document.getElementById("wordfence-input");
   const themeInput = document.getElementById("theme-input");
   const elementorInput = document.getElementById("elementor-input");
   const customcodeInput = document.getElementById("customcode-input");
+  const htaccessInput = document.getElementById("htaccess-input");
   const settingsInput = document.getElementById("settings-input");
   
   const sysInfoStatus = document.getElementById("sysinfo-status");
+  const autoloadStatus = document.getElementById("autoload-status");
   const woocommerceStatus = document.getElementById("woocommerce-status");
   const wordfenceStatus = document.getElementById("wordfence-status");
   const themeStatus = document.getElementById("theme-status");
   const elementorStatus = document.getElementById("elementor-status");
   const customcodeStatus = document.getElementById("customcode-status");
+  const htaccessStatus = document.getElementById("htaccess-status");
   const settingsStatus = document.getElementById("settings-status");
   
   const sysInfoSummary = document.getElementById("sysinfo-summary");
+  const autoloadSummary = document.getElementById("autoload-summary");
   const woocommerceSummary = document.getElementById("woocommerce-summary");
   const wordfenceSummary = document.getElementById("wordfence-summary");
   const themeSummary = document.getElementById("theme-summary");
   const elementorSummary = document.getElementById("elementor-summary");
   const customcodeSummary = document.getElementById("customcode-summary");
+  const htaccessSummary = document.getElementById("htaccess-summary");
   const settingsSummary = document.getElementById("settings-summary");
 
   // --- MASTER VIEW NAVIGATION SYSTEM ---
@@ -268,12 +299,56 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- EVENT ATTACHMENTS & DRAG/DROP ---
   setupDragAndDrop(sysInfoDropzone, sysInfoInput, handleSysInfoFile);
+  setupDragAndDrop(autoloadDropzone, autoloadInput, handleAutoloadFile);
   setupDragAndDrop(woocommerceDropzone, woocommerceInput, handleWooCommerceFile);
   setupDragAndDrop(wordfenceDropzone, wordfenceInput, handleWordfenceFile);
   setupDragAndDrop(themeDropzone, themeInput, handleThemeFile);
   setupDragAndDrop(elementorDropzone, elementorInput, handleElementorFile);
   setupDragAndDrop(customcodeDropzone, customcodeInput, handleCustomCodeFile);
+  setupDragAndDrop(htaccessDropzone, htaccessInput, handleHtaccessFile);
   setupDragAndDrop(settingsDropzone, settingsInput, handleSettingsFile);
+
+  // --- SLOT QUICK TOGGLES (WORDFENCE, TEMA, ELEMENTOR) ---
+  const toggleWfLiveTraffic = document.getElementById("toggle-wf-live-traffic");
+  const toggleThemeMiniCart = document.getElementById("toggle-theme-mini-cart");
+  const toggleElemMenuCart = document.getElementById("toggle-elem-menu-cart");
+
+  // Prevent clicks from bubbling up to .upload-zone and opening Finder/file picker
+  [toggleWfLiveTraffic, toggleThemeMiniCart, toggleElemMenuCart].forEach(toggle => {
+    if (!toggle) return;
+    toggle.addEventListener("click", (e) => e.stopPropagation());
+    toggle.addEventListener("change", (e) => e.stopPropagation());
+    const parentLabel = (typeof toggle.closest === "function") ? toggle.closest(".slot-toggle-label") : (toggle.parentElement || null);
+    if (parentLabel && typeof parentLabel.addEventListener === "function") {
+      parentLabel.addEventListener("click", (e) => e.stopPropagation());
+    }
+  });
+
+  if (toggleWfLiveTraffic) {
+    toggleWfLiveTraffic.addEventListener("change", () => {
+      state.manualToggles.wfLiveTraffic = toggleWfLiveTraffic.checked;
+      if (!toggleWfLiveTraffic.checked && state.rawUploadTexts.wordfence) {
+        try {
+          state.wfInfo = parseWordfenceDiagnostic(state.rawUploadTexts.wordfence);
+        } catch (e) {}
+      }
+      silentUpdateAnalysis();
+    });
+  }
+
+  if (toggleThemeMiniCart) {
+    toggleThemeMiniCart.addEventListener("change", () => {
+      state.manualToggles.themeMiniCart = toggleThemeMiniCart.checked;
+      silentUpdateAnalysis();
+    });
+  }
+
+  if (toggleElemMenuCart) {
+    toggleElemMenuCart.addEventListener("change", () => {
+      state.manualToggles.elemMenuCart = toggleElemMenuCart.checked;
+      silentUpdateAnalysis();
+    });
+  }
 
   // --- PASTE MODAL & DIRECT CLIPBOARD INGESTION ---
   let activePasteSlot = null;
@@ -286,12 +361,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const slotLabels = {
     sysinfo: "1. WP-system",
-    woocommerce: "2. WooCommerce",
-    wordfence: "3. Wordfence",
-    theme: "4. Tema",
-    elementor: "5. Elementor",
-    customcode: "6. SCM",
-    settings: "7. LiteSpeed"
+    autoload: "2. Autoload Status",
+    woocommerce: "3. WooCommerce",
+    wordfence: "4. Wordfence",
+    theme: "5. Tema",
+    elementor: "6. Elementor",
+    customcode: "7. SCM",
+    htaccess: "8. .htaccess",
+    settings: "9. LiteSpeed"
   };
 
   const ALLOWED_EXTENSIONS = [".txt", ".json", ".data", ".php", ".css", ".log", ".conf"];
@@ -349,6 +426,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (lower.startsWith("scm-export-") || lower.includes("scm") || lower.includes("snippets") || lower.includes("site-code") || lower.endsWith(".php")) {
       return "customcode";
     }
+    if (lower.includes("htaccess") || lower.endsWith(".htaccess")) {
+      return "htaccess";
+    }
+    if (lower.includes("autoload")) {
+      return "autoload";
+    }
     if (lower.includes("systemfil") || lower.includes("site-health") || lower.includes("wp-info") || lower.includes("wp-health") || lower.includes("system-report") || lower.includes("wp-system")) {
       return "sysinfo";
     }
@@ -396,6 +479,12 @@ document.addEventListener("DOMContentLoaded", () => {
         trimmed.includes("Wordfence Live Traffic") || 
         trimmed.includes("How Wordfence gets IPs") || 
         trimmed.includes("Wordfence Memory Limit") || 
+        trimmed.includes("Traffic logging mode") ||
+        trimmed.includes("traffic logging mode") ||
+        trimmed.includes("Trafikloggning") ||
+        trimmed.includes("trafikloggning") ||
+        trimmed.includes("Live Traffic Options") ||
+        /live\s*traffic\s*[:=-]/i.test(trimmed) ||
         (trimmed.includes("Firewall Mode:") && trimmed.includes("wf_")) || 
         trimmed.toLowerCase().includes("wordfence diagnostic report") ||
         trimmed.includes("wordfence-diagnostic") ||
@@ -407,11 +496,41 @@ document.addEventListener("DOMContentLoaded", () => {
     if (trimmed.includes("astra-settings") || trimmed.includes("astra_settings") || trimmed.includes("blocksy_options") || trimmed.includes('"astra"') || trimmed.includes("wp-active-theme") || (trimmed.includes("theme") && (trimmed.includes("google_fonts") || trimmed.includes("fonts.googleapis") || trimmed.includes("customizer")))) {
       return "theme";
     }
-    // 6. Custom code / SCM
-    if (trimmed.startsWith("<?php") || trimmed.includes("add_action(") || trimmed.includes("Site Code Manager") || trimmed.includes('"isScmPackage"') || (trimmed.includes('"snippets"') && trimmed.includes("["))) {
+
+    const hasHtaccessDirectives = (
+      trimmed.includes("E=noabort:1") || 
+      trimmed.includes("REDIRECT_noabort") || 
+      trimmed.includes("SetEnv noabort") || 
+      /RewriteRule.*noabort/i.test(trimmed) ||
+      trimmed.includes("<IfModule") || 
+      trimmed.includes("RewriteEngine") ||
+      trimmed.includes("RewriteRule") ||
+      trimmed.includes("# BEGIN litespeed") ||
+      trimmed.includes("# BEGIN WordPress") ||
+      trimmed.includes("# BEGIN LSCACHE")
+    );
+
+    const hasPhpCode = (
+      trimmed.startsWith("<?php") || 
+      trimmed.includes("add_action(") || 
+      trimmed.includes("add_filter(") || 
+      trimmed.includes("Site Code Manager") || 
+      trimmed.includes('"isScmPackage"') || 
+      (trimmed.includes('"snippets"') && trimmed.includes("[")) || 
+      trimmed.includes("WP_POST_REVISIONS")
+    );
+
+    // 6. .htaccess (Apache / LiteSpeed directives without PHP code)
+    if (hasHtaccessDirectives && !hasPhpCode) {
+      return "htaccess";
+    }
+
+    // 7. Custom code / SCM / wp-config snippets
+    if (hasPhpCode) {
       return "customcode";
     }
-    // 7. LiteSpeed .data settings (PHP serialize, classic keys, OR LSCWP 7.1.9+ JSON tuples)
+
+    // 8. LiteSpeed .data settings (PHP serialize, classic keys, OR LSCWP 7.1.9+ JSON tuples)
     const hasTupleHelper = (typeof looksLikeLscwpJsonTuples === "function")
       ? looksLikeLscwpJsonTuples(trimmed)
       : (typeof window !== "undefined" && typeof window.looksLikeLscwpJsonTuples === "function" && window.looksLikeLscwpJsonTuples(trimmed));
@@ -428,6 +547,18 @@ document.addEventListener("DOMContentLoaded", () => {
       return "settings";
     }
 
+    // 9. Autoload Status (WordPress Site Health Status prose or LiteSpeed Databas)
+    const isAutoloadProse = (
+      trimmed.includes("automatiskt laddade inställningar") ||
+      trimmed.includes("automatiskt inlästa inställningar") ||
+      (trimmed.includes("autoload") && (trimmed.includes("storlek:") || trimmed.includes("size:") || trimmed.includes("options"))) ||
+      /autoload\s+(?:size|storlek):/i.test(trimmed) ||
+      /^([0-9.,]+\s*(?:[KMG]?B|bytes?)?)$/i.test(trimmed)
+    );
+    if (isAutoloadProse && !trimmed.includes("###") && !trimmed.includes("==") && trimmed.length < 15000) {
+      return "autoload";
+    }
+
     // Secondary fallback: If filenameHint is available and text contains relevant partial match
     if (filenameHint) {
       if (filenameHint === "elementor" && (trimmed.includes("Elementor") || trimmed.includes("== Server Environment =="))) return "elementor";
@@ -435,7 +566,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (filenameHint === "wordfence" && (trimmed.includes("Wordfence") || trimmed.includes("wf"))) return "wordfence";
       if (filenameHint === "theme" && (trimmed.includes("theme") || trimmed.includes("astra") || trimmed.includes("blocksy"))) return "theme";
       if (filenameHint === "settings" && (trimmed.startsWith("a:") || trimmed.includes("cache") || trimmed.includes("optm"))) return "settings";
-      if (filenameHint === "customcode" && (trimmed.includes("<?php") || trimmed.includes("function") || trimmed.includes("snippets"))) return "customcode";
+      if (filenameHint === "htaccess" && (hasHtaccessDirectives || trimmed.includes("Rewrite") || trimmed.includes("noabort"))) return "htaccess";
+      if (filenameHint === "customcode" && (hasPhpCode || trimmed.includes("function") || trimmed.includes("snippets") || trimmed.includes("WP_POST_REVISIONS"))) return "customcode";
+      if (filenameHint === "autoload" && (isAutoloadProse || trimmed.includes("autoload") || trimmed.includes("KB") || trimmed.includes("MB") || trimmed.includes("bytes"))) return "autoload";
       if (filenameHint === "sysinfo" && trimmed.includes("wp-")) return "sysinfo";
     }
 
@@ -480,6 +613,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (targetSlot === "sysinfo") {
       processSysInfoText(text, finalSourceName);
+    } else if (targetSlot === "autoload") {
+      processAutoloadText(text, finalSourceName);
     } else if (targetSlot === "woocommerce") {
       processWooCommerceText(text, finalSourceName);
     } else if (targetSlot === "wordfence") {
@@ -490,6 +625,8 @@ document.addEventListener("DOMContentLoaded", () => {
       processElementorText(text, finalSourceName);
     } else if (targetSlot === "customcode") {
       processCustomCodeTextData(text, finalSourceName);
+    } else if (targetSlot === "htaccess") {
+      processHtaccessTextData(text, finalSourceName);
     } else if (targetSlot === "settings") {
       // Layer 2: validate that content actually parses as LSCWP settings
       try {
@@ -888,72 +1025,143 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- URL EXTRACTION HELPER ---
   function extractSiteUrl(sysInfo, wooInfo, rawText) {
-    if (sysInfo) {
-      if (sysInfo["wp-core"]) {
-        const core = sysInfo["wp-core"];
+    const isVendorDomain = (u) => {
+      if (!u) return true;
+      const lu = String(u).toLowerCase();
+      return lu.includes("wordpress.org") ||
+             lu.includes("github.com") ||
+             lu.includes("litespeedtech.com") ||
+             lu.includes("gravatar.com") ||
+             lu.includes("schema.org") ||
+             lu.includes("w3.org") ||
+             lu.includes("w.org") ||
+             lu.includes("googleapis.com") ||
+             lu.includes("wpastra.com") ||
+             lu.includes("elementor.com") ||
+             lu.includes("woocommerce.com") ||
+             lu.includes("automattic.com") ||
+             lu.includes("wordfence.com") ||
+             lu.includes("defiant.com") ||
+             lu.includes("inleed.se") ||
+             lu.includes("inleed.net") ||
+             lu.includes("quic.cloud") ||
+             lu.includes("cloudflare.com");
+    };
+
+    // 1. Highest priority: explicit site_url or home_url from wp-core
+    if (sysInfo && sysInfo["wp-core"]) {
+      const core = sysInfo["wp-core"];
+      const primaryKeys = ["site_url", "home_url", "home", "siteurl", "webbplatsadress", "webbadress"];
+      for (const pk of primaryKeys) {
         for (const k of Object.keys(core)) {
-          const lk = k.toLowerCase();
-          if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("webbplatsadress") || lk.includes("webbadress") || lk === "url" || lk.includes("siteurl") || lk.includes("homeurl")) {
+          if (k.toLowerCase() === pk) {
             const val = core[k];
-            if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
-          }
-        }
-      }
-      for (const sec of Object.keys(sysInfo)) {
-        if (typeof sysInfo[sec] === "object" && sysInfo[sec] !== null) {
-          for (const k of Object.keys(sysInfo[sec])) {
-            const lk = k.toLowerCase();
-            if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("webbplatsadress") || lk.includes("webbadress")) {
-              const val = sysInfo[sec][k];
-              if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
-            }
+            if (val && typeof val === "string" && val.startsWith("http") && !isVendorDomain(val)) return val.trim();
           }
         }
       }
     }
+
+    // 2. Second priority: WooCommerce Environment site_url / home_url
     if (wooInfo) {
-      if (wooInfo.site_url && typeof wooInfo.site_url === "string" && wooInfo.site_url.startsWith("http")) return wooInfo.site_url.trim();
-      if (wooInfo.home_url && typeof wooInfo.home_url === "string" && wooInfo.home_url.startsWith("http")) return wooInfo.home_url.trim();
+      if (wooInfo.site_url && typeof wooInfo.site_url === "string" && wooInfo.site_url.startsWith("http") && !isVendorDomain(wooInfo.site_url)) return wooInfo.site_url.trim();
+      if (wooInfo.home_url && typeof wooInfo.home_url === "string" && wooInfo.home_url.startsWith("http") && !isVendorDomain(wooInfo.home_url)) return wooInfo.home_url.trim();
       if (wooInfo.environment) {
         for (const k of Object.keys(wooInfo.environment)) {
           const lk = k.toLowerCase();
-          if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("url")) {
+          if (lk === "site_url" || lk === "home_url" || lk === "siteurl" || lk === "homeurl") {
             const val = wooInfo.environment[k];
-            if (val && typeof val === "string" && val.startsWith("http")) return val.trim();
+            if (val && typeof val === "string" && val.startsWith("http") && !isVendorDomain(val)) return val.trim();
           }
         }
       }
     }
-    if (rawText && typeof rawText === "string") {
-      const match = rawText.match(/(?:site_url|home_url|webbplatsadress|webbadress|siteurl|homeurl|site url|home url)\s*[:=]\s*(https?:\/\/[^\s\r\n]+)/i);
-      if (match) return match[1].trim();
-      const genericUrls = rawText.match(/https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s\r\n]*)?/g);
-      if (genericUrls) {
-        for (const u of genericUrls) {
-          const lu = u.toLowerCase();
-          if (!lu.includes("wordpress.org") && !lu.includes("github.com") && !lu.includes("litespeedtech.com") && !lu.includes("gravatar.com") && !lu.includes("schema.org") && !lu.includes("w3.org") && !lu.includes("w.org") && !lu.includes("googleapis.com")) {
-            try {
-              const parsed = new URL(u);
-              return `${parsed.protocol}//${parsed.host}`;
-            } catch (e) {
-              return u;
+
+    // 3. Fallback: other sysInfo sections (excluding theme/author fields)
+    if (sysInfo) {
+      for (const sec of Object.keys(sysInfo)) {
+        const secLower = sec.toLowerCase();
+        if (secLower.includes("theme") || secLower.includes("plugin") || secLower.includes("dropin")) continue;
+        if (typeof sysInfo[sec] === "object" && sysInfo[sec] !== null) {
+          for (const k of Object.keys(sysInfo[sec])) {
+            const lk = k.toLowerCase();
+            if (lk.includes("author") || lk.includes("theme") || lk.includes("plugin")) continue;
+            if (lk.includes("site_url") || lk.includes("home_url") || lk.includes("webbplatsadress") || lk.includes("webbadress")) {
+              const val = sysInfo[sec][k];
+              if (val && typeof val === "string" && val.startsWith("http") && !isVendorDomain(val)) return val.trim();
             }
           }
         }
       }
+    }
+
+    // 4. Raw text regex strictly matching site/home labels (never author_website or generic URL scan)
+    if (rawText && typeof rawText === "string") {
+      const match = rawText.match(/(?:^|\n)\s*(?:site_url|home_url|webbplatsadress|webbadress|siteurl|homeurl|site url|home url)\s*[:=]\s*(https?:\/\/[^\s\r\n]+)/i);
+      if (match && !isVendorDomain(match[1])) return match[1].trim();
     }
     return null;
   }
 
+
+  /**
+   * v2.8.29: Single Source of Truth for .htaccess and noabort status.
+   * Centralizes determination across slot card, active status counter,
+   * overview sources tab, rules engine, and exporter.
+   */
+  function getHtaccessStatus() {
+    const hasRawText = !!(state.rawUploadTexts && state.rawUploadTexts.htaccess && state.rawUploadTexts.htaccess.trim());
+    const metaName = (state.uploadMetadata && state.uploadMetadata.htaccessInfo && state.uploadMetadata.htaccessInfo.name) 
+      ? state.uploadMetadata.htaccessInfo.name.trim() 
+      : "";
+    const hasMeta = !!metaName;
+    const hasInfoRaw = !!(state.htaccessInfo && state.htaccessInfo.rawText && state.htaccessInfo.rawText.trim());
+    const isLoaded = hasRawText || hasMeta || hasInfoRaw;
+
+    let noabortValue = null;
+    let noabortSource = "none";
+
+    // Primary: Direct .htaccess in Slot 8
+    if (isLoaded && state.htaccessInfo && state.htaccessInfo.hasNoabort !== null && state.htaccessInfo.hasNoabort !== undefined) {
+      noabortValue = !!state.htaccessInfo.hasNoabort;
+      noabortSource = "htaccess";
+    }
+    // Secondary: SCM code snippets in Slot 7 (if hasNoabort defined in snippet)
+    else if (state.scmInfo && state.scmInfo.hasNoabort !== null && state.scmInfo.hasNoabort !== undefined) {
+      noabortValue = !!state.scmInfo.hasNoabort;
+      noabortSource = "scm";
+    }
+    // Tertiary: Wordfence diagnostic report in Slot 4
+    else if (state.wfInfo && state.wfInfo.noabort_active !== null && state.wfInfo.noabort_active !== undefined) {
+      noabortValue = !!state.wfInfo.noabort_active;
+      noabortSource = "wordfence";
+    }
+
+    return {
+      isLoaded,
+      isComplete: !!(state.htaccessInfo && state.htaccessInfo.isCompleteHtaccess),
+      fileName: metaName || (isLoaded ? ".htaccess (Inläst)" : ""),
+      timestamp: (state.uploadMetadata && state.uploadMetadata.htaccessInfo && state.uploadMetadata.htaccessInfo.timestamp) || "",
+      noabortValue,
+      noabortSource
+    };
+  }
+  try { window.getHtaccessStatus = getHtaccessStatus; } catch (e) {}
 
   /** v2.7.3: Build 9th-arg live context for analyzeSystem (URL + optional QUIC headers). */
   function buildAnalyzeLiveContext() {
     const siteUrl = state.detectedSiteUrl || extractSiteUrl(state.sysInfo, state.wooInfo) ||
       (state.uploadedSettings && (state.uploadedSettings.site_url || state.uploadedSettings.home_url)) ||
       (state.apiUrl || null);
+    const htStatus = getHtaccessStatus();
     return {
       detectedSiteUrl: siteUrl || null,
-      quicLiveHeaders: state.quicLiveHeaders
+      quicLiveHeaders: state.quicLiveHeaders,
+      htaccessInfo: state.htaccessInfo || null,
+      htaccessStatus: htStatus,
+      rawUploadTexts: state.rawUploadTexts || null,
+      autoloadInfo: state.autoloadInfo || null,
+      manualToggles: state.manualToggles || {}
     };
   }
 
@@ -1029,7 +1237,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const isPasted = fileName.startsWith("Inklistrad") || fileName.startsWith("Data (") || fileName.startsWith("pasted ");
       const icon = isPasted ? "📋" : "📁";
       
-      const slotMap = { sysinfo: "sysInfo", woocommerce: "wooInfo", wordfence: "wfInfo", theme: "themeInfo", elementor: "elemInfo", customcode: "customCodeInfo", settings: "uploadedSettings" };
+      const slotMap = { 
+        sysinfo: "sysInfo", 
+        autoload: "autoloadInfo",
+        woocommerce: "wooInfo", 
+        wordfence: "wfInfo", 
+        theme: "themeInfo", 
+        elementor: "elemInfo", 
+        customcode: "customCodeInfo", 
+        htaccess: "htaccessInfo",
+        settings: "uploadedSettings" 
+      };
       const meta = state.uploadMetadata[slotMap[slotKey]];
       let compactDate = "";
       if (meta && meta.timestamp) {
@@ -1048,7 +1266,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (isPasted) {
         displayLabel = `pasted ${compactDate}`;
       } else {
-        let cleanName = fileName.replace(/\.[^/.]+$/, "");
+        let cleanName = fileName;
+        const lastDot = fileName.lastIndexOf(".");
+        if (lastDot > 0) {
+          cleanName = fileName.substring(0, lastDot);
+        }
         if (cleanName.length > 20) {
           cleanName = cleanName.substring(0, 18) + '…';
         }
@@ -1102,6 +1324,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processSysInfoText(text, sourceName) {
     try {
+      state.rawUploadTexts.sysinfo = text;
       state.sysInfo = parseSystemInfoText(text);
       state.uploadMetadata.sysInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
       sysInfoStatus.textContent = "✓ Inläst";
@@ -1137,8 +1360,111 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file);
   }
 
+  function parseAutoloadStatusText(text) {
+    if (!text || typeof text !== "string") return null;
+    const clean = text.trim();
+    
+    // Pattern 1: Swedish / English Site Health Status prose:
+    // "Din webbplats har 1028 automatiskt laddade inställningar (storlek: 239 KB) i tabellen ”options”, vilket är acceptabelt."
+    // or "Automatiskt laddade inställningar är acceptabla ... (storlek: 239 KB)"
+    const proseMatch = clean.match(/(?:automatiskt\s+(?:laddade|inlästa)\s+inställningar|autoload(?:ed)?\s+options?)[^]*?\((?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)/i) ||
+                       clean.match(/\((?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)\)[^]*?i\s+tabellen\s+[”"']?options[”"']?/i) ||
+                       clean.match(/(?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)[^]*?i\s+tabellen\s+[”"']?options[”"']?/i) ||
+                       clean.match(/([0-9.,]+\s*[KMG]?B)\s+automatiskt\s+(?:laddade|inlästa)/i);
+    
+    // Pattern 2: LiteSpeed Cache Database Summary / generic key-value / WP-CLI:
+    // "Autoload Size: 239 KB" or "Total Autoload Size: 239 KB" or "Autoload-storlek: 239 KB" or "autoload_options_size: 244736"
+    const lscwpMatch = clean.match(/(?:total\s+)?autoload\s+(?:size|storlek):\s*([0-9.,]+\s*(?:[KMG]?B|bytes?)?)/i) ||
+                       clean.match(/autoload_options_size[:=]\s*([0-9.,]+\s*(?:[KMG]?B|bytes?)?)/i);
+
+    // Pattern 3: Count
+    const countMatch = clean.match(/([0-9]+)\s+automatiskt\s+(?:laddade|inlästa)\s+inställningar/i) ||
+                       clean.match(/autoload(?:ed)?\s+(?:options?|entries|count|antal)[:=]?\s*([0-9]+)/i) ||
+                       clean.match(/antal\s+(?:autoload|automatiskt)[^:]*:\s*([0-9]+)/i);
+
+    let sizeStr = null;
+    if (proseMatch && proseMatch[1]) {
+      sizeStr = proseMatch[1].trim();
+    } else if (lscwpMatch && lscwpMatch[1]) {
+      sizeStr = lscwpMatch[1].trim();
+    } else {
+      const simpleMatch = clean.match(/^([0-9.,]+\s*(?:[KMG]?B|bytes?)?)$/i);
+      if (simpleMatch) sizeStr = simpleMatch[1].trim();
+    }
+
+    if (!sizeStr) return null;
+
+    // Normalize pure numeric byte strings (e.g. WP-CLI "244736" -> "239 KB")
+    let rawBytes = null;
+    if (/^\d+$/.test(sizeStr)) {
+      rawBytes = parseInt(sizeStr, 10);
+      sizeStr = `${Math.round(rawBytes / 1024)} KB`;
+    }
+
+    return {
+      rawText: clean,
+      size: sizeStr,
+      bytes: rawBytes,
+      count: countMatch ? parseInt(countMatch[1], 10) : null
+    };
+  }
+  try { window.parseAutoloadStatusText = parseAutoloadStatusText; } catch(e) {}
+
+  function processAutoloadText(text, sourceName) {
+    try {
+      state.rawUploadTexts.autoload = text;
+      const parsed = parseAutoloadStatusText(text);
+      if (parsed) {
+        state.autoloadInfo = parsed;
+        state.uploadMetadata.autoloadInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+        
+        if (state.sysInfo && state.sysInfo["wp-database"]) {
+          state.sysInfo["wp-database"].autoload_options_size = parsed.size;
+          state.sysInfo["wp-database"]["Autoload-storlek"] = parsed.size;
+        }
+        
+        if (autoloadStatus) {
+          autoloadStatus.textContent = `✓ Inläst (${parsed.size})`;
+          autoloadStatus.title = `${sourceName}: ${parsed.size}${parsed.count ? " (" + parsed.count + " st)" : ""}`;
+          autoloadStatus.className = "file-status loaded";
+        }
+        updateSlotFileBadge("autoload", sourceName, true);
+        if (autoloadSummary) {
+          autoloadSummary.textContent = `✓ Autoload (${parsed.size})`;
+          autoloadSummary.classList.add("active");
+        }
+      } else {
+        state.autoloadInfo = { rawText: text, size: text.substring(0, 30) };
+        state.uploadMetadata.autoloadInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+        if (autoloadStatus) {
+          autoloadStatus.textContent = "✓ Inläst";
+          autoloadStatus.title = sourceName;
+          autoloadStatus.className = "file-status loaded";
+        }
+        updateSlotFileBadge("autoload", sourceName, true);
+        if (autoloadSummary) {
+          autoloadSummary.textContent = `✓ Autoload (Inläst)`;
+          autoloadSummary.classList.add("active");
+        }
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa Autoload-data: ${err.message}`);
+    }
+  }
+
+  function handleAutoloadFile(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      routeAndProcessContent(e.target.result, "autoload", file.name);
+    };
+    reader.readAsText(file);
+  }
+
   function processWooCommerceText(text, sourceName) {
     try {
+      state.rawUploadTexts.woocommerce = text;
       state.wooInfo = parseWooCommerceStatus(text);
       state.uploadMetadata.wooInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
       woocommerceStatus.textContent = "✓ Inläst";
@@ -1174,7 +1500,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processWordfenceText(text, sourceName) {
     try {
+      state.rawUploadTexts.wordfence = text;
       state.wfInfo = parseWordfenceDiagnostic(text);
+      if (state.wfInfo && state.sysInfo) {
+        if (state.wfInfo.plugins && Object.keys(state.wfInfo.plugins).length > 0) {
+          if (!state.sysInfo["wp-plugins-active"]) state.sysInfo["wp-plugins-active"] = {};
+          for (const [slug, ver] of Object.entries(state.wfInfo.plugins)) {
+            if (!state.sysInfo["wp-plugins-active"][slug]) {
+              state.sysInfo["wp-plugins-active"][slug] = { version: ver };
+            }
+          }
+        }
+        if (state.wfInfo.wpPostRevisions !== null && state.wfInfo.wpPostRevisions !== undefined) {
+          if (!state.sysInfo["wp-constants"]) state.sysInfo["wp-constants"] = {};
+          if (state.sysInfo["wp-constants"].WP_POST_REVISIONS === undefined || state.sysInfo["wp-constants"].WP_POST_REVISIONS === null) {
+            state.sysInfo["wp-constants"].WP_POST_REVISIONS = state.wfInfo.wpPostRevisions;
+          }
+        }
+        if (state.wfInfo.disable_wp_cron !== null && state.wfInfo.disable_wp_cron !== undefined) {
+          if (!state.sysInfo["wp-constants"]) state.sysInfo["wp-constants"] = {};
+          if (state.sysInfo["wp-constants"].DISABLE_WP_CRON === undefined || state.sysInfo["wp-constants"].DISABLE_WP_CRON === null) {
+            state.sysInfo["wp-constants"].DISABLE_WP_CRON = state.wfInfo.disable_wp_cron ? "true" : "false";
+          }
+        }
+      }
       state.uploadMetadata.wfInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
       wordfenceStatus.textContent = "✓ Inläst";
       wordfenceStatus.title = sourceName;
@@ -1188,7 +1537,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
-      if (detectedUrl && !state.detectedSiteUrl) {
+      if (detectedUrl && detectedUrl !== state.detectedSiteUrl) { // v2.8.5: fresh upload wins over sticky URL
         updateDetectedSiteUrl(detectedUrl);
       }
 
@@ -1208,6 +1557,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processElementorText(text, sourceName) {
     try {
+      state.rawUploadTexts.elementor = text;
       state.elemInfo = parseElementorStatus(text);
       if (state.elemInfo && typeof window.sanitizeElementorGoogleFonts === "function") {
         window.sanitizeElementorGoogleFonts(state.elemInfo);
@@ -1225,7 +1575,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text);
-      if (detectedUrl && !state.detectedSiteUrl) {
+      if (detectedUrl && detectedUrl !== state.detectedSiteUrl) { // v2.8.5: fresh upload wins over sticky URL
         updateDetectedSiteUrl(detectedUrl);
       }
 
@@ -1245,14 +1595,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processCustomCodeTextData(text, sourceName) {
     try {
+      const isHtaccess = (sourceName && sourceName.includes(".htaccess")) || (!text.includes("<?php") && !text.includes("function ") && !text.includes("add_action") && !text.includes('"snippets"') && (text.includes("Rewrite") || text.includes("<IfModule") || text.includes("E=noabort") || text.includes("# BEGIN")));
+      if (isHtaccess) {
+        alert("ℹ️ Texten du klistrade in i Slot 7 (SCM) identifierades som serverdirektiv (.htaccess). Den placerades automatiskt i Slot 8 (.htaccess)!");
+        processHtaccessTextData(text, sourceName || ".htaccess");
+        return;
+      }
+      state.rawUploadTexts.customcode = text;
       let parsedScm = null;
       try {
         const json = JSON.parse(text);
-        if (json && (json.snippets || Array.isArray(json))) {
+        if (json && (json.snippets || Array.isArray(json) || json.isScmPackage)) {
           parsedScm = {
             snippets: json.snippets || json,
-            isScmPackage: true
+            isScmPackage: true,
+            version: json.version || (json.metadata && json.metadata.version) || null,
+            cart_fragments: json.cart_fragments !== undefined ? json.cart_fragments : null,
+            cart_fragments_optimized: json.cart_fragments_optimized !== undefined ? json.cart_fragments_optimized : null,
+            transients: json.transients !== undefined ? json.transients : null,
+            transients_cleanup: json.transients_cleanup !== undefined ? json.transients_cleanup : null,
+            wpPostRevisions: json.wpPostRevisions !== undefined ? json.wpPostRevisions : null
           };
+          const snipStr = JSON.stringify(json).toLowerCase();
+          if (parsedScm.cart_fragments === null && (/(?:dequeue|deregister)[^'"]*cart-fragments/i.test(snipStr) || /cart_fragments['"]\s*:\s*true/i.test(snipStr) || /remove_action[^'"]*woocommerce_cart_fragments/i.test(snipStr))) {
+            parsedScm.cart_fragments = true;
+            parsedScm.cart_fragments_optimized = true;
+          }
+          if (parsedScm.transients === null && (/(?:delete_expired_transients|wc_delete_expired_transients|transients_cleanup)/i.test(snipStr) || /transients['"]\s*:\s*true/i.test(snipStr))) {
+            parsedScm.transients = true;
+            parsedScm.transients_cleanup = true;
+          }
         }
       } catch (jsonErr) {
         // Fallback to text parser
@@ -1260,6 +1632,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!parsedScm) {
         parsedScm = parseCustomCodeText(text);
+      }
+
+      if (state.customCodeInfo && typeof state.customCodeInfo === "object" && parsedScm) {
+        parsedScm = Object.assign({}, state.customCodeInfo, parsedScm, {
+          snippets: parsedScm.snippets || state.customCodeInfo.snippets,
+          hasNoabort: (parsedScm.hasNoabort !== null && parsedScm.hasNoabort !== undefined) ? parsedScm.hasNoabort : state.customCodeInfo.hasNoabort,
+          wpPostRevisions: (parsedScm.wpPostRevisions !== null && parsedScm.wpPostRevisions !== undefined) ? parsedScm.wpPostRevisions : state.customCodeInfo.wpPostRevisions,
+          cart_fragments: (parsedScm.cart_fragments !== null && parsedScm.cart_fragments !== undefined) ? parsedScm.cart_fragments : state.customCodeInfo.cart_fragments,
+          cart_fragments_optimized: (parsedScm.cart_fragments_optimized !== null && parsedScm.cart_fragments_optimized !== undefined) ? parsedScm.cart_fragments_optimized : state.customCodeInfo.cart_fragments_optimized,
+          transients: (parsedScm.transients !== null && parsedScm.transients !== undefined) ? parsedScm.transients : state.customCodeInfo.transients,
+          transients_cleanup: (parsedScm.transients_cleanup !== null && parsedScm.transients_cleanup !== undefined) ? parsedScm.transients_cleanup : state.customCodeInfo.transients_cleanup,
+          version: parsedScm.version || state.customCodeInfo.version
+        });
       }
 
       state.scmInfo = parsedScm;
@@ -1290,8 +1675,44 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file);
   }
 
+  function processHtaccessTextData(text, sourceName) {
+    try {
+      state.rawUploadTexts.htaccess = text;
+      const parsed = parseCustomCodeText(text);
+      state.htaccessInfo = parsed;
+      state.uploadMetadata.htaccessInfo = { name: sourceName, timestamp: formatTimestamp(new Date()) };
+
+      if (htaccessStatus) {
+        htaccessStatus.textContent = "✓ Inläst";
+        htaccessStatus.title = sourceName;
+        htaccessStatus.className = "file-status loaded";
+      }
+      updateSlotFileBadge("htaccess", sourceName, true);
+
+      if (htaccessSummary) {
+        const noabortText = parsed.hasNoabort === true ? "noabort:1 aktiv" : (parsed.hasNoabort === false ? "saknar noabort" : `${text.length} tkn`);
+        htaccessSummary.textContent = `✓ .htaccess (${noabortText})`;
+        htaccessSummary.classList.add("active");
+      }
+
+      silentUpdateAnalysis();
+    } catch (err) {
+      alert(`Kunde inte läsa .htaccess-fil: ${err.message}`);
+    }
+  }
+
+  function handleHtaccessFile(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      routeAndProcessContent(e.target.result, "htaccess", file.name);
+    };
+    reader.readAsText(file);
+  }
+
+
   function processSettingsText(text, sourceName) {
     try {
+      state.rawUploadTexts.settings = text;
       state.uploadedSettings = parseSettingsFile(text);
       state.uploadMetadata.uploadedSettings = { name: sourceName, timestamp: formatTimestamp(new Date()) };
       settingsStatus.textContent = "✓ Inläst";
@@ -1317,7 +1738,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const detectedUrl = extractSiteUrl(state.sysInfo, state.wooInfo, text) || (state.uploadedSettings && (state.uploadedSettings.site_url || state.uploadedSettings.home_url));
-      if (detectedUrl && !state.detectedSiteUrl) {
+      if (detectedUrl && detectedUrl !== state.detectedSiteUrl) { // v2.8.5: fresh upload wins over sticky URL
         updateDetectedSiteUrl(detectedUrl);
       }
 
@@ -1338,6 +1759,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processThemeText(text, sourceName) {
     try {
+      state.rawUploadTexts.theme = text;
       let parsedTheme = null;
       try {
         const json = JSON.parse(text);
@@ -1402,11 +1824,18 @@ document.addEventListener("DOMContentLoaded", () => {
             const fieldsObj = (rawSec && rawSec.fields && typeof rawSec.fields === "object") ? rawSec.fields : rawSec;
             if (fieldsObj && typeof fieldsObj === "object") {
               for (const [fKey, fVal] of Object.entries(fieldsObj)) {
-                if (fVal && typeof fVal === "object" && fVal.value !== undefined) {
-                  data[targetKey][fKey] = fVal.value;
-                } else {
-                  data[targetKey][fKey] = fVal;
+                let v = (fVal && typeof fVal === "object" && fVal.value !== undefined) ? fVal.value : fVal;
+                if (targetKey === "wp-constants" && typeof v === "string") {
+                  const vl = v.toLowerCase().trim();
+                  if (vl === "aktiverad" || vl === "enabled" || vl === "aktiv" || vl === "true" || vl === "1" || vl === "ja" || vl === "sant" || vl.includes("definierad (true)")) {
+                    v = "true";
+                  } else if (vl === "inaktiverad" || vl === "disabled" || vl === "inaktiv" || vl === "false" || vl === "0" || vl === "nej" || vl.includes("definierad (false)") || vl.includes("ej definierad")) {
+                    v = "false";
+                  }
                 }
+                data[targetKey][fKey] = v;
+                data[targetKey][fKey.toUpperCase()] = v;
+                data[targetKey][fKey.toLowerCase()] = v;
               }
             }
           }
@@ -1467,10 +1896,10 @@ document.addEventListener("DOMContentLoaded", () => {
           if (colonIndex !== -1) {
             const rawKey = line.substring(0, colonIndex).trim();
             let val = line.substring(colonIndex + 1).trim();
-            const valLower = val.toLowerCase();
-            if (valLower.includes("definierad (true)") || valLower.includes("definierad (sant)") || valLower === "aktiverad" || valLower === "aktiv" || valLower === "ja" || valLower === "definierad") {
+            const valLower = val.toLowerCase().trim();
+            if (valLower.includes("definierad (true)") || valLower.includes("definierad (sant)") || valLower === "aktiverad" || valLower === "aktiv" || valLower === "ja" || valLower === "definierad" || valLower === "enabled" || valLower === "true" || valLower === "1" || valLower === "yes" || valLower === "sant") {
               val = "true";
-            } else if (valLower === "inaktiverad" || valLower === "inaktiv" || valLower === "nej" || valLower.includes("definierad (false)") || valLower.includes("ej definierad")) {
+            } else if (valLower === "inaktiverad" || valLower === "inaktiv" || valLower === "nej" || valLower === "disabled" || valLower === "false" || valLower === "0" || valLower === "no" || valLower.includes("definierad (false)") || valLower.includes("ej definierad")) {
               val = "false";
             }
             data[currentSection][rawKey] = val;
@@ -1491,8 +1920,20 @@ document.addEventListener("DOMContentLoaded", () => {
             data[currentSection][rawK] = val;
             data[currentSection][k] = val;
 
-            // Normalized aliases for OPcache (Swedish & English Site Health raw and localized)
-            if (currentSection === "wp-server") {
+            // Normalized aliases for OPcache, wp-core and wp-dropins
+            if (currentSection === "wp-core") {
+              if (k.includes("site_url") || k.includes("home_url") || k === "home" || k === "siteurl" || k.includes("webbplats") || k.includes("webbadress")) {
+                if (val && typeof val === "string" && val.startsWith("http")) {
+                  data[currentSection].site_url = val.trim();
+                  data[currentSection].home_url = val.trim();
+                }
+              }
+            } else if (currentSection === "wp-dropins") {
+              const valLower = val.toLowerCase().trim();
+              const isDropinOn = valLower === "true" || valLower === "1" || valLower === "aktiverad" || valLower === "enabled" || valLower === "ja" || valLower === "yes" || valLower === "aktiv" || (!valLower.includes("false") && !valLower.includes("nej") && !valLower.includes("inaktiv"));
+              data[currentSection][rawK] = isDropinOn;
+              data[currentSection][k] = isDropinOn;
+            } else if (currentSection === "wp-server") {
               if (k.includes("opcode_cache_full") || k.includes("opcache_is_full") || k.includes("opcache_full") || k.includes("är opcode-cachen fylld") || k.includes("is opcode cache full")) {
                 const valLower = val.toLowerCase();
                 const isFull = valLower === "true" || valLower === "1" || valLower === "ja" || valLower === "yes" || valLower === "sant";
@@ -1511,16 +1952,36 @@ document.addEventListener("DOMContentLoaded", () => {
                 const isOpcodeOn = val === "true" || val === true || val === "1" || val === "enabled" || val === "aktiverad";
                 data[currentSection].opcache_status = isOpcodeOn ? "enabled" : val;
               }
-            } else if (currentSection === "wp-database") {
-              if (k.includes("autoload_options_size") || k.includes("autoloaded_options_size") || k.includes("autoload_size") || k.includes("storlek på automatiskt inlästa alternativ") || k.includes("autoloaded options size") || k.includes("storlek på autoload-alternativ")) {
+            } else if (currentSection === "wp-database" || currentSection === "database" || currentSection === "databas" || currentSection === "wp_database") {
+              if (k.includes("autoload") || k.includes("automatiskt inläst") || k.includes("inlästa alternativ") || k.includes("autoloaded")) {
                 data[currentSection].autoload_options_size = val;
                 data[currentSection]["autoload_options_size"] = val;
+                if (!data["wp-database"]) data["wp-database"] = {};
+                data["wp-database"].autoload_options_size = val;
+                data["wp-database"]["autoload_options_size"] = val;
               }
+            } else if ((k.includes("autoload") || k.includes("automatiskt inläst")) && (val.includes("B") || val.includes("b") || /\d/.test(val))) {
+              if (!data["wp-database"]) data["wp-database"] = {};
+              data["wp-database"].autoload_options_size = val;
+              data["wp-database"]["autoload_options_size"] = val;
             }
           }
         }
       }
     });
+
+    // Support Swedish and English prose from Site Health Status tab or LiteSpeed Database summary
+    const statusProseMatch = text.match(/(?:automatiskt\s+(?:laddade|inlästa)\s+inställningar|autoload(?:ed)?\s+options?)[^]*?\((?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)/i) ||
+                             text.match(/\((?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)\)[^]*?i\s+tabellen\s+[”"']?options[”"']?/i) ||
+                             text.match(/(?:storlek|size):\s*([0-9.,]+\s*[KMG]?B)[^]*?i\s+tabellen\s+[”"']?options[”"']?/i) ||
+                             text.match(/(?:total\s+)?autoload\s+(?:size|storlek):\s*([0-9.,]+\s*[KMG]?B)/i) ||
+                             text.match(/([0-9.,]+\s*[KMG]?B)\s+automatiskt\s+(?:laddade|inlästa)/i);
+    if (statusProseMatch && statusProseMatch[1]) {
+      if (!data["wp-database"]) data["wp-database"] = {};
+      data["wp-database"].autoload_options_size = statusProseMatch[1].trim();
+      data["wp-database"]["autoload_options_size"] = statusProseMatch[1].trim();
+      data["wp-database"]["Autoload-storlek"] = statusProseMatch[1].trim();
+    }
 
     if (Object.keys(data).length === 0) {
       data["wp-server"] = {};
@@ -1553,12 +2014,16 @@ document.addEventListener("DOMContentLoaded", () => {
       gateways: [], 
       overrides: [], 
       hpos_enabled: false, 
-      cart_fragments_dequeued: false, 
-      transients_cleanup_enabled: false,
+      cart_fragments_dequeued: null, 
+      transients_cleanup_enabled: null,
       version: null
     };
     
-    const verMatch = text.match(/WC Version:\s*([0-9.]+)/i) || text.match(/WooCommerce Version:\s*([0-9.]+)/i);
+    const verMatch = text.match(/WC[\s-]?version:\s*([0-9.]+)/i) || text.match(/WooCommerce[\s-]?version:\s*([0-9.]+)/i);
+    const urlMatch = text.match(/^\s*(?:Site address \(URL\)|Webbplatsadress \(URL\)|Home URL)\s*:\s*(https?:\/\/\S+)/im);
+    if (urlMatch) data.home_url = urlMatch[1];
+    const wpUrlMatch = text.match(/^\s*(?:WordPress address \(URL\)|WordPress-adress \(URL\)|Site URL)\s*:\s*(https?:\/\/\S+)/im);
+    if (wpUrlMatch) data.site_url = wpUrlMatch[1];
     if (verMatch) data.version = verMatch[1];
 
     let currentSection = "";
@@ -1592,38 +2057,53 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Explicit Line-by-line check for HPOS
-      if (lower.includes("order datastore") || lower.includes("hpos") || lower.includes("high-performance order storage") || lower.includes("cot enabled") || lower.includes("lagring av orderdata") || lower.includes("orders table") || lower.includes("ordertabeller") || lower.includes("databasdatakälla")) {
-        if (lower.includes("orderstabledatastore") ||
-            lower.includes("enabled: ✔") ||
-            lower.includes("enabled: yes") ||
-            lower.includes("enabled: true") ||
-            lower.includes("enabled: 1") ||
-            lower.includes("aktiv: ja") ||
-            lower.includes("aktivt: ja") ||
-            lower.includes("aktiv: true") ||
-            lower.includes("orders table (hpos)") ||
-            lower.includes("ordertabeller (hpos)") ||
-            lower.includes("hpos: ✔") ||
-            lower.includes("hpos: enabled") ||
-            lower.includes("hpos: aktiv") ||
-            lower.includes("hpos enabled: yes") ||
-            lower.includes("hpos enabled: ✔") ||
-            lower.includes("hpos enabled: true") ||
-            lower.includes("hpos enabled: 1") ||
-            lower.includes(": enabled") ||
-            lower.includes(": aktiverat") ||
-            lower.includes(": aktiv")) {
+      // v2.8.5: WooCommerce "WP Cron: –" means DISABLE_WP_CRON is true (Site Health never lists DISABLE_WP_CRON)
+      if (/^(wp[\s-]?cron)\s*:/i.test(line)) {
+        const v = line.split(":").slice(1).join(":").trim().toLowerCase();
+        if (v === "–" || v === "-" || v === "—" || v === "no" || v === "nej" || v === "false" || v === "0") data.wp_cron_disabled = true;
+        else if (v.includes("✔") || v === "yes" || v === "ja" || v === "true" || v === "1") data.wp_cron_disabled = false;
+      }
+
+      const isSyncLine = lower.includes("compatibility mode") || lower.includes("kompatibilitetsläge") || lower.includes("data sync") || lower.includes("datasynk") || lower.includes("synk mot gamla tabeller");
+
+      // Explicit Line-by-line check for HPOS (never match sync lines)
+      if (!isSyncLine && (lower.includes("order datastore") || lower.includes("hpos") || lower.includes("high-performance order storage") || lower.includes("cot enabled") || lower.includes("lagring av orderdata") || lower.includes("orders table") || lower.includes("ordertabeller") || lower.includes("databasdatakälla"))) {
+        const parts = line.split(":");
+        const valPart = (parts.length > 1 ? parts.slice(1).join(":") : line).toLowerCase().trim();
+        if (valPart === "–" || valPart === "-" || valPart === "—" || valPart.startsWith("no") || valPart.startsWith("nej") || valPart.startsWith("false") || valPart.startsWith("disabled") || valPart.startsWith("inaktiv") || valPart === "0" || valPart === "off") {
+          data.hpos_enabled = false;
+        } else if (valPart.startsWith("yes") || valPart.startsWith("ja") || valPart.startsWith("true") || valPart.startsWith("aktiverat") || valPart.startsWith("aktiv") || valPart.startsWith("enabled") || valPart === "1" || valPart === "on" || valPart.includes("✔") || valPart.includes("orderstabledatastore")) {
+          data.hpos_enabled = true;
+        } else if (lower.includes("orderstabledatastore") || lower.includes("orders table (hpos)") || lower.includes("ordertabeller (hpos)")) {
           data.hpos_enabled = true;
         }
       }
 
       // Check for HPOS data sync / compatibility mode (dual-write)
-      if (lower.includes("compatibility mode") || lower.includes("kompatibilitetsläge") || lower.includes("data sync") || lower.includes("datasynkronisering") || lower.includes("synk mot gamla tabeller")) {
-        if (lower.includes("yes") || lower.includes("true") || lower.includes("✔") || lower.includes("aktiverat") || lower.includes("aktiv") || lower.includes("enabled") || lower.includes("1") || lower.includes("ja")) {
-          data.hpos_sync_enabled = true;
-        } else if (lower.includes("no") || lower.includes("false") || lower.includes("nej") || lower.includes("inaktiv") || lower.includes("disabled") || lower.includes("0")) {
+      if (isSyncLine) {
+        const parts = line.split(":");
+        const valPart = (parts.length > 1 ? parts.slice(1).join(":") : line).toLowerCase().trim();
+        if (valPart === "–" || valPart === "-" || valPart === "—" || valPart.startsWith("no") || valPart.startsWith("nej") || valPart.startsWith("false") || valPart.startsWith("inaktiv") || valPart.startsWith("disabled") || valPart === "0" || valPart === "off" || valPart.includes("disabled") || valPart.includes("inaktiverad") || valPart.includes("nej") || valPart.includes("no")) {
           data.hpos_sync_enabled = false;
+        } else if (valPart.startsWith("yes") || valPart.startsWith("ja") || valPart.startsWith("true") || valPart.startsWith("aktiv") || valPart.startsWith("aktiverat") || valPart.startsWith("enabled") || valPart === "1" || valPart === "on" || valPart.includes("✔") || valPart.includes("enabled") || valPart.includes("aktiverat")) {
+          data.hpos_sync_enabled = true;
+        }
+      }
+
+      // Check line-by-line for cart fragments & transients in settings sections
+      if (lower.includes("cart fragments") || lower.includes("cart-fragments") || lower.includes("wc-cart-fragments")) {
+        const parts = line.split(":");
+        const valPart = (parts.length > 1 ? parts.slice(1).join(":") : line).toLowerCase().trim();
+        if (valPart.includes("disabled") || valPart.includes("dequeue") || valPart.includes("false") || valPart.includes("inaktiv") || valPart === "0" || valPart.includes("nej")) {
+          data.cart_fragments_dequeued = true;
+        }
+      }
+
+      if ((lower.includes("transient") || lower.includes("transienter")) && (lower.includes("rens") || lower.includes("clean") || lower.includes("purge") || lower.includes("städning"))) {
+        const parts = line.split(":");
+        const valPart = (parts.length > 1 ? parts.slice(1).join(":") : line).toLowerCase().trim();
+        if (valPart.includes("rensas") || valPart.includes("clean") || valPart.includes("aktiverad") || valPart.includes("enabled") || valPart.includes("ja") || valPart.includes("true") || valPart === "1") {
+          data.transients_cleanup_enabled = true;
         }
       }
     });
@@ -1650,40 +2130,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     if (data.hpos_sync_enabled === undefined) {
-      if (lowerText.includes("compatibility mode: enabled") || lowerText.includes("compatibility mode: yes") || lowerText.includes("kompatibilitetsläge: aktiverat") || lowerText.includes("hpos data sync enabled: true") || lowerText.includes("hpos data sync enabled: yes") || lowerText.includes("hpos data sync enabled: 1")) {
-        data.hpos_sync_enabled = true;
-      } else if (lowerText.includes("compatibility mode: disabled") || lowerText.includes("compatibility mode: no") || lowerText.includes("kompatibilitetsläge: inaktiverat") || lowerText.includes("hpos data sync enabled: false") || lowerText.includes("hpos data sync enabled: no") || lowerText.includes("hpos data sync enabled: 0")) {
+      // Check negative patterns first to avoid false match on labels containing 'enabled' or 'aktiverat'
+      if (lowerText.includes("compatibility mode: disabled") || lowerText.includes("compatibility mode: no") || lowerText.includes("compatibility mode: nej") || lowerText.includes("kompatibilitetsläge: inaktiverat") || lowerText.includes("kompatibilitetsläge: nej") || lowerText.includes("hpos data sync enabled: false") || lowerText.includes("hpos data sync enabled: no") || lowerText.includes("hpos data sync enabled: nej") || lowerText.includes("hpos data sync enabled: 0") || lowerText.includes("hpos-datasynkronisering aktiverad: nej") || lowerText.includes("hpos-datasynkronisering aktiverad: inaktiverad")) {
         data.hpos_sync_enabled = false;
+      } else if (lowerText.includes("compatibility mode: enabled") || lowerText.includes("compatibility mode: yes") || lowerText.includes("compatibility mode: ja") || lowerText.includes("kompatibilitetsläge: aktiverat") || lowerText.includes("kompatibilitetsläge: ja") || lowerText.includes("hpos data sync enabled: true") || lowerText.includes("hpos data sync enabled: yes") || lowerText.includes("hpos data sync enabled: ja") || lowerText.includes("hpos data sync enabled: 1") || lowerText.includes("hpos-datasynkronisering aktiverad: ja") || lowerText.includes("hpos-datasynkronisering aktiverad: aktiverat")) {
+        data.hpos_sync_enabled = true;
       }
-    }
-    
-    if (lowerText.includes("disable-cart-fragments") || 
-        lowerText.includes("dequeue wc-cart-fragments") || 
-        lowerText.includes("wc_cart_fragments_dequeue") ||
-        lowerText.includes("cart_fragments: false") ||
-        lowerText.includes("cart fragments: inaktiv")) {
-      data.cart_fragments_dequeued = true;
-    }
-    
-    if (lowerText.includes("transient_cleanup") || 
-        lowerText.includes("cleanup_expired_transients") || 
-        lowerText.includes("woocommerce_cleanup_personal_data") ||
-        lowerText.includes("transients: rensas")) {
-      data.transients_cleanup_enabled = true;
-    }
-    
-    if (data.gateways.length === 0) {
-      if (lowerText.includes("stripe")) data.gateways.push("Stripe");
-      if (lowerText.includes("klarna") || lowerText.includes("kco")) data.gateways.push("Klarna");
-      if (lowerText.includes("swish")) data.gateways.push("Swish");
-      if (lowerText.includes("svea")) data.gateways.push("Svea");
-      if (lowerText.includes("paypal")) data.gateways.push("PayPal");
-      if (lowerText.includes("qliro")) data.gateways.push("Qliro");
-      if (lowerText.includes("avarda")) data.gateways.push("Avarda");
-      if (lowerText.includes("nets")) data.gateways.push("Nets");
-      if (lowerText.includes("resurs")) data.gateways.push("Resurs");
-      if (lowerText.includes("walley")) data.gateways.push("Walley");
-      if (lowerText.includes("shipmondo")) data.gateways.push("Shipmondo");
     }
     
     return data;
@@ -1698,11 +2150,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const data = { 
       firewall_mode: "Okänd", 
       ip_header: "Okänd", 
-      live_traffic_disabled: false, 
-      disable_live_traffic: false,
-      low_resource_scan: false, 
-      low_resource: false,
-      crawler_whitelisted: false 
+      live_traffic_disabled: null, 
+      disable_live_traffic: null,
+      low_resource_scan: null, 
+      low_resource: null,
+      crawler_whitelisted: null,
+      noabort_active: null,
+      wpPostRevisions: null,
+      disable_wp_cron: null,
+      plugins: {}
     };
 
     // Try parsing as JSON first (Wordfence settings export)
@@ -1727,26 +2183,81 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (e) {}
 
+    let hasExplicitSecurityOnly = false;
     const lines = cleanText.split(/\r?\n/);
     
     lines.forEach(line => {
       const lower = line.toLowerCase().trim();
       if (!lower) return;
 
+      // Extract WordPress Settings constants from Wordfence Diagnostic table
+      // e.g. | WP_POST_REVISIONS | Post revisions saved by WordPress | 5 |
+      if (line.includes("|") && lower.includes("wp_post_revisions")) {
+        const parts = line.split("|").map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          const val = parts[parts.length - 1];
+          if (/^\d+$/.test(val)) data.wpPostRevisions = parseInt(val, 10);
+          else if (val.toLowerCase() === "false" || val.toLowerCase() === "true") data.wpPostRevisions = val.toLowerCase() === "true";
+        }
+      }
+
+      // Check for DISABLE_WP_CRON in Wordfence diagnostic table
+      // e.g. | DISABLE_WP_CRON | WP cron status | Cron is disabled |
+      if (line.includes("|") && lower.includes("disable_wp_cron")) {
+        const parts = line.split("|").map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          const val = parts[parts.length - 1].toLowerCase();
+          if (val.includes("cron is disabled") || val === "true" || val === "yes" || val === "1") {
+            data.disable_wp_cron = true;
+          } else if (val.includes("cron is enabled") || val === "false" || val === "no" || val === "0") {
+            data.disable_wp_cron = false;
+          }
+        }
+      }
+
+      // Extract table rows telemetry from Wordfence Database Tables
+      // e.g. | wp_wflivetraffichuman | | InnoDB | 0 | 0 | 16384 | 16384 | ...
+      if (line.includes("|") && lower.includes("wflivetraffichuman")) {
+        const parts = line.split("|").map(p => p.trim()).filter(Boolean);
+        for (let i = 1; i < parts.length; i++) {
+          if (/^\d+$/.test(parts[i])) {
+            data.livetraffic_human_rows = parseInt(parts[i], 10);
+            break;
+          }
+        }
+      }
+
+      // Extract active plugins from Wordfence WordPress Plugins section
+      // e.g. | WooCommerce (woocommerce) - Version 11.2.1 | Active |
+      if (line.includes("|") && lower.includes(" - version ")) {
+        const m = line.match(/\|\s*([^|()]+)\s*(?:\(([^|()]+)\))?\s*-\s*Version\s*([\d.]+)/i);
+        if (m) {
+          const pSlug = (m[2] || m[1]).trim().toLowerCase();
+          const pVer = m[3].trim();
+          data.plugins[pSlug] = pVer;
+        }
+      }
+
       if (lower.includes("firewall mode") || lower.includes("brandväggsläge") || lower.includes("firewall status") || lower.includes("firewall:")) {
         const parts = line.split(/[:\t]+/);
         if (parts.length >= 2) data.firewall_mode = parts.slice(1).join(" ").trim();
       }
-      if (lower.includes("how wordfence gets ips") || lower.includes("howgetips") || lower.includes("ip-detektering") || lower.includes("remote_addr") || lower.includes("connecting-ip") || lower.includes("ip detection")) {
+      if (lower.includes("how wordfence gets ips") || lower.includes("how does wordfence get ips") || lower.includes("howgetips") || lower.includes("ip-detektering") || lower.includes("ip detection")) {
+        // Skip section titles like "## How Wordfence gets IPs: Methods of detecting a visitor's IP address. ##"
+        if (line.trim().startsWith("#") || line.trim().endsWith("#") || lower.includes("methods of detecting")) {
+          return;
+        }
         const parts = line.split(/[:\t]+/);
         if (parts.length >= 2) {
           let hVal = parts.slice(1).join(" ").trim();
+          const hRaw = hVal.toUpperCase(); // v2.8.5: check header name before stripping "(REMOTE_ADDR)"
           hVal = hVal.replace(/\s*\([^)]*\)/g, "").trim(); // Strip extra (Standard) or (Cloudflare)
+          if (/REMOTE_ADDR|CONNECTING[_-]IP|FORWARDED[_-]FOR|REAL[_-]IP/.test(hRaw) && !/REMOTE_ADDR|CONNECTING[_-]IP|FORWARDED[_-]FOR|REAL[_-]IP/.test(hVal.toUpperCase())) hVal = hRaw;
           if (hVal.toUpperCase().includes("REMOTE_ADDR")) data.ip_header = "REMOTE_ADDR";
           else if (hVal.toUpperCase().includes("CF_CONNECTING_IP") || hVal.toUpperCase().includes("CF-CONNECTING-IP")) data.ip_header = "CF-Connecting-IP";
           else if (hVal.toUpperCase().includes("X_FORWARDED_FOR") || hVal.toUpperCase().includes("X-FORWARDED-FOR")) data.ip_header = "HTTP_X_FORWARDED_FOR";
           else if (hVal.toUpperCase().includes("X_REAL_IP") || hVal.toUpperCase().includes("X-REAL-IP")) data.ip_header = "HTTP_X_REAL_IP";
-          else data.ip_header = hVal;
+          else if (/^[A-Z0-9_-]+$/i.test(hVal)) data.ip_header = hVal;
         } else if (lower.includes("remote_addr")) {
           data.ip_header = "REMOTE_ADDR";
         } else if (lower.includes("cf-connecting-ip") || lower.includes("cf_connecting_ip")) {
@@ -1754,29 +2265,33 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Line-based Live Traffic detection (tolerant to colons, tabs, multiple spaces)
-      if (lower.includes("traffic logging mode") || lower.includes("live traffic") || lower.includes("livetraffic") || lower.includes("realtidstrafik")) {
-        if (lower.includes("security only") || lower.includes("security") || lower.includes("disabled") || lower.includes("off") || lower.includes("0") || lower.includes("false") || lower.includes("av") || lower.includes("inaktiv")) {
+      // Line-based Live Traffic detection (strict: must occur on the same line as Traffic logging mode)
+      if (lower.includes("traffic logging mode") || lower.includes("trafikloggning") || /live\s*traffic\s*(?:logging\s*mode|status|mode)/i.test(lower)) {
+        const parts = line.split(/[:\t=]+/);
+        const val = parts.length >= 2 ? parts.slice(1).join(" ").trim().toLowerCase() : lower;
+        if (/security\s*only|endast\s*säkerhet|disabled|inaktiverad|\b(off|av)\b(?!\s+besökare|\s+trafik)/i.test(val) && !val.includes("all traffic") && !val.includes("all trafik")) {
+          hasExplicitSecurityOnly = true;
           data.live_traffic_disabled = true;
           data.disable_live_traffic = true;
+        } else if (/all\s*traffic|all\s*trafik|enabled|aktiverad|\b(on|på)\b/i.test(val)) {
+          data.live_traffic_disabled = false;
+          data.disable_live_traffic = false;
         }
       }
     });
 
-    const normalizedFullText = cleanText.replace(/\s+/g, " ").toLowerCase();
-    if (normalizedFullText.includes("security only") ||
-        normalizedFullText.includes("securityonly") ||
-        normalizedFullText.includes("security_only") ||
-        normalizedFullText.includes("säkerhetsrelaterat") ||
+    const normalizedText = cleanText
+      .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+    const normalizedFullText = normalizedText.replace(/\s+/g, " ").toLowerCase();
+    if (hasExplicitSecurityOnly || (data.live_traffic_disabled !== false && (
         normalizedFullText.includes("realtidstrafik: inaktiverad") ||
         normalizedFullText.includes("realtidstrafik: av") ||
         normalizedFullText.includes("realtidstrafik: endast säkerhet") ||
         normalizedFullText.includes("traffic logging mode security only") ||
         normalizedFullText.includes("traffic logging mode: security only") ||
-        normalizedFullText.includes("live traffic security only") ||
         normalizedFullText.includes("live traffic: security only") ||
         normalizedFullText.includes("live traffic logging: security only") ||
-        normalizedFullText.includes("live traffic logging security only") ||
         normalizedFullText.includes("live traffic logging: disabled") || 
         normalizedFullText.includes("live traffic status: off") || 
         normalizedFullText.includes("live_traffic_enabled: false") ||
@@ -1787,7 +2302,8 @@ document.addEventListener("DOMContentLoaded", () => {
         normalizedFullText.includes("livetrafficmode: securityonly") ||
         normalizedFullText.includes("livetrafficmode securityonly") ||
         normalizedFullText.includes("livetrafficmode: disabled") ||
-        normalizedFullText.includes("live traffic: off")) {
+        normalizedFullText.includes("live traffic: off")
+    ))) {
       data.live_traffic_disabled = true;
       data.disable_live_traffic = true;
     }
@@ -1813,6 +2329,40 @@ document.addEventListener("DOMContentLoaded", () => {
         normalizedFullText.includes("litespeed crawler: whitelisted") ||
         normalizedFullText.includes("litespeed crawler whitelisted")) {
       data.crawler_whitelisted = true;
+    }
+
+    // noabort status in LiteSpeed / Wordfence Diagnostic
+    if (
+      normalizedFullText.includes("can't determine whether \"noabort\" is set") ||
+      normalizedFullText.includes("cant determine whether \"noabort\" is set") ||
+      normalizedFullText.includes("cannot determine whether \"noabort\" is set") ||
+      normalizedFullText.includes("can't determine whether noabort is set") ||
+      normalizedFullText.includes("cant determine whether noabort is set") ||
+      normalizedFullText.includes("cannot determine whether noabort is set") ||
+      normalizedFullText.includes("unable to verify that your web server is configured for litespeed") ||
+      normalizedFullText.includes("unable to verify that your web server is configured for") ||
+      normalizedFullText.includes("kan inte avgöra om \"noabort\"") ||
+      normalizedFullText.includes("kan inte avgöra om noabort") ||
+      normalizedFullText.includes("kunde inte verifiera att webbservern") ||
+      normalizedFullText.includes("dashboard-litespeed-warning") ||
+      normalizedFullText.includes("external application abort") ||
+      normalizedFullText.includes("noabort is not set") ||
+      normalizedFullText.includes("litespeed noabort warning")
+    ) {
+      data.noabort_active = false;
+    } else if (
+      /(?:REDIRECT_)?noabort['"\]\s]*[:=>(?:=>)]+\s*['"]?1['"]?/i.test(normalizedText) ||
+      /\bnoabort\b\s*(?:is\s+set|is\s+active|is\s+enabled)\b/i.test(normalizedText) ||
+      normalizedFullText.includes("e=noabort:1") || 
+      normalizedFullText.includes("noabort:1") || 
+      normalizedFullText.includes("noabort: 1") || 
+      normalizedFullText.includes("noabort 1") || 
+      normalizedFullText.includes("noabort: enabled") || 
+      normalizedFullText.includes("noabort: active") ||
+      normalizedFullText.includes("noabort is set") ||
+      normalizedFullText.includes("redirect_noabort")
+    ) {
+      data.noabort_active = true;
     }
     
     return data;
@@ -1872,8 +2422,6 @@ document.addEventListener("DOMContentLoaded", () => {
           statusLower === "1" || 
           statusLower === "true" || 
           statusLower.includes("enabled") || 
-          statusLower === "default" ||
-          statusLower === "standard" ||
           statusLower.includes("standard (aktiv)") ||
           statusLower.includes("aktiv som standard") ||
           statusLower.includes("active by default") ||
@@ -1925,7 +2473,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 3. Check Optimized DOM Output specifically (English & Swedish: "Optimerad märkkod", "Optimized DOM Output", "e_dom_optimization")
         if (
-          nameLower.includes("dom") || 
+          /\bdom\b/.test(nameLower) || 
           nameLower.includes("märkkod") || 
           nameLower.includes("markup") ||
           nameLower.includes("e_dom_optimization")
@@ -2101,6 +2649,27 @@ document.addEventListener("DOMContentLoaded", () => {
       data.google_fonts = false;
     }
 
+    // Detect Menu Cart / Mini Cart signal in Elementor templates, widgets or theme builder
+    const hasNegativeMiniCart = /\b(?:mini[-_]cart|header[-_]cart|menu[-_]cart|cart[-_]fragments)\s*[:=]\s*(?:disabled|off|no|0|false|inaktiv)\b/i.test(text || "");
+    const hasPositiveMiniCart = (
+      lowerText.includes("woocommerce-menu-cart") ||
+      lowerText.includes("menu-cart") ||
+      lowerText.includes("menu_cart") ||
+      lowerText.includes("mini-cart") ||
+      lowerText.includes("mini_cart") ||
+      lowerText.includes("elementor-menu-cart") ||
+      lowerText.includes("e-cart-contents") ||
+      lowerText.includes("widget_type: woocommerce-menu-cart") ||
+      lowerText.includes("cart-fragments")
+    );
+    if (!hasNegativeMiniCart && hasPositiveMiniCart) {
+      data.hasMenuCart = true;
+      data.menu_cart = true;
+    } else if (hasNegativeMiniCart) {
+      data.hasMenuCart = false;
+      data.menu_cart = false;
+    }
+
     return data;
   }
 
@@ -2116,10 +2685,169 @@ document.addEventListener("DOMContentLoaded", () => {
       hasEmojisDisabled: false,
       hasHeartbeatLimited: false,
       hasPingbacksDisabled: false,
+      hasNoabort: null,
+      wpPostRevisions: null,
+      cart_fragments: null,
+      cart_fragments_optimized: null,
+      cart_fragments_dequeued: null,
+      transients: null,
+      transients_cleanup: null,
+      version: null,
       auditedFiles: []
     };
 
-    const lower = text.toLowerCase();
+    const cleanCustomText = (text || "")
+      .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+    const lower = cleanCustomText.toLowerCase();
+
+    // SCM JSON export handling
+    try {
+      const trimmed = cleanCustomText.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        const json = JSON.parse(trimmed);
+        const obj = Array.isArray(json) ? (json[0] || {}) : json;
+        if (obj.version || (obj.metadata && obj.metadata.version)) {
+          data.version = String(obj.version || (obj.metadata && obj.metadata.version)).trim();
+        }
+        if (obj.cart_fragments !== undefined) {
+          if (obj.cart_fragments === false || obj.cart_fragments === "0" || obj.cart_fragments === 0) {
+            data.cart_fragments_dequeued = true;
+            data.cart_fragments = false;
+            data.cart_fragments_optimized = false;
+          } else {
+            data.cart_fragments = !!obj.cart_fragments;
+            data.cart_fragments_optimized = !!obj.cart_fragments;
+            data.cart_fragments_dequeued = false;
+          }
+        }
+        if (obj.cart_fragments_optimized !== undefined) {
+          if (obj.cart_fragments_optimized === false || obj.cart_fragments_optimized === "0" || obj.cart_fragments_optimized === 0) {
+            data.cart_fragments_dequeued = true;
+            data.cart_fragments = false;
+            data.cart_fragments_optimized = false;
+          } else {
+            data.cart_fragments = !!obj.cart_fragments_optimized;
+            data.cart_fragments_optimized = !!obj.cart_fragments_optimized;
+            data.cart_fragments_dequeued = false;
+          }
+        }
+        if (obj.transients !== undefined) {
+          data.transients = !!obj.transients;
+          data.transients_cleanup = !!obj.transients;
+        }
+        if (obj.transients_cleanup !== undefined) {
+          data.transients = !!obj.transients_cleanup;
+          data.transients_cleanup = !!obj.transients_cleanup;
+        }
+        if (obj.wpPostRevisions !== undefined) {
+          data.wpPostRevisions = obj.wpPostRevisions;
+        }
+      }
+    } catch (jsonErr) {}
+
+    // Check if text is PHP code or SCM snippet to prevent false htaccess identification
+    const hasPhpCode = (
+      cleanCustomText.trim().startsWith("{") ||
+      cleanCustomText.trim().startsWith("[") ||
+      lower.includes("<?php") ||
+      lower.includes("function ") ||
+      lower.includes("add_action") ||
+      lower.includes("add_filter") ||
+      lower.includes("isscmpackage") ||
+      lower.includes('"snippets"') ||
+      lower.includes("'snippets'") ||
+      lower.includes("site code manager")
+    );
+
+    // Extract SCM Version specifically from SCM headers, comments or metadata
+    const scmVersionMatch = cleanCustomText.match(/(?:SCM(?:\s+Site\s+Code\s+Manager)?\s+Version|Plugin\s+Name:\s*(?:SCM|Site\s+Code\s+Manager)[^]*?Version)[:\s]+([0-9.]+)/i);
+    if (scmVersionMatch) {
+      data.version = scmVersionMatch[1].trim();
+    }
+
+    // Extract WP_POST_REVISIONS if defined in wp-config or PHP snippet (preserve 0/false)
+    const postRevMatch = cleanCustomText.match(/define\s*\(\s*['"]WP_POST_REVISIONS['"]\s*,\s*([^)]+)\)/i);
+    if (postRevMatch) {
+      const rawRev = postRevMatch[1].replace(/['"]/g, "").trim().toLowerCase();
+      if (rawRev === "false" || rawRev === "0") {
+        data.wpPostRevisions = 0;
+      } else if (rawRev === "true") {
+        data.wpPostRevisions = "true";
+      } else if (!isNaN(Number(rawRev))) {
+        data.wpPostRevisions = Number(rawRev);
+      } else {
+        data.wpPostRevisions = rawRev;
+      }
+    }
+
+    // Detect Cart fragments status (SCM or custom code) - Tight contextual matching
+    const isCartFragmentsDequeued = (
+      /(?:wp_dequeue_script|wp_deregister_script)\s*\(\s*['"][^'"]*cart-fragments[^'"]*['"]\s*\)/i.test(cleanCustomText) ||
+      /remove_action\s*\(\s*['"][^'"]*['"]\s*,\s*['"][^'"]*woocommerce_cart_fragments[^'"]*['"]\s*\)/i.test(cleanCustomText) ||
+      /add_filter\s*\(\s*['"]woocommerce_cart_fragment(?:s_has_cart_data)?['"]\s*,\s*['"]__return_false['"]\s*\)/i.test(cleanCustomText) ||
+      /disable_cart_fragments\s*\(\s*\)/i.test(cleanCustomText) ||
+      /['"]cart_fragments(?:_optimized)?['"]\s*=>\s*(?:false|0)/i.test(cleanCustomText)
+    );
+    const isCartFragmentsExplicitOn = (
+      /['"]cart_fragments(?:_optimized)?['"]\s*=>\s*(?:true|1)/i.test(cleanCustomText)
+    );
+    if (isCartFragmentsDequeued) {
+      data.cart_fragments_dequeued = true;
+      data.cart_fragments = false;
+      data.cart_fragments_optimized = false;
+    } else if (isCartFragmentsExplicitOn) {
+      data.cart_fragments = true;
+      data.cart_fragments_optimized = true;
+      data.cart_fragments_dequeued = false;
+    }
+
+    // Detect Transients cleanup (SCM or custom code) - Only actual batch cleanup routines
+    const isTransientsCleanupActive = (
+      /(?:delete_expired_transients|wc_delete_expired_transients)\s*\(/i.test(cleanCustomText) ||
+      /(?:transients_cleanup|purge_expired_transients|delete_all_expired_transients|cleanup_transients)\s*\(/i.test(cleanCustomText) ||
+      /add_action\s*\(\s*['"][^'"]*(?:transient|cron)[^'"]*['"]\s*,\s*['"][^'"]*(?:delete_expired|transients_cleanup)[^'"]*['"]\s*\)/i.test(cleanCustomText) ||
+      /['"](?:transients|transients_cleanup)['"]\s*=>\s*(?:true|1)/i.test(cleanCustomText)
+    );
+    if (isTransientsCleanupActive) {
+      data.transients = true;
+      data.transients_cleanup = true;
+    }
+
+    // Line-by-line check skipping commented lines (# and //)
+    const lines = cleanCustomText.split(/\r?\n/);
+    let hasActiveNoabort = false;
+    // Complete .htaccess check: Only mark noabort as strictly false ("AV / Saknas i .htaccess")
+    // if the uploaded file is a complete .htaccess file (e.g. contains WordPress core rewrite block).
+    // If it is just a partial fragment (e.g. Wordfence block only), keep hasNoabort as null ("Värde saknas").
+    const isCompleteHtaccess = !hasPhpCode && (
+      lower.includes("# begin wordpress") ||
+      lower.includes("# begin lscache") ||
+      lower.includes("# begin litespeed") ||
+      (lower.includes("rewriteengine") && /rewriterule\s+\^index\\?\.php\$/i.test(cleanCustomText))
+    );
+
+    lines.forEach(line => {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith("#") || trimmedLine.startsWith("//")) return; // skip comments
+      if (
+        /(?:REDIRECT_)?noabort['"\]\s]*[:=>(?:=>)]+\s*['"]?1['"]?/i.test(trimmedLine) ||
+        trimmedLine.toLowerCase().includes("e=noabort:1") ||
+        trimmedLine.toLowerCase().includes("noabort:1") ||
+        trimmedLine.toLowerCase().includes("noabort: 1")
+      ) {
+        hasActiveNoabort = true;
+      }
+    });
+
+    data.isCompleteHtaccess = isCompleteHtaccess;
+    if (hasActiveNoabort) {
+      data.hasNoabort = true;
+    } else if (isCompleteHtaccess) {
+      data.hasNoabort = false; // complete .htaccess confirmed without the rule
+    } else {
+      data.hasNoabort = null; // partial fragment or unverified completeness
+    }
 
     if (lower.includes("add_action") && lower.includes("woocommerce_add_to_cart_fragments")) {
       data.hasOldHooks = true;
@@ -2217,20 +2945,30 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const slots = [
       { key: "sysInfo", label: "WP-system", icon: "📝" },
+      { key: "autoloadInfo", label: "Autoload Status", icon: "🗄️" },
       { key: "wooInfo", label: "WooCommerce", icon: "🛒" },
       { key: "wfInfo", label: "Wordfence", icon: "🔒" },
       { key: "themeInfo", label: "Tema", icon: "🎭" },
       { key: "elemInfo", label: "Elementor", icon: "🎨" },
-      { key: "customCodeInfo", label: "SCM", icon: "🔌" },
+      { key: "customCodeInfo", label: "SCM", icon: "💻" },
+      { key: "htaccessInfo", label: ".htaccess", icon: "🌐" },
       { key: "uploadedSettings", label: "LiteSpeed", icon: "⚡" }
     ];
 
+    const htStatus = getHtaccessStatus();
+
     slots.forEach(slot => {
-      const meta = state.uploadMetadata[slot.key];
-      if (meta && meta.name) {
-        loadedCount++;
-        if (slot.key === "sysInfo") {
-          latestTimestamp = meta.timestamp;
+      if (slot.key === "htaccessInfo") {
+        if (htStatus.isLoaded) {
+          loadedCount++;
+        }
+      } else {
+        const meta = state.uploadMetadata[slot.key];
+        if (meta && meta.name && !meta.name.includes("(via WP-system)")) {
+          loadedCount++;
+          if (slot.key === "sysInfo") {
+            latestTimestamp = meta.timestamp;
+          }
         }
       }
     });
@@ -2252,23 +2990,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (summaryEl) {
       if (loadedCount > 0) {
         const dayLabel = latestTimestamp ? getFriendlyDay(latestTimestamp) : "idag";
-        summaryEl.textContent = `${loadedCount} av 7 filer (${dayLabel})`;
+        summaryEl.textContent = `${loadedCount} av 9 filer (${dayLabel})`;
       } else {
-        summaryEl.textContent = "0 av 7 filer";
+        summaryEl.textContent = "0 av 9 filer";
       }
     }
 
     let html = "";
     slots.forEach(slot => {
-      const meta = state.uploadMetadata[slot.key];
-      if (meta && meta.name) {
+      const isHtaccess = slot.key === "htaccessInfo";
+      const isSlotLoaded = isHtaccess ? htStatus.isLoaded : !!(state.uploadMetadata[slot.key] && state.uploadMetadata[slot.key].name);
+      const meta = isHtaccess 
+        ? { name: htStatus.fileName, timestamp: htStatus.timestamp } 
+        : state.uploadMetadata[slot.key];
+
+      if (isSlotLoaded && meta && meta.name) {
         html += `
           <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.25rem 0.6rem; border-radius: 6px; display: flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
             <span>${slot.icon}</span>
             <span style="color: var(--color-success); font-size: 0.6rem; flex-shrink: 0;">●</span>
             <strong style="color: var(--text-main); font-weight: 600; margin-right: 0.25rem; flex-shrink: 0;">${slot.label}:</strong>
             <span style="color: #a5b4fc; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 320px;" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</span>
-            <span style="color: var(--text-muted); font-size: 0.65rem; margin-left: auto; padding-left: 1.5rem; flex-shrink: 0;">(${meta.timestamp})</span>
+            <span style="color: var(--text-muted); font-size: 0.65rem; margin-left: auto; padding-left: 1.5rem; flex-shrink: 0;">(${meta.timestamp || "Inläst"})</span>
           </div>
         `;
       } else {
@@ -2288,25 +3031,47 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function clearSlot(slotKey) {
+    if (state.rawUploadTexts && state.rawUploadTexts[slotKey] !== undefined) {
+      delete state.rawUploadTexts[slotKey];
+    }
+
     if (slotKey === "sysinfo") {
       state.sysInfo = null;
       state.uploadMetadata.sysInfo = { name: "", timestamp: "" };
+    } else if (slotKey === "autoload") {
+      state.autoloadInfo = null;
+      state.uploadMetadata.autoloadInfo = { name: "", timestamp: "" };
+      if (state.sysInfo && state.sysInfo["wp-database"]) {
+        delete state.sysInfo["wp-database"].autoload_options_size;
+        delete state.sysInfo["wp-database"]["autoload_options_size"];
+        delete state.sysInfo["wp-database"]["Autoload-storlek"];
+      }
     } else if (slotKey === "woocommerce") {
       state.wooInfo = null;
       state.uploadMetadata.wooInfo = { name: "", timestamp: "" };
     } else if (slotKey === "wordfence") {
       state.wfInfo = null;
       state.uploadMetadata.wfInfo = { name: "", timestamp: "" };
+      if (toggleWfLiveTraffic) toggleWfLiveTraffic.checked = false;
+      state.manualToggles.wfLiveTraffic = false;
     } else if (slotKey === "theme") {
       state.themeInfo = null;
       state.uploadMetadata.themeInfo = { name: "", timestamp: "" };
+      if (toggleThemeMiniCart) toggleThemeMiniCart.checked = false;
+      state.manualToggles.themeMiniCart = false;
     } else if (slotKey === "elementor") {
       state.elemInfo = null;
       state.uploadMetadata.elemInfo = { name: "", timestamp: "" };
+      if (toggleElemMenuCart) toggleElemMenuCart.checked = false;
+      state.manualToggles.elemMenuCart = false;
     } else if (slotKey === "customcode") {
       state.scmInfo = null;
       state.customCodeInfo = null;
       state.uploadMetadata.customCodeInfo = { name: "", timestamp: "" };
+    } else if (slotKey === "htaccess") {
+      state.htaccessInfo = null;
+      state.uploadMetadata.htaccessInfo = { name: "", timestamp: "" };
+      if (state.rawUploadTexts) delete state.rawUploadTexts.htaccess;
     } else if (slotKey === "settings") {
       state.uploadedSettings = null;
       state.editedSettings = {};
@@ -2490,7 +3255,16 @@ document.addEventListener("DOMContentLoaded", () => {
           : "Valfri. Standardreferensmiljö tillämpas om filen inte laddas upp."
       },
       {
-        name: "2. WooCommerce",
+        name: "2. Autoload Status",
+        status: state.autoloadInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
+        loaded: !!state.autoloadInfo,
+        color: state.autoloadInfo ? "var(--color-success)" : "var(--text-muted)",
+        details: state.autoloadInfo 
+          ? `<strong>Autoload-storlek:</strong> ${escapeHtml(state.autoloadInfo.size || "Mätt")}<br><strong>Källa:</strong> Slot 2 (Autoload Status)`
+          : "Hälsokontroll Automatiskt laddade inställningar."
+      },
+      {
+        name: "3. WooCommerce",
         status: state.wooInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.wooInfo,
         color: state.wooInfo ? "var(--color-success)" : "var(--text-muted)",
@@ -2499,7 +3273,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : (env.hasWooCommerce ? "<strong>WooCommerce är aktivt!</strong> Ladda upp för att analysera betalsätt och kassa." : "Inte aktivt på sajten.")
       },
       {
-        name: "3. Wordfence",
+        name: "4. Wordfence",
         status: state.wfInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.wfInfo,
         color: state.wfInfo ? "var(--color-success)" : "var(--text-muted)",
@@ -2508,7 +3282,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : (state.sysInfo && env.activePlugins.some(p => p.toLowerCase().includes("wordfence")) ? "<strong>Wordfence är aktivt!</strong> Ladda upp för att verifiera IP-detektering." : "Inte aktivt på sajten.")
       },
       {
-        name: "4. Tema",
+        name: "5. Tema",
         status: state.themeInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.themeInfo,
         color: state.themeInfo ? "var(--color-success)" : "var(--text-muted)",
@@ -2517,16 +3291,16 @@ document.addEventListener("DOMContentLoaded", () => {
           : `<strong>Detekterat tema:</strong> ${escapeHtml(env.theme || "Aktivt tema")}`
       },
       {
-        name: "5. Elementor",
+        name: "6. Elementor",
         status: state.elemInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.elemInfo,
         color: state.elemInfo ? "var(--color-success)" : "var(--text-muted)",
         details: state.elemInfo 
-          ? `<strong>Live-version:</strong> v${escapeHtml(elemVersion)}<br><strong>Lazy load:</strong> ${env.hasElementorLazyLoad ? "Aktiv (Risk!)" : "Inaktiv (Optimalt)"}<br><strong>Funktioner:</strong> ${parseInt(env.elemExperiments.length, 10) || 0} st<br><strong>Källa:</strong> Slot 5 (Elementor)`
+          ? `<strong>Live-version:</strong> v${escapeHtml(elemVersion)}<br><strong>Lazy load:</strong> ${env.hasElementorLazyLoad ? "Aktiv (Risk!)" : "Inaktiv (Optimalt)"}<br><strong>Funktioner:</strong> ${parseInt(env.elemExperiments.length, 10) || 0} st<br><strong>Källa:</strong> Slot 6 (Elementor)`
           : (env.hasElementor ? "<strong>Elementor är aktivt!</strong> Ladda upp för att verifiera inbyggd lazyload." : "Inte aktivt på sajten.")
       },
       {
-        name: "6. SCM",
+        name: "7. SCM",
         status: state.customCodeInfo ? "Inläst ✓" : "Ej inläst (Valfri)",
         loaded: !!state.customCodeInfo,
         color: state.customCodeInfo ? "var(--color-success)" : "var(--text-muted)",
@@ -2534,8 +3308,25 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<strong>Analyserade snippets:</strong> ${state.customCodeInfo.snippets ? state.customCodeInfo.snippets.length : 1} st<br><strong>Stabilitetsrisker:</strong> ${state.analysisResults ? state.analysisResults.customCodeAlerts.filter(a => a.type === "danger" || a.type === "warning").length : 0} st`
           : "Site Code Manager redo för optimeringssnippets och filter."
       },
+      (() => {
+        const ht = getHtaccessStatus();
+        let htDetails = "LiteSpeed och Apache serverkonfiguration.";
+        if (ht.isLoaded) {
+          htDetails = `<strong>Serverdirektiv:</strong> Inläst<br><strong>noabort:</strong> ${ht.noabortValue ? "Aktiv i .htaccess (Optimalt)" : (ht.isComplete ? "Saknas i .htaccess" : "Värde saknas (Ofullständig .htaccess)")}`;
+        } else if (ht.noabortSource !== "none") {
+          const srcName = ht.noabortSource === "scm" ? "SCM-kodsnutt" : "Wordfence";
+          htDetails = `<strong>noabort:</strong> ${ht.noabortValue ? `Aktiv (via ${srcName})` : "Ej aktiv"}<br><strong>.htaccess:</strong> Ej inläst`;
+        }
+        return {
+          name: "8. .htaccess",
+          status: ht.isLoaded ? "Inläst ✓" : "Ej inläst (Valfri)",
+          loaded: ht.isLoaded,
+          color: ht.isLoaded ? "var(--color-success)" : "var(--text-muted)",
+          details: htDetails
+        };
+      })(),
       {
-        name: "7. LiteSpeed",
+        name: "9. LiteSpeed",
         status: state.uploadedSettings ? "Inläst ✓" : "Genereras från scratch",
         loaded: !!state.uploadedSettings,
         color: state.uploadedSettings ? "var(--color-success)" : "var(--accent-indigo)",
@@ -2625,7 +3416,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function computeHealthScoreBreakdown() {
-    if (!state.analysisResults) return { stabilityScore: 100, perfScore: 100, secScore: 100, configScore: 100, masterScore: 100, hasPsiScore: false };
+    if (!state.analysisResults) return { stabilityScore: 100, perfScore: 100, secScore: 100, configScore: 100, masterScore: 100, chronicDeductions: 0, hasPsiScore: false };
 
     const results = state.analysisResults;
     const allAlerts = [
@@ -2634,9 +3425,10 @@ document.addEventListener("DOMContentLoaded", () => {
       ...(results.customCssAlerts || [])
     ];
 
-    let stabilityDeductions = 0;
-    let perfDeductions = 0;
-    let secDeductions = 0;
+    let configStabilityDeductions = 0;
+    let configPerfDeductions = 0;
+    let configSecDeductions = 0;
+    let chronicDeductions = 0;
 
     allAlerts.forEach(a => {
       let cat = a.impactCategory;
@@ -2648,29 +3440,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const isDanger = a.type === "danger";
       const isWarning = a.type === "warning";
-      // Explicit scoreImpact: 0 (e.g. SCM raw echo advisory) must never deduct points
-      const deduction = (a.scoreImpact === 0) ? 0 : (isDanger ? 18 : (isWarning ? 7 : 2));
+      const deduction = (a.scoreImpact !== undefined) ? a.scoreImpact : (isDanger ? 18 : (isWarning ? 7 : 0));
 
-      if (cat === "stability") {
-        stabilityDeductions += deduction;
-      } else if (cat === "security") {
-        secDeductions += deduction;
-      } else if (cat === "performance") {
-        perfDeductions += deduction;
+      if (a.isChronic) {
+        chronicDeductions += deduction;
       } else {
-        stabilityDeductions += deduction;
+        if (cat === "stability") {
+          configStabilityDeductions += deduction;
+        } else if (cat === "security") {
+          configSecDeductions += deduction;
+        } else if (cat === "performance") {
+          configPerfDeductions += deduction;
+        } else {
+          configStabilityDeductions += deduction;
+        }
       }
     });
 
-    const stabilityScore = Math.max(10, 100 - stabilityDeductions);
-    const configPerfScore = Math.max(10, 100 - perfDeductions);
+    const configStabilityScore = Math.max(10, 100 - configStabilityDeductions);
+    const configPerfScore = Math.max(10, 100 - configPerfDeductions);
     const hasPsi = state.psiScores?.mobile != null || state.psiScores?.desktop != null;
     const psiScoreVal = state.psiScores?.mobile ?? state.psiScores?.desktop;
     const perfScore = hasPsi 
       ? Math.round((configPerfScore * 0.5) + (psiScoreVal * 0.5))
       : configPerfScore;
 
-    const secScore = Math.max(10, 100 - secDeductions);
+    const secScore = Math.max(10, 100 - configSecDeductions);
 
     let configDeductions = 0;
     const compFn = window.getOptionComparison || getOptionComparison;
@@ -2679,34 +3474,71 @@ document.addEventListener("DOMContentLoaded", () => {
         tab.options.forEach(opt => {
           if (opt.id === "optm_css_custom") return;
           const comp = compFn ? compFn(opt, state.uploadedSettings, results.environment) : { isDeviant: false, isMeasured: false };
-          // Only deduct if the setting is actually measured and deviant (never penalize unmeasured slots)
-          if (comp.isDeviant && comp.isMeasured !== false) configDeductions += 3;
+          if (comp.isDeviant && comp.isMeasured !== false && opt.scoreImpact !== 0 && !opt.readOnly && !comp.isPolicyContext) configDeductions += 3;
         });
       });
     }
-    const configScore = Math.max(10, 100 - configDeductions);
+    const configSettingsScore = Math.max(10, 100 - configDeductions);
 
-    const masterScore = Math.max(15, Math.min(100, Math.round(
-      (stabilityScore * 0.40) + (perfScore * 0.30) + (secScore * 0.20) + (configScore * 0.10)
+    // Controllable Score (Config Completion): reflects 100% of settings within user's direct control
+    const controllableScore = Math.max(15, Math.min(100, Math.round(
+      (configStabilityScore * 0.40) + (perfScore * 0.30) + (secScore * 0.20) + (configSettingsScore * 0.10)
     )));
 
-    return { stabilityScore, perfScore, secScore, configScore, masterScore, hasPsiScore: hasPsi };
+    // Total Health Score (Gauge meter): reflects true real-world health, including external chronic server limits
+    const masterScore = Math.max(15, Math.min(100, controllableScore - chronicDeductions));
+
+    return { 
+      stabilityScore: configStabilityScore, 
+      configStabilityScore,
+      perfScore, 
+      secScore, 
+      configSettingsScore,
+      configScore: controllableScore, 
+      masterScore, 
+      chronicDeductions,
+      hasPsiScore: hasPsi 
+    };
   }
 
   function renderHealthScoreBreakdown() {
     const rowsEl = document.getElementById("health-breakdown-rows");
     if (!rowsEl || !state.analysisResults) return;
 
-    const { stabilityScore, perfScore, secScore, configScore, hasPsiScore } = computeHealthScoreBreakdown();
+    const { configStabilityScore, perfScore, secScore, configSettingsScore, configScore, masterScore, chronicDeductions, hasPsiScore } = computeHealthScoreBreakdown();
 
     const psiNote = hasPsiScore 
       ? `(30% - inkl. PSI Mobil ${state.psiScores.mobile}/100)` 
       : `(30% - kör PSI för live-data)`;
 
+    let chronicRowsHtml = "";
+    if (chronicDeductions > 0) {
+      chronicRowsHtml = `
+        <div class="breakdown-row" style="color: #38bdf8; margin-top: 0.25rem;">
+          <span>🔵 Kroniska fel (extern hosting):</span>
+          <strong>-${chronicDeductions} p</strong>
+        </div>
+        <div class="breakdown-row" style="font-weight: 700; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.35rem; margin-top: 0.25rem;">
+          <span>🎯 Overall Score:</span>
+          <strong style="color: ${masterScore >= 90 ? 'var(--color-success)' : (masterScore >= 75 ? 'var(--color-warning)' : 'var(--color-danger)')};">${masterScore}%</strong>
+        </div>
+      `;
+    }
+
+    const configSummaryText = configScore >= 100 
+      ? "allt du kan påverka i WordPress är optimalt" 
+      : `${100 - configScore}p avvikelser kvar att optimera i WordPress`;
+
+    const noteText = chronicDeductions > 0
+      ? `ℹ️ <strong>Kroniska fel (extern serverpåverkan):</strong> Externa hostingbegränsningar (delad OPcache) ger ${chronicDeductions}p avdrag på Overall Score (${masterScore}%), men undantas från din Config Completion (${configScore}% – ${configSummaryText}).`
+      : (configScore >= 100 
+          ? `ℹ️ <strong>Optimal servermiljö:</strong> Inga kroniska hostingbegränsningar detekterades. Overall Score speglar din fulla konfiguration (${configScore}% – ${configSummaryText}).`
+          : `ℹ️ <strong>Servermiljö & Konfiguration:</strong> Inga kroniska hostingbegränsningar detekterades. Du har ${100 - configScore}p avvikelser kvar att åtgärda i din konfiguration.`);
+
     rowsEl.innerHTML = `
       <div class="breakdown-row">
         <span>🛡️ Stabilitet & Kassaskydd (40%):</span>
-        <strong style="color: ${stabilityScore >= 80 ? 'var(--color-success)' : (stabilityScore >= 60 ? 'var(--color-warning)' : 'var(--color-danger)')};">${stabilityScore}/100</strong>
+        <strong style="color: ${configStabilityScore >= 80 ? 'var(--color-success)' : (configStabilityScore >= 60 ? 'var(--color-warning)' : 'var(--color-danger)')};">${configStabilityScore}/100</strong>
       </div>
       <div class="breakdown-row">
         <span>⚡ Prestanda & CWV ${psiNote}:</span>
@@ -2718,7 +3550,15 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div class="breakdown-row">
         <span>⚙️ Konfiguration & Paritet (10%):</span>
-        <strong style="color: ${configScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${configScore}/100</strong>
+        <strong style="color: ${configSettingsScore >= 80 ? 'var(--color-success)' : 'var(--color-warning)'};">${configSettingsScore}/100</strong>
+      </div>
+      <div class="breakdown-row" style="margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px dashed rgba(255,255,255,0.08);">
+        <span>📊 Config Completion:</span>
+        <strong style="color: ${configScore >= 90 ? 'var(--color-success)' : (configScore >= 75 ? 'var(--color-warning)' : 'var(--color-danger)')};">${configScore}%</strong>
+      </div>
+      ${chronicRowsHtml}
+      <div style="margin-top: 0.6rem; padding-top: 0.45rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.7rem; color: #94a3b8; line-height: 1.35; text-align: left;">
+        ${noteText}
       </div>
     `;
   }
@@ -2744,7 +3584,7 @@ document.addEventListener("DOMContentLoaded", () => {
     renderBenchmarkMatrix();
     renderHealthScoreBreakdown();
 
-    const { masterScore } = computeHealthScoreBreakdown();
+    const { masterScore, configScore: controllableScore, chronicDeductions } = computeHealthScoreBreakdown();
     const score = masterScore;
 
     // Render score value & gauge
@@ -2759,24 +3599,31 @@ document.addEventListener("DOMContentLoaded", () => {
       gaugeEl.style.setProperty("--score-deg", `${deg}deg`);
     }
 
-    // Render ecosystem updates notice under health gauge (count only)
+    // Config Completion horizontal progress bar (Liggande stapeldiagram)
+    const configBarFillEl = document.getElementById("config-score-bar-fill");
+    const configBarLabelEl = document.getElementById("config-score-bar-label");
+
+    if (configBarFillEl) {
+      configBarFillEl.style.width = `${controllableScore}%`;
+      if (controllableScore >= 95) {
+        configBarFillEl.style.background = "linear-gradient(90deg, #10b981, #059669)";
+      } else if (controllableScore >= 80) {
+        configBarFillEl.style.background = "linear-gradient(90deg, #38bdf8, #2563eb)";
+      } else if (controllableScore >= 60) {
+        configBarFillEl.style.background = "linear-gradient(90deg, #f59e0b, #d97706)";
+      } else {
+        configBarFillEl.style.background = "linear-gradient(90deg, #ef4444, #b91c1c)";
+      }
+    }
+    if (configBarLabelEl) {
+      configBarLabelEl.textContent = `${controllableScore}%`;
+    }
+
+    // Updates notice under gauge removed per user directive (avoids phantom update counters)
     const updatesEl = document.getElementById("health-score-updates");
     if (updatesEl) {
-      const updateAlert = (results.alerts || []).find(a => a.id === "alert_available_updates");
-      if (updateAlert && updateAlert.components && updateAlert.components.length > 0) {
-        const count = updateAlert.components.length;
-        updatesEl.textContent = `${count} uppdatering${count > 1 ? "ar" : ""} tillgänglig${count > 1 ? "a" : ""}`;
-        updatesEl.style.display = "inline-flex";
-        updatesEl.onclick = () => {
-          const tabBtn = document.querySelector('[data-tab="conflicts"]') || document.getElementById("tab-conflicts");
-          if (tabBtn) tabBtn.click();
-          const targetCard = document.getElementById("alert_available_updates");
-          if (targetCard) targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
-        };
-      } else {
-        updatesEl.style.display = "none";
-        updatesEl.textContent = "";
-      }
+      updatesEl.style.display = "none";
+      updatesEl.textContent = "";
     }
 
     const allAlerts = [
@@ -2784,8 +3631,8 @@ document.addEventListener("DOMContentLoaded", () => {
       ...(results.customCodeAlerts || []),
       ...(results.customCssAlerts || [])
     ];
-    const dangerCount = allAlerts.filter(a => a.type === "danger").length;
-    const warningCount = allAlerts.filter(a => a.type === "warning").length;
+    const dangerCount = allAlerts.filter(a => a.type === "danger" && !a.isChronic).length;
+    const warningCount = allAlerts.filter(a => a.type === "warning" && !a.isChronic).length;
     const totalConflicts = dangerCount + warningCount;
 
     // 1. Populate Konfliktvarningar metric row
@@ -2838,19 +3685,60 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
-    if (scoreTitleEl && scoreDescEl) {
-      if (dangerCount > 0) {
-        scoreTitleEl.textContent = "Åtgärd krävs! 🔴";
-        scoreDescEl.textContent = `Kritiska stabilitetsrisker eller krockar detekterade (${dangerCount} st).`;
-      } else if (warningCount > 0) {
-        scoreTitleEl.textContent = "Bra status med varningar 🟡";
-        scoreDescEl.textContent = `Sajten är stabil men har ${warningCount} åtgärdsbara konfliktvarningar.`;
-      } else if (score >= 95) {
-        scoreTitleEl.textContent = "100% LSCWP Advanced Preset! 🟢";
-        scoreDescEl.textContent = "Din sajt är optimalt konfigurerad och har maximal stabilitet.";
+    // 3. Populate Kroniska fel (Icke påverkbara observationer) metric row
+    const chronicAlerts = allAlerts.filter(a => a.isChronic || a.id === "alert_opcache_critical" || a.id === "alert_wc_checkout_ttfb");
+    const chronicCount = chronicAlerts.length;
+    const chronicEl = document.getElementById("metric-chronic-observations");
+    const chronicCountEl = document.getElementById("metric-chronic-count");
+    if (chronicCountEl) {
+      chronicCountEl.textContent = `${chronicCount} st`;
+      if (chronicCount > 0) {
+        chronicCountEl.style.background = "rgba(56, 189, 248, 0.18)";
+        chronicCountEl.style.color = "#38bdf8";
+        chronicCountEl.style.border = "1px solid rgba(56, 189, 248, 0.35)";
       } else {
-        scoreTitleEl.textContent = "Godkänd status 🟢";
-        scoreDescEl.textContent = "Sajten är stabil med några mindre konfigurationsjusteringar.";
+        chronicCountEl.style.background = "rgba(16, 185, 129, 0.18)";
+        chronicCountEl.style.color = "var(--color-success)";
+        chronicCountEl.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+      }
+    }
+    if (chronicEl) {
+      chronicEl.onclick = () => {
+        switchMasterView("risks");
+        state.activeRiskFilter = "all";
+        renderAlerts();
+        setTimeout(() => {
+          const target = document.getElementById("alert-alert_opcache_critical") || document.getElementById("alert-alert_wc_checkout_ttfb") || (alertsList && alertsList.querySelector(".alert-item"));
+          if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 150);
+      };
+    }
+
+    if (scoreDescEl) {
+      scoreDescEl.textContent = "";
+      scoreDescEl.style.display = "none";
+    }
+
+    if (scoreTitleEl) {
+      let baseTitle = "";
+      if (dangerCount > 0) {
+        baseTitle = "Åtgärd krävs! 🔴";
+      } else if (warningCount > 0) {
+        baseTitle = "Bra status med varningar 🟡";
+      } else {
+        baseTitle = `${score}% Overall Score 🟢`;
+      }
+
+      scoreTitleEl.innerHTML = `<span id="health-score-title-text">${baseTitle}</span> <span id="btn-toggle-health-breakdown" style="cursor: pointer; font-size: 0.95rem; vertical-align: middle; margin-left: 0.35rem;" title="Klicka för att se hur poängen beräknas">ℹ️</span>`;
+      
+      const btnBreakdown = document.getElementById("btn-toggle-health-breakdown");
+      const healthBreakdownPanel = document.getElementById("health-breakdown-panel");
+      if (btnBreakdown && healthBreakdownPanel) {
+        btnBreakdown.onclick = (e) => {
+          e.stopPropagation();
+          const isVisible = healthBreakdownPanel.style.display === "block";
+          healthBreakdownPanel.style.display = isVisible ? "none" : "block";
+        };
       }
     }
 
@@ -2877,6 +3765,14 @@ document.addEventListener("DOMContentLoaded", () => {
         topFindingTextEl.textContent = `Kritisk varning: ${firstDanger.title}. Se fliken 'Risker & Kompatibilitet'.`;
       } else if (results.alerts.some(a => a.type === "warning")) {
         topFindingTextEl.textContent = "Detekterade kompatibilitetsvarningar i din miljö (t.ex. krockande lazy-loads). Se fliken 'Risker & Kompatibilitet' för detaljerade råd.";
+      } else if (results.alerts.some(a => a.type === "chronic" || a.isChronic)) {
+        const chrCount = results.alerts.filter(a => a.type === "chronic" || a.isChronic).length;
+        const chrText = chrCount === 1 ? "1 externt kroniskt fel" : `${chrCount} externa kroniska fel`;
+        if (deviationCount > 0) {
+          topFindingTextEl.textContent = `Din sajt har ${deviationCount} rekommenderade optimeringar att åtgärda (se 'Rekommenderade inställningar') samt ${chrText} i webbhotellets miljö (se 'Risker & Kompatibilitet').`;
+        } else {
+          topFindingTextEl.textContent = `Din WordPress-konfiguration är optimal, men ${chrText} i webbhotellets miljö detekterades (se fliken 'Risker & Kompatibilitet').`;
+        }
       } else if (deviationCount > 0) {
         topFindingTextEl.textContent = `Din sajt är stabil och har ${deviationCount} rekommenderade prestandaoptimeringar. Se fliken 'Rekommenderade inställningar'.`;
       } else {
@@ -2918,7 +3814,7 @@ document.addEventListener("DOMContentLoaded", () => {
             li2.innerHTML = `<span style="color: var(--color-danger);">❌</span> Kassan/varukorgen saknar exkluderingsregler i inläst fil!`;
           }
         } else {
-          li2.innerHTML = `<span style="color: #94a3b8;">ℹ️</span> Kassaexkluderingar verifieras när .data-fil laddas upp i Slot 7.`;
+          li2.innerHTML = `<span style="color: #94a3b8;">ℹ️</span> Kassaexkluderingar verifieras när .data-fil laddas upp i Slot 9.`;
         }
         bulletListEl.appendChild(li2);
       }
@@ -3015,7 +3911,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ...state.analysisResults.alerts,
       ...state.analysisResults.customCodeAlerts,
       ...(state.analysisResults.customCssAlerts || [])
-    ].filter(a => a.type === "danger" || a.type === "warning");
+    ].filter(a => a.type === "danger" || a.type === "warning" || a.isChronic);
 
     // Component mapping definitions
     const componentDefs = {
@@ -3048,9 +3944,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update global counter badges
     const critCount = normalizedAlerts.filter(a => a.type === "danger").length;
-    const warnCount = normalizedAlerts.filter(a => a.type === "warning").length;
+    const warnCount = normalizedAlerts.filter(a => a.type === "warning" && !a.isChronic).length;
+    const chronicCount = normalizedAlerts.filter(a => a.isChronic).length;
     const critBadge = document.getElementById("risk-count-critical-badge");
     const warnBadge = document.getElementById("risk-count-warning-badge");
+    const chronicBadge = document.getElementById("risk-count-chronic-badge");
     if (critBadge) {
       critBadge.textContent = `${critCount} Kritiska`;
       critBadge.className = critCount > 0 ? "badge-risk critical" : "badge-risk zero";
@@ -3058,6 +3956,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (warnBadge) {
       warnBadge.textContent = `${warnCount} Varning${warnCount === 1 ? "" : "ar"}`;
       warnBadge.className = warnCount > 0 ? "badge-risk warning" : "badge-risk zero";
+    }
+    if (chronicBadge) {
+      chronicBadge.textContent = `${chronicCount} Kronisk${chronicCount === 1 ? "t fel" : "a fel"}`;
+      chronicBadge.style.display = chronicCount > 0 ? "inline-block" : "none";
+      chronicBadge.style.background = "rgba(56, 189, 248, 0.18)";
+      chronicBadge.style.color = "#38bdf8";
+      chronicBadge.style.border = "1px solid rgba(56, 189, 248, 0.35)";
     }
 
     // 1. Render Cockpit Rad 1: Verktyg
@@ -3086,6 +3991,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const cCount = compAlerts.filter(a => a.type === "danger").length;
         const wCount = compAlerts.filter(a => a.type === "warning").length;
+        const chrCount = compAlerts.filter(a => a.type === "chronic" || a.isChronic).length;
 
         let cardStatusClass = "ok";
         let statusBadgeText = "🟢 Optimal";
@@ -3094,7 +4000,10 @@ document.addEventListener("DOMContentLoaded", () => {
           statusBadgeText = `🔴 ${cCount} Kritiska`;
         } else if (wCount > 0) {
           cardStatusClass = "warning";
-          statusBadgeText = `🟡 ${wCount} Varning${wCount > 1 ? "ar" : ""}`;
+          statusBadgeText = `🟡 ${wCount} Varning${wCount > 1 ? "ar" : ""}${chrCount > 0 ? ` · 🔵 ${chrCount} Kroniskt` : ""}`;
+        } else if (chrCount > 0) {
+          cardStatusClass = "chronic";
+          statusBadgeText = `🔵 ${chrCount} Kronisk${chrCount === 1 ? "t fel" : "a fel"}`;
         }
 
         const isSelected = state.activeRiskFilter === compKey;
@@ -3140,6 +4049,10 @@ document.addEventListener("DOMContentLoaded", () => {
           statusColor = "#f87171";
           statusBg = "rgba(239, 68, 68, 0.06)";
           statusBorder = "rgba(239, 68, 68, 0.25)";
+        } else if (fn.status === "chronic" || (fn.statusText && fn.statusText.includes("🔵"))) {
+          statusColor = "#38bdf8";
+          statusBg = "rgba(56, 189, 248, 0.05)";
+          statusBorder = "rgba(56, 189, 248, 0.22)";
         } else if (fn.status === "warning") {
           statusColor = "var(--color-warning)";
           statusBg = "rgba(245, 158, 11, 0.06)";
@@ -3161,24 +4074,48 @@ document.addEventListener("DOMContentLoaded", () => {
           const stateBg = isEnabled ? "rgba(16, 185, 129, 0.14)" : "rgba(148, 163, 184, 0.1)";
           const stateBorder = isEnabled ? "rgba(16, 185, 129, 0.25)" : "rgba(148, 163, 184, 0.18)";
           return `
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; padding: 0.1rem 0;">
-              <span style="color: var(--text-muted);">${escapeHtml(t.name)}</span>
-              <span style="font-size: 0.65rem; font-weight: 700; color: ${stateColor}; background: ${stateBg}; border: 1px solid ${stateBorder}; padding: 0.08rem 0.35rem; border-radius: 4px;">${escapeHtml(t.state)}</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; padding: 0.1rem 0; gap: 0.3rem;">
+              <span style="color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(t.name)}</span>
+              <span style="font-size: 0.65rem; font-weight: 700; color: ${stateColor}; background: ${stateBg}; border: 1px solid ${stateBorder}; padding: 0.08rem 0.35rem; border-radius: 4px; white-space: nowrap; flex-shrink: 0;">${escapeHtml(t.state)}</span>
             </div>
           `;
         }).join("");
 
         card.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.15rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem; gap: 0.4rem;">
-            <strong style="font-size: 0.8rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 0.15rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem; gap: 0.25rem;">
+            <strong style="font-size: 0.8rem; color: #fff; white-space: nowrap;">
               ${escapeHtml(fn.name)}
             </strong>
-            <span style="font-size: 0.68rem; font-weight: 600; color: ${statusColor}; white-space: nowrap; margin-left: auto; text-align: right; flex-shrink: 0;">${escapeHtml(fn.statusText || "")}</span>
+            <span style="font-size: 0.68rem; font-weight: 600; color: ${statusColor}; white-space: nowrap; margin-left: auto; text-align: right;">${escapeHtml(fn.statusText || "")}</span>
           </div>
           <div style="display: flex; flex-direction: column; gap: 0.1rem;">
             ${toolsHtml}
           </div>
         `;
+
+        card.style.cursor = "pointer";
+        card.title = "Klicka för att se relaterade risker och inställningar";
+        card.addEventListener("click", () => {
+          if (fn.id === "server_res") {
+            state.activeRiskFilter = "server";
+            renderAlerts();
+            setTimeout(() => {
+              const target = document.getElementById("alert-alert_opcache_critical") || (alertsList && alertsList.firstElementChild);
+              if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 100);
+          } else if (fn.id === "kassa_perf") {
+            state.activeRiskFilter = "woocommerce";
+            renderAlerts();
+            setTimeout(() => {
+              const target = document.getElementById("alert-alert_wc_checkout_ttfb") || (alertsList && alertsList.firstElementChild);
+              if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 100);
+          } else if (fn.id === "lazyload" || fn.id === "js_opt" || fn.id === "css_opt") {
+            state.activeRiskFilter = "litespeed";
+            renderAlerts();
+          }
+        });
+
         functionsGridEl.appendChild(card);
       });
     }
@@ -3248,9 +4185,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     displayAlerts.forEach((alert, index) => {
       const item = document.createElement("div");
-      item.className = `alert-item ${alert.type}`;
+      item.id = `alert-${alert.id}`;
+      item.className = (alert.type === "chronic" || alert.isChronic) ? "alert-item chronic" : `alert-item ${alert.type}`;
       
       const compDef = componentDefs[alert.component] || { label: alert.component || "WordPress", icon: "⚙️" };
+
+      const deductionText = (alert.scoreImpact !== undefined && alert.scoreImpact > 0) ? ` (-${alert.scoreImpact}p)` : " (0p)";
+      const chronicBadge = (alert.type === "chronic" || alert.isChronic) ? `
+        <span class="badge" style="font-size: 0.65rem; background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 4px; padding: 0.1rem 0.4rem; font-weight: 700;">
+          🔵 Kroniskt fel${deductionText}
+        </span>
+      ` : "";
 
       let pathHtml = "";
       if (alert.wpPath) {
@@ -3288,6 +4233,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="badge" style="font-size: 0.65rem; background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; padding: 0.1rem 0.4rem; font-weight: 600;">
               ${compDef.icon} ${escapeHtml(compDef.label)}
             </span>
+            ${chronicBadge}
             <h4 style="margin: 0; font-size: 0.95rem;">${index + 1}. ${escapeHtml(alert.title)}</h4>
           </div>
           <p style="margin-top: 0.25rem; white-space: pre-line;">${escapeHtml(alert.desc)}</p>
@@ -3348,10 +4294,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     checklist.push({
       label: "Kassacaching undantagen (drop_uri)",
-      status: !isDropUriMeasured ? "Ej uppmätt (Kräver Slot 7)" : (checkoutSecure ? "Skyddad" : "RISK"),
+      status: !isDropUriMeasured ? "Värde saknas (Kräver Slot 9)" : (checkoutSecure ? "Skyddad" : "RISK"),
       risk: isDropUriMeasured && !checkoutSecure,
       desc: !isDropUriMeasured
-        ? "Ladda upp LiteSpeed .data (Slot 7) för att verifiera att kassan är exkluderad i drop_uri."
+        ? "Ladda upp LiteSpeed .data (Slot 9) för att verifiera att kassan är exkluderad i drop_uri."
         : (checkoutSecure 
           ? "Kassan exkluderas från cachning för att förhindra session- och dataläckor."
           : "Kassan cachas aktivt! Risk för session-läckor eller misslyckade köp."),
@@ -3362,10 +4308,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     checklist.push({
       label: "Varukorgscaching undantagen (drop_uri)",
-      status: !isDropUriMeasured ? "Ej uppmätt (Kräver Slot 7)" : (cartSecure ? "Skyddad" : "RISK"),
+      status: !isDropUriMeasured ? "Värde saknas (Kräver Slot 9)" : (cartSecure ? "Skyddad" : "RISK"),
       risk: isDropUriMeasured && !cartSecure,
       desc: !isDropUriMeasured
-        ? "Ladda upp LiteSpeed .data (Slot 7) för att verifiera att varukorgen är exkluderad i drop_uri."
+        ? "Ladda upp LiteSpeed .data (Slot 9) för att verifiera att varukorgen är exkluderad i drop_uri."
         : (cartSecure
           ? "Varukorgen är exkluderad eller integrerad i kassan, vilket säkrar kundvagnsfragmenten."
           : "Varukorgen är inte exkluderad. Risk för tomma kundvagnar under navigation."),
@@ -3467,7 +4413,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!state.customCodeInfo) {
       customCodeAlertsList.innerHTML = `
         <div style="color:var(--text-muted); font-size:0.8rem; text-align:center; padding:1rem 0;">
-          Ladda upp functions.php eller en snippet-fil (Slot 6 SCM) för att köra PHP-analys.
+          Ladda upp functions.php eller en snippet-fil (Slot 7 SCM) för att köra PHP-analys.
         </div>
       `;
       return;
@@ -3537,7 +4483,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cssDiagCard.innerHTML = `
         <div class="setting-info" style="width:100%;">
           <div class="setting-title-row">
-            <h4 class="setting-title" style="color:var(--accent-cyan);">🎨 Inläst Anpassad CSS (Slot 6)</h4>
+            <h4 class="setting-title" style="color:var(--accent-cyan);">🎨 Inläst Anpassad CSS (Slot 7 SCM)</h4>
             <span class="badge-risk safe">Prestandagranskad</span>
           </div>
           <p class="setting-desc" style="margin-bottom: 0.75rem;">
@@ -3553,7 +4499,7 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsContainer.appendChild(cssDiagCard);
     }
 
-    // Filter options: all_deviations = cross-tab flatten; others scoped to active tab
+    // Filter options: all_deviations & unmeasured = cross-tab flatten; others scoped to active tab
     const compFn = window.getOptionComparison || getOptionComparison;
     const annotateTab = (o, tab) => Object.assign({}, o, {
       _sourceTabId: tab.id,
@@ -3564,16 +4510,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const comp = compFn ? compFn(o, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false, isMeasured: false };
       return !!(comp.isDeviant && comp.isMeasured);
     };
+    const isUnmeasured = (o) => {
+      const comp = compFn ? compFn(o, state.uploadedSettings, state.analysisResults.environment) : { isDeviant: false, isMeasured: false };
+      return !comp.isMeasured;
+    };
 
     let filteredOptions;
     const isAllDev = state.activeSettingsFilter === "all_deviations";
+    const isUnmeasuredFilter = state.activeSettingsFilter === "unmeasured";
 
     if (isAllDev) {
       filteredOptions = [];
       (state.analysisResults.recommendations || []).forEach(tab => {
         (tab.options || []).forEach(o => {
           if (o.id === "optm_css_custom") return;
-          if (isMeasuredDeviant(o)) filteredOptions.push(annotateTab(o, tab));
+          if (isMeasuredDeviant(o) || isUnmeasured(o)) filteredOptions.push(annotateTab(o, tab));
+        });
+      });
+    } else if (isUnmeasuredFilter) {
+      filteredOptions = [];
+      (state.analysisResults.recommendations || []).forEach(tab => {
+        (tab.options || []).forEach(o => {
+          if (o.id === "optm_css_custom") return;
+          if (isUnmeasured(o)) filteredOptions.push(annotateTab(o, tab));
         });
       });
     } else {
@@ -3616,8 +4575,14 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (state.activeSettingsFilter === "all_deviations") {
         emptyNotice.innerHTML = `
           <span style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; color: #4ade80;">🎉</span>
-          <strong style="color: #4ade80; font-size: 1rem;">Inga avvikelser på hela sajten!</strong>
-          <p style="font-size: 0.82rem; margin-top: 0.25rem;">Alla uppmätta inställningar över alla kategorier matchar våra optimala rekommendationer (Policy/Context räknas inte som avvikelse).</p>
+          <strong style="color: #4ade80; font-size: 1rem;">Inga avvikelser eller saknade värden på hela sajten!</strong>
+          <p style="font-size: 0.82rem; margin-top: 0.25rem;">Alla inställningar är uppmätta och matchar våra optimala rekommendationer (100% optimalt).</p>
+        `;
+      } else if (state.activeSettingsFilter === "unmeasured") {
+        emptyNotice.innerHTML = `
+          <span style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; color: #38bdf8;">🎉</span>
+          <strong style="color: #38bdf8; font-size: 1rem;">Inga saknade värden!</strong>
+          <p style="font-size: 0.82rem; margin-top: 0.25rem;">Alla inställningar på webbplatsen har kunnat läsas in och mätas från dina uppladdade underlag.</p>
         `;
       } else if (state.activeSettingsFilter === "deviations") {
         emptyNotice.innerHTML = `
@@ -3661,6 +4626,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <label for="settings-sort-select" style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">🔀 Sortera:</label>
           <select id="settings-sort-select" class="settings-sort-select">
             <option value="deviations" ${state.settingsSortBy === "deviations" ? "selected" : ""}>🚨 Avvikelser & Kritiska först (Standard)</option>
+            <option value="unmeasured" ${state.settingsSortBy === "unmeasured" ? "selected" : ""}>⚪ Värde saknas först</option>
             <option value="default" ${state.settingsSortBy === "default" ? "selected" : ""}>⚡ LiteSpeed-ordning</option>
             <option value="impact" ${state.settingsSortBy === "impact" ? "selected" : ""}>⚠️ Känslighet (Kritisk ➔ Hög ➔ Standard)</option>
             <option value="status" ${state.settingsSortBy === "status" ? "selected" : ""}>🔘 Aktiveringsstatus (PÅ ➔ AV)</option>
@@ -3712,10 +4678,21 @@ document.addEventListener("DOMContentLoaded", () => {
       if (sortBy === "status") {
         const getStatusScore = (opt, comp) => {
           if (!comp || !comp.isMeasured) return 3;
-          if (comp.currentDisplay === "PÅ" || comp.currentDisplay.includes("Delayed") || comp.currentDisplay.includes("Deferred") || comp.currentDisplay.includes("Optimalt") || comp.currentDisplay.includes("Extern fil") || comp.currentDisplay.includes("Matchar")) return 1;
+          if (comp.currentDisplay === "PÅ" || comp.currentDisplay.startsWith("PÅ") || comp.currentDisplay.includes("Delayed") || comp.currentDisplay.includes("Deferred") || comp.currentDisplay.includes("Optimalt") || comp.currentDisplay.includes("Extern fil") || comp.currentDisplay.includes("Matchar")) return 1;
           return 2;
         };
         const diff = getStatusScore(a, compA) - getStatusScore(b, compB);
+        if (diff !== 0) return diff;
+        return (a.title || "").localeCompare(b.title || "", "sv");
+      }
+
+      if (sortBy === "unmeasured") {
+        function getUnmeasuredPriority(opt, comp) {
+          if (!comp || !comp.isMeasured) return 1;
+          if (comp.isDeviant || !comp.isMatches) return 2;
+          return 3;
+        }
+        const diff = getUnmeasuredPriority(a, compA) - getUnmeasuredPriority(b, compB);
         if (diff !== 0) return diff;
         return (a.title || "").localeCompare(b.title || "", "sv");
       }
@@ -3790,20 +4767,21 @@ document.addEventListener("DOMContentLoaded", () => {
       const isTextareaField = opt.id === "js_exclude" || opt.id === "css_exclude" || opt.id === "media_lazy_exc" || opt.id === "drop_uri" || opt.id === "js_delayed_exclude" || opt.id === "optm_dns_prefetch";
 
       const sourceSlotBadge = (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_")))
-        ? `<span class="badge-risk info" style="margin-left: 0.35rem; background: rgba(168, 85, 247, 0.12); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.65rem;">📂 Slot 5 · Elementor</span>`
+        ? `<span class="badge-risk info" style="margin-left: 0.35rem; background: rgba(168, 85, 247, 0.12); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.65rem;">📂 Slot 6 · Elementor</span>`
         : "";
 
-      const showCategoryBadge = state.activeSettingsFilter === "all_deviations";
+      const showCategoryBadge = state.activeSettingsFilter === "all_deviations" || state.activeSettingsFilter === "unmeasured";
       const categoryBadge = showCategoryBadge && (opt._sourceTabTitle || opt.tabCategoryTitle)
         ? `<button type="button" class="category-tab-badge btn-jump-category" data-tab-id="${escapeHtml(opt._sourceTabId || "")}" data-setting-id="${escapeHtml(opt.id)}" title="Hoppa till flik">${escapeHtml(opt._sourceTabTitle || opt.tabCategoryTitle)}</button>`
         : "";
 
+      const isZeroScore = opt.scoreImpact === 0 || opt.impactCategory === "policy" || comp.isPolicyContext;
       const matchBadge = !comp.isMeasured 
-        ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">⚪ Ej uppmätt / Okänd</span>`
-        : (comp.isPolicyContext)
-          ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.35);">🔵 Policy/Context</span>`
+        ? `<span class="badge-risk info" style="margin-left: auto; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">⚪ Värde saknas</span>`
         : comp.isMatches 
           ? `<span class="badge-risk safe" style="margin-left: auto; background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3);">🟢 Optimal</span>`
+        : (isZeroScore)
+          ? `<span class="badge-risk high" style="margin-left: auto; background: rgba(245, 158, 11, 0.15); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.3);">🟡 Avvikelse (0p)</span>`
           : opt.criticalLevel === "critical"
             ? `<span class="badge-risk high" style="margin-left: auto; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">🚨 Avvikelse</span>`
             : opt.criticalLevel === "high"
@@ -3835,11 +4813,13 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (opt.id === "elem_css_print_method") {
         statusClass = comp.isMatches ? "status-on" : "status-off";
         statusText = comp.isMatches ? "📄 Extern fil" : "⚠️ Intern/Inline";
-      } else if (opt.tool === "server" && typeof opt.recommendedRaw === "string" && opt.recommendedRaw !== "1" && opt.recommendedRaw !== "0") {
+      } else if ((opt.tool === "server" || opt.tool === "wordfence") && typeof opt.recommendedRaw === "string" && opt.recommendedRaw !== "1" && opt.recommendedRaw !== "0") {
         statusClass = comp.isMatches ? "status-on" : "status-off";
-        statusText = `📦 ${comp.currentDisplay || activeUserVal || "Ej satt"}`;
+        const icon = opt.tool === "wordfence" ? (comp.isMatches ? "🟢" : "⚠️") : "📦";
+        statusText = `${icon} ${comp.currentDisplay || activeUserVal || "Ej satt"}`;
       } else if (
         comp.currentDisplay === "PÅ" ||
+        comp.currentDisplay.startsWith("PÅ") ||
         comp.currentDisplay === "1" ||
         comp.currentDisplay.includes("Delayed") ||
         comp.currentDisplay.includes("Deferred") ||
@@ -3847,7 +4827,7 @@ document.addEventListener("DOMContentLoaded", () => {
         comp.currentDisplay.includes("Extern") ||
         comp.currentDisplay.includes("external") ||
         comp.currentDisplay.includes("Matchar") ||
-        (comp.currentDisplay !== "AV" && comp.currentDisplay !== "0" && (comp.rawMeasured === 1 || comp.rawMeasured === "1" || comp.rawMeasured === true || comp.rawMeasured === 2 || comp.rawMeasured === "2"))
+        (comp.currentDisplay !== "AV" && !comp.currentDisplay.startsWith("AV") && comp.currentDisplay !== "0" && (comp.rawMeasured === 1 || comp.rawMeasured === "1" || comp.rawMeasured === true || comp.rawMeasured === 2 || comp.rawMeasured === "2"))
       ) {
         statusClass = "status-on";
         statusText = "✅ PÅ";
@@ -3947,6 +4927,48 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
         `;
       }
+
+      function getUnmeasuredSourceHint(o) {
+        if (!o || !o.id) return null;
+        switch (o.id) {
+          case "wp_post_revisions":
+            return "Klistra in <code>define('WP_POST_REVISIONS', 5);</code> i <strong>Slot 7 (Egen kod / wp-config)</strong> eller ladda upp Wordfence-diagnostik i <strong>Slot 4</strong> / Site Health i <strong>Slot 1</strong>.";
+          case "woo_transients_cleanup":
+            return "Aktivt som standard i WooCommerce 7.8+. För äldre versioner eller anpassad schemaläggning: klistra in WooCommerce statusrapport i <strong>Slot 3</strong>, SCM-export i <strong>Slot 7 (SCM)</strong> eller kör databasrensning i <strong>Slot 9 (LiteSpeed)</strong>.";
+          case "wf_disable_live_traffic":
+            return "Verifiera under <em>Wordfence ➔ All Options ➔ Live Traffic Options ➔ Traffic logging mode</em> (välj 'Security Only') eller klistra in SCM-export i <strong>Slot 7 (SCM)</strong>. Kan även klistras in i <strong>Slot 4 (Wordfence)</strong> om raden inkluderas.";
+          case "wf_noabort":
+            return "Klistra in <code>.htaccess</code> i <strong>Slot 8 (.htaccess)</strong> eller Wordfence-diagnostik i <strong>Slot 4 (Wordfence)</strong>.";
+          case "woo_cart_fragments":
+            return "Aktivt skript krävs om minivarukorgen i headern ska synkas vid sidcache. Verifiera i <strong>Slot 6 (Elementor Menu Cart)</strong>, klistra in SCM-export i <strong>Slot 7 (SCM)</strong> eller undanta skriptet i <strong>Slot 9 (LiteSpeed)</strong>.";
+          case "wp_autoload_size":
+            return "Kopiera texten under <em>Verktyg ➔ Hälsokontroll för webbplats ➔ Status ➔ Klarade prov ➔ Automatiskt laddade inställningar</em> och klistra in i <strong>Slot 2 (Autoload Status)</strong>, eller kopiera <code>Autoload Size</code> från <em>LiteSpeed ➔ Databas</em>.";
+          default:
+            if (o.id && o.id.startsWith("theme_")) {
+              return "Klistra in temainställningar i <strong>Slot 5 (Tema)</strong> för att mäta detta.";
+            }
+            if (o.id && o.id.startsWith("elem_")) {
+              return "Klistra in Elementor systeminfo i <strong>Slot 6 (Elementor)</strong> för att mäta detta.";
+            }
+            if (o.id && o.id.startsWith("woo_")) {
+              return "Klistra in WooCommerce statusrapport i <strong>Slot 3 (WooCommerce)</strong> för att mäta detta.";
+            }
+            if (o.sourceSlot) {
+              return `Klistra in data i <strong>${escapeHtml(o.sourceSlot)}</strong> för att mäta detta.`;
+            }
+            return "Klistra in relevant konfigurations- eller diagnostikfil för att mäta detta.";
+        }
+      }
+
+      const unmeasuredHint = getUnmeasuredSourceHint(opt);
+      const unmeasuredHintHtml = (!comp || !comp.isMeasured) && unmeasuredHint ? `
+        <div class="unmeasured-guidance-box" style="margin-top: 0.5rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.72rem; color: #bfdbfe; line-height: 1.4;">
+          <strong style="color: #93c5fd; display: flex; align-items: center; gap: 0.35rem;">
+            <span>💡</span> För att mäta detta:
+          </strong>
+          <span style="display: block; margin-top: 0.2rem;">${unmeasuredHint}</span>
+        </div>
+      ` : "";
 
       if (isTextareaField) {
         let impactScoreHtml = "";
@@ -4063,6 +5085,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ${guidanceBoxHtml}
             ${missingPillsHtml}
             ${fulfilledPillsHtml}
+            ${unmeasuredHintHtml}
 
             <!-- 1. Current list on site (Collapsible Dropdown) -->
             <details class="exclusion-accordion" style="margin-top: 0.65rem;">
@@ -4132,6 +5155,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ${alternativesHtml}
             ${singleSourceHtml}
             ${citationsHtml}
+            ${unmeasuredHintHtml}
             <div style="margin-top: 0.6rem; font-size: 0.72rem;">
               ${impactScoreHtml}
             </div>
@@ -4153,7 +5177,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const settingId = jumpBtn.getAttribute("data-setting-id");
           if (tabId && settingId) {
             // Switch to tab-scoped "all" so the target card is visible in its category
-            if (state.activeSettingsFilter === "all_deviations") {
+            if (state.activeSettingsFilter === "all_deviations" || state.activeSettingsFilter === "unmeasured") {
               state.activeSettingsFilter = "all";
               document.querySelectorAll(".filter-btn").forEach(b => {
                 b.classList.toggle("active", b.dataset.filter === "all");
@@ -4177,7 +5201,7 @@ document.addEventListener("DOMContentLoaded", () => {
       comparisonSummaryCard.style.borderColor = "rgba(16, 185, 129, 0.25)";
       if (btnFixAll) btnFixAll.style.display = "none";
       
-      comparisonSummaryDesc.innerHTML = "✨ <strong>Ny optimeringsprofil skapad från scratch:</strong> Eftersom du inte laddat upp någon befintlig LSCWP-fil (Slot 7 LiteSpeed), har vi genererat en helt ren och optimal profil anpassad för din sajt. Klicka på flikarna nedan för att se LSCWP Advanced Preset för din WordPress-version!";
+      comparisonSummaryDesc.innerHTML = "✨ <strong>Ny optimeringsprofil skapad från scratch:</strong> Eftersom du inte laddat upp någon befintlig LSCWP-fil (Slot 9 LiteSpeed), har vi genererat en helt ren och optimal profil anpassad för din sajt. Klicka på flikarna nedan för att se LSCWP Advanced Preset för din WordPress-version!";
       
       comparisonDiffsList.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.6rem; padding: 0.5rem 0;">
@@ -4255,7 +5279,7 @@ document.addEventListener("DOMContentLoaded", () => {
       comparisonDiffsList.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.6rem; padding: 0.5rem 0;">
           <div style="display:flex; align-items:center; gap:0.5rem; color:var(--color-success); font-size:0.875rem;">
-            <span>ℹ️</span> <strong>Slot 7 aktiv:</strong> Alla inställningar nedan jämförs mot din inlästa profil och LSCWP-standard.
+            <span>ℹ️</span> <strong>Slot 9 aktiv:</strong> Alla inställningar nedan jämförs mot din inlästa profil och LSCWP-standard.
           </div>
         </div>
       `;
@@ -4570,7 +5594,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerAnalysis();
 
         const companionVersion = payload.syncPluginVersion || data.syncPluginVersion || "1.0.0";
-        const targetVersion = "2.8.3";
+        const targetVersion = "2.8.35";
         if (companionVersion !== targetVersion) {
           apiSyncStatusText.innerHTML = `⚠️ Ansluten live till ${escapeHtml(url.replace(/^https?:\/\//, ""))} (Plugin v${escapeHtml(companionVersion)} är föråldrad! Ladda ner v${escapeHtml(targetVersion)})`;
           apiSyncStatusText.style.color = "#fbbf24"; // warning color
@@ -4703,8 +5727,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Determine nodes active/inactive status and dynamic theme label
     const activeThemeObj = state.themeInfo || (state.sysInfo && state.sysInfo["wp-active-theme"]);
-    const rawThemeName = activeThemeObj?.name || "";
-    const themeLabel = rawThemeName ? (rawThemeName.length > 18 ? rawThemeName.substring(0, 16) + "…" : rawThemeName) : "Tema";
+    const rawThemeName = activeThemeObj?.name || (state.analysisResults && state.analysisResults.environment && state.analysisResults.environment.activeTheme) || "";
+    const cleanThemeName = rawThemeName.replace(/\s*\([^)]*\)/g, "").trim() || rawThemeName;
+    const themeLabel = cleanThemeName ? (cleanThemeName.length > 18 ? cleanThemeName.substring(0, 16) + "…" : cleanThemeName) : "Tema";
 
     const nodeConfigs = {
       wp: { id: "node-wp", label: "WordPress Core", icon: "🌐", x: 50, y: 52, active: true },
@@ -4770,7 +5795,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ...(state.analysisResults?.alerts || []),
       ...(state.analysisResults?.customCodeAlerts || []),
       ...(state.analysisResults?.customCssAlerts || [])
-    ];
+    ].filter(a => !a.isChronic);
 
     function mapComponentKey(c) {
       if (!c) return "wp";
@@ -4968,6 +5993,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const profileName = name.trim() || defaultName;
     const healthScoreValEl = document.getElementById("health-score-value");
     const healthScore = healthScoreValEl ? parseInt(healthScoreValEl.textContent, 10) : 100;
+    const scoreBreakdown = computeHealthScoreBreakdown();
+    const configScore = scoreBreakdown.configScore;
 
     const env = state.analysisResults.environment || {};
 
@@ -4976,7 +6003,8 @@ document.addEventListener("DOMContentLoaded", () => {
       name: profileName,
       timestamp: formatTimestamp(new Date()),
       healthScore: healthScore,
-      wpVersion: (state.sysInfo && state.sysInfo['wp-core']) ? state.sysInfo['wp-core'].version : (env.wpVersion || '6.7.2'),
+      configScore: configScore,
+      wpVersion: (state.sysInfo && state.sysInfo['wp-core']) ? state.sysInfo['wp-core'].version : (env.wpVersion || '6.8.0'),
       phpVersion: (state.sysInfo && state.sysInfo['wp-server']) ? state.sysInfo['wp-server'].php_version : (env.phpVersion || '8.2'),
       theme: (state.sysInfo && state.sysInfo['wp-active-theme']) ? state.sysInfo['wp-active-theme'].name : (env.activeTheme || 'Standard'),
       pluginsCount: (state.sysInfo && state.sysInfo['wp-plugins-active']) ? Object.keys(state.sysInfo['wp-plugins-active']).length : (state.uploadedSettings ? 1 : 0),
@@ -4986,13 +6014,18 @@ document.addEventListener("DOMContentLoaded", () => {
       themeInfo: state.themeInfo,
       elemInfo: state.elemInfo,
       customCodeInfo: state.customCodeInfo,
+      scmInfo: state.scmInfo || state.customCodeInfo,
+      htaccessInfo: state.htaccessInfo,
       customCss: state.customCss,
+      rawUploadTexts: Object.assign({}, state.rawUploadTexts),
       uploadedSettings: state.uploadedSettings,
       editedSettings: state.editedSettings,
       detectedSiteUrl: state.detectedSiteUrl,
       apiUrl: state.apiUrl,
       uploadMetadata: state.uploadMetadata,
-      appVersion: APP_VERSION
+      manualToggles: Object.assign({}, state.manualToggles),
+      appVersion: APP_VERSION,
+      version: APP_VERSION
     };
 
     const existingIndex = historyLibrary.findIndex(p => p.name.toLowerCase() === profileName.toLowerCase());
@@ -5018,12 +6051,17 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       if (e.name === "QuotaExceededError" || e.code === 22) {
         if (historyLibrary.length > 1) {
-          historyLibrary.shift(); // Drop oldest entry
-          try {
-            localStorage.setItem("wp_optimizer_history", JSON.stringify(historyLibrary));
-            alert("⚠️ Webbläsarens lokala minne var fullt. Äldsta profilen togs bort automatiskt.");
+          const oldest = historyLibrary[0];
+          if (confirm(`⚠️ Webbläsarens lagringsutrymme (localStorage) är fullt. Vill du ta bort den äldsta sparade profilen ("${oldest.name}") för att spara den nya?`)) {
+            historyLibrary.shift();
+            try {
+              localStorage.setItem("wp_optimizer_history", JSON.stringify(historyLibrary));
+              alert(`✓ Profilen sparades (äldsta profilen "${oldest.name}" togs bort).`);
+              return;
+            } catch (e2) {}
+          } else {
             return;
-          } catch (e2) {}
+          }
         }
       }
       alert(`Kunde inte spara till webbläsaren: ${e.message}`);
@@ -5047,15 +6085,121 @@ document.addEventListener("DOMContentLoaded", () => {
       state.sysInfo = profile.sysInfo;
       state.wooInfo = profile.wooInfo;
       state.wfInfo = profile.wfInfo;
-      // Sanitize Wordfence info to ensure current best practices
-      if (state.wfInfo && typeof state.wfInfo === "object") {
-        if (state.wfInfo.disable_live_traffic === undefined && state.wfInfo.live_traffic_disabled !== undefined) {
-          state.wfInfo.disable_live_traffic = state.wfInfo.live_traffic_disabled;
-        }
-      }
       state.themeInfo = profile.themeInfo || null;
       state.elemInfo = profile.elemInfo;
-      // v2.7.3: clear stale google_fonts:true from pre-2.7.2 history (no explicit experiment)
+      state.customCodeInfo = profile.customCodeInfo;
+      state.scmInfo = profile.scmInfo || profile.customCodeInfo || null;
+      state.htaccessInfo = profile.htaccessInfo || null;
+      state.customCss = profile.customCss || "";
+      state.uploadedSettings = profile.uploadedSettings;
+      state.editedSettings = JSON.parse(JSON.stringify(profile.editedSettings || {}));
+      state.apiUrl = profile.apiUrl || "";
+      if (profile.detectedSiteUrl) {
+        state.detectedSiteUrl = profile.detectedSiteUrl;
+      }
+
+      // If raw uploaded texts were stored, re-parse with current modern parsers
+      const parseErrors = [];
+      if (profile.rawUploadTexts && typeof profile.rawUploadTexts === "object") {
+        state.rawUploadTexts = Object.assign({}, profile.rawUploadTexts);
+
+        // Auto-migrate .htaccess from older profiles (saved before v2.8.23) where it was placed in SCM (customcode)
+        if (!state.rawUploadTexts.htaccess && state.rawUploadTexts.customcode) {
+          const ccTrimmed = state.rawUploadTexts.customcode.trim();
+          const ccLower = ccTrimmed.toLowerCase();
+          const isHtCode = !ccLower.includes("<?php") && !ccTrimmed.startsWith("{") && !ccTrimmed.startsWith("[") &&
+            (ccLower.includes("# begin wordpress") || ccLower.includes("# begin lscache") || ccLower.includes("rewriteengine") || ccLower.includes("<ifmodule"));
+          if (isHtCode) {
+            state.rawUploadTexts.htaccess = state.rawUploadTexts.customcode;
+            delete state.rawUploadTexts.customcode;
+            state.customCodeInfo = null;
+            state.scmInfo = null;
+            delete profile.customCodeInfo;
+            if (state.uploadMetadata) {
+              state.uploadMetadata.htaccessInfo = { name: ".htaccess (migrerad från SCM)", timestamp: profile.timestamp || formatTimestamp(new Date()) };
+              delete state.uploadMetadata.customCodeInfo;
+            }
+          }
+        }
+        if (state.rawUploadTexts.sysinfo) {
+          try { state.sysInfo = parseSystemInfoText(state.rawUploadTexts.sysinfo); } catch (e) { parseErrors.push("Webbplatshälsa (Slot 1): " + e.message); }
+        }
+        if (state.rawUploadTexts.autoload) {
+          try {
+            const parsedAutoload = parseAutoloadStatusText(state.rawUploadTexts.autoload);
+            state.autoloadInfo = parsedAutoload;
+            if (parsedAutoload && parsedAutoload.size && state.sysInfo && state.sysInfo["wp-database"]) {
+              state.sysInfo["wp-database"].autoload_options_size = parsedAutoload.size;
+              state.sysInfo["wp-database"]["Autoload-storlek"] = parsedAutoload.size;
+            }
+          } catch (e) { parseErrors.push("Autoload Status (Slot 2): " + e.message); }
+        }
+        if (state.rawUploadTexts.woocommerce) {
+          try { state.wooInfo = parseWooCommerceStatus(state.rawUploadTexts.woocommerce); } catch (e) { parseErrors.push("WooCommerce (Slot 3): " + e.message); }
+        }
+        if (state.rawUploadTexts.wordfence) {
+          try { state.wfInfo = parseWordfenceDiagnostic(state.rawUploadTexts.wordfence); } catch (e) { parseErrors.push("Wordfence (Slot 4): " + e.message); }
+        }
+        if (state.rawUploadTexts.theme) {
+          try {
+            try { state.themeInfo = JSON.parse(state.rawUploadTexts.theme); } catch (te) { state.themeInfo = { rawText: state.rawUploadTexts.theme }; }
+          } catch (e) { parseErrors.push("Tema (Slot 5): " + e.message); }
+        }
+        if (state.rawUploadTexts.elementor) {
+          try { state.elemInfo = parseElementorStatus(state.rawUploadTexts.elementor); } catch (e) { parseErrors.push("Elementor (Slot 6): " + e.message); }
+        }
+        if (state.rawUploadTexts.customcode) {
+          try {
+            let parsedScm = null;
+            try {
+              const j = JSON.parse(state.rawUploadTexts.customcode);
+              if (j && (j.snippets || Array.isArray(j) || j.isScmPackage)) {
+                parsedScm = {
+                  snippets: j.snippets || j,
+                  isScmPackage: true,
+                  version: j.version || (j.metadata && j.metadata.version) || null,
+                  cart_fragments: j.cart_fragments !== undefined ? j.cart_fragments : null,
+                  cart_fragments_optimized: j.cart_fragments_optimized !== undefined ? j.cart_fragments_optimized : null,
+                  transients: j.transients !== undefined ? j.transients : null,
+                  transients_cleanup: j.transients_cleanup !== undefined ? j.transients_cleanup : null,
+                  wpPostRevisions: j.wpPostRevisions !== undefined ? j.wpPostRevisions : null
+                };
+              }
+            } catch (je) {}
+            if (!parsedScm) parsedScm = parseCustomCodeText(state.rawUploadTexts.customcode);
+            state.customCodeInfo = parsedScm;
+            state.scmInfo = parsedScm;
+          } catch (e) { parseErrors.push("SCM / Egen kod (Slot 7): " + e.message); }
+        }
+        if (state.rawUploadTexts.htaccess) {
+          try {
+            const htParsed = parseCustomCodeText(state.rawUploadTexts.htaccess);
+            state.htaccessInfo = htParsed;
+          } catch (e) { parseErrors.push(".htaccess (Slot 8): " + e.message); }
+        }
+        if (state.rawUploadTexts.settings) {
+          try { state.uploadedSettings = parseSettingsFile(state.rawUploadTexts.settings); } catch (e) { parseErrors.push("LiteSpeed .data (Slot 9): " + e.message); }
+        }
+      } else {
+        // Fallback: sanitize legacy objects from older versions
+        if (state.wooInfo && typeof state.wooInfo === "object") {
+          if (state.wooInfo.cart_fragments_dequeued === false) state.wooInfo.cart_fragments_dequeued = null;
+          if (state.wooInfo.transients_cleanup_enabled === false) state.wooInfo.transients_cleanup_enabled = null;
+        }
+        if (state.wfInfo && typeof state.wfInfo === "object") {
+          if (state.wfInfo.disable_live_traffic === undefined && state.wfInfo.live_traffic_disabled !== undefined) {
+            state.wfInfo.disable_live_traffic = state.wfInfo.live_traffic_disabled;
+          }
+          if (state.wfInfo.disable_live_traffic === false && (state.wfInfo.live_traffic_disabled === null || state.wfInfo.live_traffic_disabled === undefined)) {
+            state.wfInfo.disable_live_traffic = null;
+          }
+        }
+      }
+
+      if (parseErrors.length > 0) {
+        alert("⚠️ Varning: Vissa filer i profilen kunde inte tolkas:\n• " + parseErrors.join("\n• "));
+      }
+
       if (state.elemInfo && typeof window.sanitizeElementorGoogleFonts === "function") {
         window.sanitizeElementorGoogleFonts(state.elemInfo);
       } else if (state.elemInfo && state.elemInfo.google_fonts === true) {
@@ -5066,23 +6210,41 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (!hasExplicit) state.elemInfo.google_fonts = false;
       }
-      state.customCodeInfo = profile.customCodeInfo;
-      state.customCss = profile.customCss || "";
-      state.uploadedSettings = profile.uploadedSettings;
-      state.editedSettings = JSON.parse(JSON.stringify(profile.editedSettings || {}));
-      state.apiUrl = profile.apiUrl || "";
-      if (profile.detectedSiteUrl) {
-        state.detectedSiteUrl = profile.detectedSiteUrl;
-      }
+
       state.uploadMetadata = profile.uploadMetadata || {
         sysInfo: { name: profile.name + " (Historik WP)", timestamp: profile.timestamp },
+        autoloadInfo: profile.autoloadInfo ? { name: "Historik Autoload", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         wooInfo: profile.wooInfo ? { name: "Historik WC", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         wfInfo: profile.wfInfo ? { name: "Historik Wordfence", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         themeInfo: profile.themeInfo ? { name: "Historik Tema", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         elemInfo: profile.elemInfo ? { name: "Historik Elementor", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         customCodeInfo: profile.customCodeInfo ? { name: "Historik Snippets", timestamp: profile.timestamp } : { name: "", timestamp: "" },
+        htaccessInfo: (profile.htaccessInfo && profile.htaccessInfo.rawText) ? { name: "Historik .htaccess", timestamp: profile.timestamp } : { name: "", timestamp: "" },
         uploadedSettings: profile.uploadedSettings ? { name: "Historik LSCWP Settings", timestamp: profile.timestamp } : { name: "", timestamp: "" }
       };
+
+      // Ensure that if a profile did not actually have raw text or valid htaccess upload, htaccess is kept null
+      const htHasContent = !!(
+        (state.rawUploadTexts && state.rawUploadTexts.htaccess && state.rawUploadTexts.htaccess.trim()) ||
+        (profile.uploadMetadata && profile.uploadMetadata.htaccessInfo && profile.uploadMetadata.htaccessInfo.name && profile.uploadMetadata.htaccessInfo.name.trim()) ||
+        (profile.htaccessInfo && profile.htaccessInfo.rawText && profile.htaccessInfo.rawText.trim())
+      );
+      if (!htHasContent) {
+        state.htaccessInfo = null;
+        if (state.uploadMetadata) {
+          state.uploadMetadata.htaccessInfo = { name: "", timestamp: "" };
+        }
+      }
+
+      // Synchronize themeInfo in uploadMetadata if theme is present via wp-active-theme
+      const themeFallback = state.themeInfo || (state.sysInfo && state.sysInfo["wp-active-theme"]);
+      if (themeFallback && (!state.uploadMetadata.themeInfo || !state.uploadMetadata.themeInfo.name)) {
+        const tName = themeFallback.name ? themeFallback.name.split("(")[0].trim() : "Aktivt tema";
+        state.uploadMetadata.themeInfo = {
+          name: `${tName} (via WP-system)`,
+          timestamp: (state.uploadMetadata.sysInfo && state.uploadMetadata.sysInfo.timestamp) || profile.timestamp || formatTimestamp(new Date())
+        };
+      }
 
       if (state.apiUrl && apiSiteUrl) apiSiteUrl.value = state.apiUrl;
 
@@ -5090,38 +6252,82 @@ document.addEventListener("DOMContentLoaded", () => {
       if (mainBox) mainBox.value = state.customCss;
 
       updateActiveSiteStatusBar();
+      state.manualToggles = Object.assign({
+        wfLiveTraffic: false,
+        themeMiniCart: false,
+        elemMenuCart: false
+      }, profile.manualToggles || {});
+
+      if (toggleWfLiveTraffic) toggleWfLiveTraffic.checked = !!state.manualToggles.wfLiveTraffic;
+      if (toggleThemeMiniCart) toggleThemeMiniCart.checked = !!state.manualToggles.themeMiniCart;
+      if (toggleElemMenuCart) toggleElemMenuCart.checked = !!state.manualToggles.elemMenuCart;
+
       updateConnectionStatusBadges();
       triggerAnalysis();
-      alert(`✓ Profil "${profile.name}" inläst!`);
+
+      if (htaccessSummary) {
+        const ht = getHtaccessStatus();
+        if (ht.isLoaded) {
+          const noabortText = ht.noabortValue === true ? "noabort:1 aktiv" : (ht.noabortValue === false ? "saknar noabort" : `${(state.rawUploadTexts.htaccess || "").length} tkn`);
+          htaccessSummary.textContent = `✓ .htaccess (${noabortText})`;
+          htaccessSummary.classList.add("active");
+        } else {
+          htaccessSummary.textContent = "—";
+          htaccessSummary.classList.remove("active");
+        }
+      }
+
+      const profVer = profile.appVersion || profile.version;
+      const isOutdated = !profVer || profVer !== APP_VERSION;
+      const verNotice = isOutdated 
+        ? `\n⚠️ Profilen sparades i ${profVer ? `version ${profVer}` : "en äldre version utan versionsmärkning"} (aktuell version: ${APP_VERSION}).` 
+        : "";
+      alert(`✓ Profilen "${profile.name}" har lästs in!${verNotice}`);
     }
   }
 
   function updateConnectionStatusBadges() {
     const checkSet = (info, badge, key, slotKey) => {
       if (!badge) return;
-      if (info) {
+      let isLoaded = false;
+      if (key === "htaccessInfo") {
+        isLoaded = getHtaccessStatus().isLoaded;
+      } else {
+        isLoaded = info && (typeof info !== "object" || Object.keys(info).length > 0 || (info.snippets && (Array.isArray(info.snippets) ? info.snippets.length > 0 : Object.keys(info.snippets).length > 0)));
+      }
+
+      if (isLoaded) {
         badge.className = "file-status loaded";
         badge.textContent = "✓ Inläst";
-        badge.title = state.uploadMetadata[key]?.name || 'Inläst';
-        updateSlotFileBadge(slotKey, state.uploadMetadata[key]?.name || `upload ${state.uploadMetadata[key]?.timestamp || ''}`, true);
+        const metaName = state.uploadMetadata && state.uploadMetadata[key] ? state.uploadMetadata[key].name : "";
+        const fallbackName = key === "htaccessInfo" ? ".htaccess (Inläst)" : (key === "themeInfo" ? "Tema (Inläst)" : "Inläst");
+        const displayName = metaName || fallbackName;
+        badge.title = displayName;
+        updateSlotFileBadge(slotKey, displayName, true);
       } else {
         badge.className = "file-status";
         badge.title = "";
         if (key === "sysInfo") badge.textContent = "Krävs *";
         else if (key === "customCodeInfo") badge.textContent = "SCM JSON / PHP";
+        else if (key === "htaccessInfo") badge.textContent = ".htaccess";
         else if (key === "uploadedSettings") badge.textContent = "Jämför .data";
         else badge.textContent = "Valfritt";
         updateSlotFileBadge(slotKey, null, false);
       }
     };
     checkSet(state.sysInfo, sysInfoStatus, "sysInfo", "sysinfo");
+    checkSet(state.autoloadInfo, autoloadStatus, "autoloadInfo", "autoload");
+    if (state.autoloadInfo && state.autoloadInfo.size && autoloadStatus) {
+      autoloadStatus.textContent = `✓ Inläst (${state.autoloadInfo.size})`;
+    }
     checkSet(state.wooInfo, woocommerceStatus, "wooInfo", "woocommerce");
     checkSet(state.wfInfo, wordfenceStatus, "wfInfo", "wordfence");
     checkSet(state.elemInfo, elementorStatus, "elemInfo", "elementor");
     checkSet(state.customCodeInfo, customcodeStatus, "customCodeInfo", "customcode");
+    checkSet(state.htaccessInfo, htaccessStatus, "htaccessInfo", "htaccess");
     checkSet(state.uploadedSettings, settingsStatus, "uploadedSettings", "settings");
     
-    // Theme Slot 4: Check explicit themeInfo or extract directly from sysInfo (wp-active-theme)
+    // Theme Slot 5: Check explicit themeInfo or extract directly from sysInfo (wp-active-theme)
     const activeThemeObj = state.themeInfo || (state.sysInfo && state.sysInfo["wp-active-theme"]);
     if (activeThemeObj && themeStatus) {
       themeStatus.className = "file-status loaded";
@@ -5130,6 +6336,12 @@ document.addEventListener("DOMContentLoaded", () => {
       themeStatus.textContent = `✓ Inläst (${cleanTName})`;
       themeStatus.title = `Inläst från WP-system (${rawTName})`;
       updateSlotFileBadge("theme", cleanTName, true);
+      if (!state.uploadMetadata.themeInfo || !state.uploadMetadata.themeInfo.name) {
+        state.uploadMetadata.themeInfo = {
+          name: `${cleanTName} (via WP-system)`,
+          timestamp: (state.uploadMetadata.sysInfo && state.uploadMetadata.sysInfo.timestamp) || formatTimestamp(new Date())
+        };
+      }
     } else {
       checkSet(state.themeInfo, themeStatus, "themeInfo", "theme");
     }
@@ -5150,18 +6362,28 @@ document.addEventListener("DOMContentLoaded", () => {
       const card = document.createElement("div");
       card.className = "history-profile-card glass-card";
       
+      const overallScore = parseInt(p.healthScore, 10);
+      const configScore = parseInt(p.configScore !== undefined ? p.configScore : p.healthScore, 10);
+
       let scoreClass = "good";
-      if (p.healthScore < 70) scoreClass = "danger";
-      else if (p.healthScore < 90) scoreClass = "warn";
+      if (overallScore < 70) scoreClass = "danger";
+      else if (overallScore < 90) scoreClass = "warn";
+
+      let cfgClass = "good";
+      if (configScore < 70) cfgClass = "danger";
+      else if (configScore < 90) cfgClass = "warn";
 
       card.innerHTML = `
         <div class="history-card-header">
-          <div>
+          <div style="width: 100%;">
             <div class="history-card-title" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
             <div class="history-card-date">${escapeHtml(p.timestamp)}</div>
             <div class="history-card-appver" style="font-size:0.68rem; color:#a5b4fc; margin-top:0.15rem;">AreWee v${escapeHtml(p.appVersion || "—")}</div>
           </div>
-          <div class="history-card-score ${scoreClass}">Hälsa: ${parseInt(p.healthScore, 10)}%</div>
+          <div class="history-card-scores-row">
+            <div class="history-card-score ${scoreClass}">Overall score: ${overallScore}%</div>
+            <div class="history-card-score ${cfgClass}" style="background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.3); color: #c7d2fe;">Config Score: ${configScore}%</div>
+          </div>
         </div>
         <div class="history-card-specs">
           <div><strong>WP:</strong> ${escapeHtml(p.wpVersion)}</div>
@@ -5553,23 +6775,29 @@ document.addEventListener("DOMContentLoaded", () => {
     btnClearInputs.addEventListener("click", () => {
       if (confirm("Vill du rensa all inläst data och återställa analysen?")) {
         state.sysInfo = null;
+        state.autoloadInfo = null;
         state.wooInfo = null;
         state.wfInfo = null;
         state.themeInfo = null;
         state.elemInfo = null;
         state.scmInfo = null;
         state.customCodeInfo = null;
+        state.htaccessInfo = null;
         state.customCss = "";
         state.uploadedSettings = null;
         state.editedSettings = {};
         state.analysisResults = null;
         state.uploadMetadata = {};
         state.apiUrl = "";
+        state.manualToggles = { wfLiveTraffic: false, themeMiniCart: false, elemMenuCart: false };
+        if (toggleWfLiveTraffic) toggleWfLiveTraffic.checked = false;
+        if (toggleThemeMiniCart) toggleThemeMiniCart.checked = false;
+        if (toggleElemMenuCart) toggleElemMenuCart.checked = false;
         state.settingsSortBy = "deviations";
         state.settingsSearchQuery = "";
 
         // Reset file inputs and badges
-        ["sysinfo", "woocommerce", "wordfence", "theme", "elementor", "customcode", "settings"].forEach(slot => {
+        ["sysinfo", "autoload", "woocommerce", "wordfence", "theme", "elementor", "customcode", "htaccess", "settings"].forEach(slot => {
           const input = document.getElementById(`${slot}-input`);
           if (input) input.value = "";
           const dropzone = document.getElementById(`${slot}-dropzone`);
@@ -5632,7 +6860,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderHistoryLibrary();
   updateCompareDropdowns();
 
-  // Test/debug exports (v2.8.3)
+  // Test/debug exports (v2.8.12)
   try {
     window.detectPastedFormat = detectPastedFormat;
     window.escapeHtml = escapeHtml;
@@ -5669,5 +6897,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.parseWooCommerceStatus = parseWooCommerceStatus;
     window.parseWordfenceDiagnostic = parseWordfenceDiagnostic;
     window.parseCustomCodeText = parseCustomCodeText;
+    window.processHtaccessTextData = processHtaccessTextData;
+    window.extractSiteUrl = extractSiteUrl;
   }
 });
