@@ -115,7 +115,7 @@ const envBothFalse = {
 };
 const compBothFalse = sandbox.getOptionComparison(optCartFragments, {}, envBothFalse);
 assert.strictEqual(compBothFalse.isMeasured, false, "both unchecked with no signals is unmeasured");
-assert.strictEqual(compBothFalse.statusLabel, "⚪ Värde saknas (Slot 6 / 7 / 9)", "shows Värde saknas");
+assert.strictEqual(compBothFalse.statusLabel, "⚪ Värde saknas (6. Elementor / 7. SCM / 9. LiteSpeed)", "shows Värde saknas");
 console.log("   ✓ Both unchecked without signal is honestly UNMEASURED (⚪ Värde saknas)");
 
 // Case D: elemMenuCart checked (true) + SCM dequeue + LiteSpeed page cache active -> Avvikelse (Risk för spökvarukorg)

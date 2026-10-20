@@ -1,4 +1,4 @@
-# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.8.35)
+# LiteSpeed Cache & WordPress Optimizer Dashboard (v2.8.44)
 
 En premium, interaktiv och modern optimeringspanel för att analysera WordPress-installationer, WooCommerce-kompatibilitet samt konfigurera optimala inställningar för **LiteSpeed Cache (LSCWP)**.
 
@@ -45,6 +45,23 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 ---
 
 ## 🗺️ Roadmap & Kommande Versioner
+
+### 🚀 Release v2.8.38: Dedikerat Databaskort, Samlad Servertelemetri & Intelligent LiteSpeed-fallback
+- **Intelligent LiteSpeed-fallback för `WP_POST_REVISIONS`:**
+  - Accepterar automatiskt gränsvärdet från LiteSpeed Cache (`db_optm-revisions_max` / `db_optm_revisions` $\le 5$) om `wp-config.php`-konstanter saknas i uppladdad rapport.
+  - Eliminerar "⚪ Värde saknas" i Åtgärdslistan och uppdaterar källhänvisningen till `📂 4. Wordfence / wp-config / 9. LiteSpeed`.
+  - Inkluderar tydlig instruktion och kommentar om att appen förutsätter samma gräns (5) i `wp-config.php` och påminner om att serverändringen görs manuellt med `define('WP_POST_REVISIONS', 5);`.
+- **Kort 6: `🖥️ Server` (Utökad Drifttelemetri):**
+  - Döpt om från "Serverresurser" till **`🖥️ Server`**.
+  - Samlar och presenterar runtime-gränser: `PHP & Minne` (PHP memory_limit vs WP Max memory_limit), `Filuppladdning` (upload_max_filesize vs post_max_size), `Tidsgränser & Input` (time_limit vs max_input_vars) samt `OPcache Hit Rate`.
+- **Kort 7: `🗄️ Databas` (Nytt Dedikerat Databas- & Lagringskort):**
+  - Nytt dedikerat funktionskort i Cockpit Rad 2 med mjuk grafitkol-design.
+  - Visar databasens namn (t.ex. `sweetmini_wp5`), databasmotor & version (t.ex. `MariaDB 10.6.18`), databasstorlek, tabellprefix (`wp_`), autoload-data, diskstorlekar för `uploads/`, `plugins/` och `themes/`, samt webbplatsens totala diskutrymme.
+  - Fungerar som ren, informativ drifttelemetri utan falsklarm eller poängavdrag.
+- **Kort 8: `🛒 Checkout`:**
+  - Placeras direkt efter Server och Databas med bibehållen fokus på kassaflöde (Redis, Server-Cron, HPOS).
+- **Paritet & Verifiering:**
+  - 100% testtäckning via automatiserat verifieringsskript (`scratch/test-v2838.js`).
 
 ### 🚀 Release v2.8.17: Grok Deep-Audit Paritet & Robust No-Abort Skydd
 - **No-Abort Telemetri & Apache/LiteSpeed REDIRECT:** Fullt stöd för `[REDIRECT_noabort] => 1` och `$_SERVER['REDIRECT_noabort']` i Wordfence diagnostic dumps.
@@ -391,6 +408,46 @@ Innan du gör något annat, applicera en av LiteSpeeds officiella presets för a
 - **LocalStorage Skydd:** Bekräftelse inhämtas från användaren innan äldsta profilen tas bort vid fullt minnesutrymme (`QuotaExceededError`).
 - **Avvikelse- och Policyparitet:** Inställningar med `scoreImpact: 0` (t.ex. `wf_noabort` och policyinställningar) visas med `🔵 Policy / 0p` och räknas inte som poängsänkande avvikelser.
 - **Tydlig Autoload-guidning:** Tipset för `wp_autoload_size` instruerar användaren att klicka på knappen *Kopiera webbplatsinformation till urklipp* i WordPress.
+
+### 🚀 Release v2.8.39: Hero/LCP Cockpit-kort, Typsnittsdetektering, 2-kolumners Server/Databas & Rena Filstorlekar
+- **Rena Diskmått (Inga råbytes):** Alla råbytes i parenteser (t.ex. `(477429760 bytes)`) har eliminerats via `sanitizeDiskSizeString` så att databas, uploads, tillägg, teman och total webbplatsdisk visas med rena, läsbara värden.
+- **2-kolumners Bredd för Server & Databas:** Korten `🖥️ Server` och `🗄️ Databas` spänner nu över 2 kolumner (`.span-2`) och använder en intern 2-kolumners grid (`.function-tools-grid`) vilket ger gott om andrum utan att tryckas ihop.
+- **Kassakort före Server/Databas:** `🛒 Checkout` ligger nu före `🖥️ Server` och `🗄️ Databas` för ett mer naturligt hierarkiskt flöde.
+- **🔤 Typsnitt & Fonts:** Nytt utökat funktionskort som detekterar aktivt typsnitt (`Inter`, `Outfit`, tema/Elementor), lokal hosting-status (`Lokalt (GDPR ✓)` vs externt) och Font-display (`Swap`).
+- **🖼️ Hero & LCP:** Nytt cockpit-kort intill Lazyload som utvärderar `fetchpriority="high"` (SCM/WP Core 6.3+), kontrollerar Lazyload-undantag i `media_lazy_exc` för att förhindra LCP-fördröjningar samt granskar LCP-preloading.
+
+### 🚀 Release v2.8.40: Databas & Prefix, Diskformatering (MB heltal / GB decimaler), Autosanering av Profiler & Utökad Profiljämförelse
+- **Databas & Prefix i Kort 9:** Första mätvärdet i `🗄️ Databas` visar nu databasens namn och tabellprefix (t.ex. `sweetmini_wp5 (Prefix: wp_)`), och `Databasstorlek` har renodlats till att visa enbart storleken.
+- **Optimerad Diskformatering (MB heltal / GB decimaler):** Diskmått för databas, uploads, tillägg, teman och total disk formateras med rena heltal vid MB (t.ex. `15 MB`, `455 MB`, `120 MB`) och behåller decimaler vid GB (t.ex. `4,12 GB`).
+- **Autosanering av Plugins i Sparade Profiler:** Historikbiblioteket sanerar automatiskt äldre profiler som sparats före v2.8.36 vid visning och korrigerar tidigare dubbelräknade plugins (t.ex. 34 st $\rightarrow$ 17 st) via SSOT.
+- **Namnändring "Profiler":** Gränssnittet i historikvyn har renodlats från "Sparade webbplatsprofiler" till "Sparade profiler", och sparadialogen har förenklats.
+- **Utökad Profil- och Sajtjämförelse:** Jämförelsetabellen visar nu kompletta sektioner för Serverresurser (PHP-minne, WP-minne, filuppladdning, exekveringstid, max input vars, OPcache hit rate) och Databas & Lagring (databasnamn/prefix, databasstorlek, autoload, uploads, tillägg, total disk, primärt typsnitt) vid sidan av LiteSpeed-inställningarna.
+
+### 🚀 Release v2.8.41: Exakta WP/PHP-direktiv, Databasnamn som Kortrubrik, Eliminerade Parenteser & Repetitionsfri Presentation
+- **Databasens namn som Kortrubrik:** Kort 9 visar nu sajtens faktiska databasnamn i rubriken (t.ex. `🗄️ sweetmini_wp5`) istället för generiska "Databas" (med intelligent fallback om namn ej är inläst).
+- **Exakta Konfigurationsnamn i Serverkortet:** Påhittade samlingsnamn ("PHP & Minne", "Filuppladdning", "Tidsgränser & Input") har ersatts med de officiella konfigurations- och direktivnamnen (`php_value memory_limit`, `WP_MEMORY_LIMIT`, `php_value upload_max_filesize`, `php_value post_max_size`, `php_value max_execution_time`, `php_value max_input_vars`, `OPcache Hit Rate`) vilket gör det enkelt och entydigt att hitta rätt direktiv i `.htaccess`, `php.ini` eller `wp-config.php`.
+- **Eliminerade Parenteser & Repetitionsfri Presentation:** Parenteser har tagits bort över de nya korten och ersatts med rena snedstreck (` / `) när flera mätvärden visas på samma rad. Upprepningar i värdefältet (t.ex. "Prefix:" i värdet när nyckeln redan anger prefix) har eliminerats.
+- **Paritet i Profiljämförelsen:** Sektionerna Serverresurser och Databas i profiljämförelsen (`app.js`) använder samma exakta direktivnamn och rena formatering utan parenteser.
+- **Synkade versionsnummer (v2.8.41):** Uppdaterat över samtliga 7 projektfiler.
+
+### 🚀 Release v2.8.42: Strikt Databasnamnsdetektering (`sweetmini_wpX`), Hero Image & Snippet-Fetchpriority, Tydliga Brandväggslägen
+- **Strikt Databasnamnsdetektering & Total Eliminering av Dummy-namnet "Databas":** Mångkällsanalys för databasnamn (`wp-database`, `wp-constants` `DB_NAME`, WooCommerce System Status, Wordfence diagnostic table `## MySQL ##` samt regex-fallback över alla källor). Om databasnamn saknas visas `⚪ Ej detekterat` – aldrig det intetsägande fallback-värdet "Databas". Kort 9 sätts dynamiskt till `🗄️ sweetmini_wpX`.
+- **Hero Image & Klass-specifik Fetchpriority-snippet:** Kort 2 döpt till `🖼️ Hero image`. `Fetchpriority` rapporteras strikt baserat på om en källkodssnippet faktiskt hanterar fetchpriority för en specifik bildklass (t.ex. `PÅ / Snippet (.hero)`) eller `Saknas` – inte som passiv "WP Core 6.3+".
+- **Uppdelad Lazyload & Förtydligad LCP Preload:** Den otydliga sammanslagningen "AV / Ingen risk" har ersatts med separata rader för `LS Lazyload` (`AV`, `PÅ / Undantagen ✓` eller `PÅ / LCP-risk 🟡`) och `Elementor Lazyload` (`AV` eller `PÅ / CLS-risk 🟡`). LCP Preload har förtydligats från "Standard" till `Inaktiv` (eller `PÅ / rel="preload"`).
+- **Brandväggens Driftlägen:** Brandväggskortet (`firewall`) visar nu Wordfence exakta driftläge med färgkodade statusar: `Enabled and Protecting 🟢` (optimal), `Learning Mode 🟡` (varning) och `Disabled 🚨` (fara), samt `LiteSpeed WAF 🟢` som serverfallback.
+- **Synkade versionsnummer (v2.8.42):** Uppdaterat över samtliga 7 projektfiler.
+
+### 🚀 Release v2.8.43: Konsekventa Key-Values, Rena Färgade Textstatusar & Breddad Griddlayout
+- **Konsekvent PÅ / AV Standard:** Alla inaktiva funktioner standardiseras till rent `AV` (grå) – eliminering av blandade termer som `Inaktiv` och `Standard`. Aktiva funktioner visar antingen rent `PÅ` (grönt) eller sitt exakta specifika värde (t.ex. `.lcp-hero`, `Undantagen`, `Swap`, `Blockerad`, `Lokalt`, `Server`, `Ren`).
+- **Brandväggens Standardlägen:** Brandvägg och Wordfence renodlade till de tre entydiga lägena `PÅ` (grönt), `Learning` (gult) och `AV` (rött/grått), både på verktygsraden och i kortets header.
+- **Rena Färgade Textvärden (Inga Emojis/Symboler i Korten):** Samtliga symboler och emojis (`🟢`, `🟡`, `🚨`, `🔵`, `✓`) i cockpitkorten borttagna till förmån för professionell semantisk färgkodning på text och badges (`#34d399` grönt, `#fbbf24` gult, `#f87171` rött, `#38bdf8` blått, `#94a3b8` grått).
+- **Breddad Griddlayout & Rymliga Källkort:** Kolumnminimum i `.risk-functions-grid` ökat från `205px` till `235px` i `styles.css`. I kombination med ultrakompakta värden (`.lcp-hero`, `AV`, `Swap`, `Protecting`) har trängseln eliminerats helt och alla nycklar (`Fetchpriority`, `Lagring`, `Wordfence` m.fl.) visas fullständigt utan avklippning.
+- **Synkade versionsnummer (v2.8.43):** Uppdaterat över samtliga 7 projektfiler.
+
+### 🚀 Release v2.8.44: Robust Databasextraktion & Fullständig Cockpit-Jämförelse
+- **Robust Databasextraktion (`isValidDbName` & `Användarnamn för databas`):** Eliminerat alla felaktiga träffar på tekniska nyckelord som `"internal"`, `"Databas"` och `"localhost"`. Parsern matchar nu specifikt `Användarnamn för databas: sweetmini_wpX` från svensk och engelsk Webbplatshälsa (Site Health), `DB_NAME` från Wordfence, WooCommerce och wp-config-konstanter.
+- **Komplett Cockpit-Jämförelse i Profilmodalen:** Profil- och sajtjämförelsen utökad med sektionen `⚡ Prestanda- & Riskdetektionsfunktioner (Cockpit)`. Jämför nu samtliga cockpitkort och verktyg sida-vid-sida: Hero image (fetchpriority, lazyload, preload), JS/CSS-optimering, Typsnitt/Google Fonts, Brandvägg/WAF och Kassa/HPOS.
+- **Synkade versionsnummer (v2.8.44):** Uppdaterat över samtliga 7 projektfiler.
 
 ### ⚡ Release v3.0.0: AreWee Sync Bridge (1-klicks API Sync: Push & Pull)
 - **1-klicks import:** Lättviktig WordPress MU-Plugin / snippet-brygga.

@@ -1,5 +1,5 @@
 /**
- * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.8.35)
+ * AreWee WP-Optimizer - Dynamic Rules & Compatibility Engine (v2.8.44)
  * Master Rule Matrix for WordPress 6.8+, LiteSpeed Cache 7.1.1+ (including v7.9.1+ JSON tuple export), WooCommerce 9.8.0+, Elementor 3.28.3+, Wordfence 8.0.4+
  * 
  * Comprehensive rule evaluations for LiteSpeed Cache (100% 1:1 tab parity),
@@ -10,6 +10,26 @@
  */
 
 // --- HELPER UTILITIES: EXCLUSIONS & MEMORY MANAGEMENT ---
+function isValidDbName(val) {
+  if (!val || typeof val !== "string") return false;
+  const s = val.trim();
+  if (!s || s.length < 2 || s.length > 64) return false;
+  const lower = s.toLowerCase();
+  const invalidList = [
+    "internal", "intern", "external", "extern", "inline", "inbäddad",
+    "databas", "database", "dbname", "db_name", "db", "name", "namn",
+    "localhost", "127.0.0.1", "none", "null", "undefined", "true", "false",
+    "okänd", "unknown", "ej inläst", "ej detekterat", "n/a", "-",
+    "mysql", "mariadb", "innodb", "percona", "sqlite", "postgres", "postgresql",
+    "utf8", "utf8mb4", "latin1", "collation", "charset", "mysqli",
+    "standard", "default", "active", "aktiv", "inactive", "inaktiv", "connected",
+    "server", "client", "version", "klientversion", "serverversion", "databasutökning"
+  ];
+  if (invalidList.includes(lower)) return false;
+  if (lower.startsWith("http://") || lower.startsWith("https://")) return false;
+  if (/\s/.test(s)) return false;
+  return /^[a-zA-Z0-9_\-]+$/.test(s);
+}
 function compareVersions(v1, v2) {
   if (!v1 && !v2) return 0;
   if (!v1) return -1;
@@ -194,6 +214,60 @@ function parseBytes(sizeStr) {
   if (unit.startsWith("K")) return Math.round(num * 1024);
   if (unit.startsWith("T")) return Math.round(num * 1024 * 1024 * 1024 * 1024);
   return Math.round(num);
+}
+
+// --- SANITIZE DISK SIZE STRING (Strips raw bytes, MB as integer, GB with decimals) ---
+function sanitizeDiskSizeString(sizeStr, isAutoload = false) {
+  if (sizeStr === null || sizeStr === undefined) return sizeStr;
+  let s = String(sizeStr).trim();
+  s = s.replace(/\s*\([\d.,\s]+(?:bytes|byte)\)/gi, "").trim();
+  if (isAutoload) return s;
+  const m = s.match(/^([\d.,\s]+)\s*([KMGTP]?B?)$/i);
+  if (m) {
+    const cleanNumStr = m[1].replace(/[\u00A0\s]/g, "").replace(",", ".");
+    const num = parseFloat(cleanNumStr);
+    const unit = (m[2] || "").toUpperCase();
+    if (!isNaN(num)) {
+      if (unit.startsWith("M")) {
+        return `${Math.round(num)} MB`;
+      } else if (unit.startsWith("G")) {
+        const rounded = Math.round(num * 100) / 100;
+        const formatted = String(rounded).replace(".", ",");
+        return `${formatted} GB`;
+      }
+    }
+  }
+  return s;
+}
+
+// --- PRIMARY FONT DETECTION (Elementor / Theme / CSS / Default) ---
+function detectPrimaryFont(environment, elemInfo, themeInfo, customCss) {
+  if (elemInfo) {
+    if (elemInfo.primary_font) return elemInfo.primary_font;
+    if (elemInfo.font_family) return elemInfo.font_family;
+    if (elemInfo.default_font) return elemInfo.default_font;
+    if (elemInfo.custom_fonts && Array.isArray(elemInfo.custom_fonts) && elemInfo.custom_fonts.length > 0) {
+      return elemInfo.custom_fonts[0];
+    }
+  }
+  if (themeInfo) {
+    if (themeInfo.primary_font) return themeInfo.primary_font;
+    if (themeInfo.font_family) return themeInfo.font_family;
+    if (themeInfo["body-font-family"]) return themeInfo["body-font-family"];
+    if (themeInfo["font-family"]) return themeInfo["font-family"];
+  }
+  const cssText = (customCss || "") + " " + (environment && environment.rawCss ? environment.rawCss : "");
+  if (cssText) {
+    const faceMatch = cssText.match(/@font-face\s*\{[^}]*font-family:\s*['"]?([^'";}\r\n]+)['"]?/i);
+    if (faceMatch && faceMatch[1]) {
+      return faceMatch[1].trim();
+    }
+    const bodyFontMatch = cssText.match(/body\s*\{[^}]*font-family:\s*['"]?([A-Za-z0-9_-]+)['"]?/i);
+    if (bodyFontMatch && bodyFontMatch[1]) {
+      return bodyFontMatch[1].trim();
+    }
+  }
+  return "Inter / System";
 }
 
 // --- NATIVE LSCWP DEFAULTS MATRIX (Fresh Install Defaults) ---
@@ -1131,20 +1205,27 @@ function getOptionComparison(opt, uploadedSettings, environment) {
 
   if (!isMeasured) {
     let unmeasuredLabel = "⚪ Värde saknas";
-    if (opt.id === "wf_noabort") unmeasuredLabel = "⚪ Värde saknas (Slot 8 / 4)";
-    else if (opt.id === "wf_disable_live_traffic") unmeasuredLabel = "⚪ Värde saknas (Slot 4 / 7)";
-    else if (opt.id === "woo_cart_fragments") unmeasuredLabel = "⚪ Värde saknas (Slot 6 / 7 / 9)";
-    else if (opt.id === "woo_transients_cleanup") unmeasuredLabel = "⚪ Värde saknas (Slot 3 / 7 / 9)";
-    else if (opt.id === "wp_post_revisions") unmeasuredLabel = "⚪ Värde saknas (Slot 7 / 4 / 1)";
-    else if (opt.id === "wp_autoload_size") unmeasuredLabel = "⚪ Värde saknas (Slot 2)";
-    else if (opt.tool === "theme" || (opt.id && opt.id.startsWith("theme_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 5)";
-    else if (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 6)";
-    else if (opt.tool === "woocommerce" || (opt.id && opt.id.startsWith("woo_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 3)";
-    else if (opt.tool === "wordfence" || (opt.id && opt.id.startsWith("wf_"))) unmeasuredLabel = "⚪ Värde saknas (Slot 4)";
-    else if (opt.tool === "server") unmeasuredLabel = "⚪ Värde saknas (Slot 1)";
-    else if (opt.tool === "scm") unmeasuredLabel = "⚪ Värde saknas (Slot 7)";
-    else if (opt.tool === "htaccess") unmeasuredLabel = "⚪ Värde saknas (Slot 8)";
-    else unmeasuredLabel = "⚪ Värde saknas (Slot 9)";
+    if (opt.id === "wf_noabort") unmeasuredLabel = "⚪ Värde saknas (8. .htaccess / 4. Wordfence)";
+    else if (opt.id === "wf_disable_live_traffic") unmeasuredLabel = "⚪ Värde saknas (4. Wordfence / 7. SCM)";
+    else if (opt.id === "woo_cart_fragments") unmeasuredLabel = "⚪ Värde saknas (6. Elementor / 7. SCM / 9. LiteSpeed)";
+    else if (opt.id === "woo_transients_cleanup") unmeasuredLabel = "⚪ Värde saknas (3. WooCommerce / 7. SCM / 9. LiteSpeed)";
+    else if (opt.id === "wp_post_revisions") unmeasuredLabel = "⚪ Värde saknas (4. Wordfence / wp-config / 9. LiteSpeed)";
+    else if (opt.id === "wp_autoload_size") unmeasuredLabel = "⚪ Värde saknas (2. Autoload Status)";
+    else if (opt.id === "theme_header_footer_builder" || opt.id === "theme_elementor_header_footer" || opt.id === "theme_navigation_menus") unmeasuredLabel = "⚪ Värde saknas (6. Elementor)";
+    else if (opt.id === "theme_typography_fonts" || opt.id === "theme_color_palette") unmeasuredLabel = "⚪ Värde saknas (6. Elementor / 5. Tema)";
+    else if (opt.id === "theme_woocommerce_synergy") unmeasuredLabel = "⚪ Värde saknas (6. Elementor / 3. WooCommerce)";
+    else if (opt.id === "theme_inactive_cleanup") unmeasuredLabel = "⚪ Värde saknas (1. WP-system)";
+    else if (opt.id === "theme_outdated_template_overrides" || opt.id === "theme_template_overrides") unmeasuredLabel = "⚪ Värde saknas (3. WooCommerce)";
+    else if (opt.id === "theme_code_architecture") unmeasuredLabel = "⚪ Värde saknas (1. WP-system / 7. SCM)";
+    else if (opt.id === "theme_site_logo") unmeasuredLabel = "⚪ Värde saknas (5. Tema / 1. WP-system)";
+    else if (opt.tool === "theme" || (opt.id && opt.id.startsWith("theme_"))) unmeasuredLabel = "⚪ Värde saknas (5. Tema)";
+    else if (opt.tool === "elementor" || (opt.id && opt.id.startsWith("elem_"))) unmeasuredLabel = "⚪ Värde saknas (6. Elementor)";
+    else if (opt.tool === "woocommerce" || (opt.id && opt.id.startsWith("woo_"))) unmeasuredLabel = "⚪ Värde saknas (3. WooCommerce)";
+    else if (opt.tool === "wordfence" || (opt.id && opt.id.startsWith("wf_"))) unmeasuredLabel = "⚪ Värde saknas (4. Wordfence)";
+    else if (opt.tool === "server" || (opt.id && (opt.id.startsWith("wp_") || opt.id.startsWith("php_")))) unmeasuredLabel = "⚪ Värde saknas (1. WP-system)";
+    else if (opt.tool === "scm") unmeasuredLabel = "⚪ Värde saknas (7. SCM)";
+    else if (opt.tool === "htaccess") unmeasuredLabel = "⚪ Värde saknas (8. .htaccess)";
+    else unmeasuredLabel = "⚪ Värde saknas (9. LiteSpeed)";
 
     return {
       id: opt.id,
@@ -2134,6 +2215,15 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       if (wfInfo && wfInfo.wpPostRevisions !== undefined && wfInfo.wpPostRevisions !== null && wfInfo.wpPostRevisions !== "") {
         return wfInfo.wpPostRevisions;
       }
+      // v2.8.38: Intelligent fallback to LiteSpeed Cache db_optm-revisions_max
+      if (uploadedSettings) {
+        const lsRev = uploadedSettings["db_optm-revisions_max"] !== undefined ? uploadedSettings["db_optm-revisions_max"] :
+                     (uploadedSettings["db_optm_revisions_max"] !== undefined ? uploadedSettings["db_optm_revisions_max"] :
+                     (uploadedSettings["db_optm_revisions"] !== undefined ? uploadedSettings["db_optm_revisions"] : undefined));
+        if (lsRev !== undefined && lsRev !== null && lsRev !== "") {
+          return lsRev;
+        }
+      }
       return null;
     })(),
     wpDebug: (() => {
@@ -2209,17 +2299,94 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     opcacheInternedStrings: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_interned_strings_usage || effectiveSysInfo["wp-server"].opcache_interned_strings || effectiveSysInfo["wp-server"]["opcache_interned_strings"] || effectiveSysInfo["wp-server"]["opcode_cache_interned_strings_usage"])) || null,
     opcacheHitRate: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache_hit_rate || effectiveSysInfo["wp-server"].opcache_hit_rate || effectiveSysInfo["wp-server"]["opcache_hit_rate"] || effectiveSysInfo["wp-server"]["opcode_cache_hit_rate"])) || null,
     opcacheStatus: (effectiveSysInfo["wp-server"] && (effectiveSysInfo["wp-server"].opcode_cache !== undefined ? (effectiveSysInfo["wp-server"].opcode_cache === true || effectiveSysInfo["wp-server"].opcode_cache === "true" || effectiveSysInfo["wp-server"].opcode_cache === "enabled" ? "enabled" : effectiveSysInfo["wp-server"].opcode_cache) : (effectiveSysInfo["wp-server"].opcache_status || effectiveSysInfo["wp-server"]["opcode-cache"] || effectiveSysInfo["wp-server"].opcache))) || null,
-    autoloadOptionsSize: (
+    autoloadOptionsSize: sanitizeDiskSizeString(
       (liveCtx.autoloadInfo && (liveCtx.autoloadInfo.size || liveCtx.autoloadInfo.autoloadOptionsSize)) ||
       (effectiveSysInfo["wp-database"] && (effectiveSysInfo["wp-database"].autoload_options_size || effectiveSysInfo["wp-database"]["autoload_options_size"] || effectiveSysInfo["wp-database"].autoload_size || effectiveSysInfo["wp-database"]["autoload_size"])) ||
       (effectiveSysInfo["database"] && (effectiveSysInfo["database"].autoload_options_size || effectiveSysInfo["database"]["autoload_options_size"] || effectiveSysInfo["database"].autoload_size || effectiveSysInfo["database"]["autoload_size"])) ||
       (effectiveSysInfo["databas"] && (effectiveSysInfo["databas"].autoload_options_size || effectiveSysInfo["databas"]["autoload_options_size"] || effectiveSysInfo["databas"].autoload_size || effectiveSysInfo["databas"]["autoload_size"])) ||
       (effectiveSysInfo["wp_database"] && (effectiveSysInfo["wp_database"].autoload_options_size || effectiveSysInfo["wp_database"]["autoload_options_size"] || effectiveSysInfo["wp_database"].autoload_size || effectiveSysInfo["wp_database"]["autoload_size"])) ||
       effectiveSysInfo.autoloadOptionsSize ||
-      null
+      null,
+      true
     ),
-    uploadsSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].uploads_size || effectiveSysInfo["wp-paths-sizes"]["uploads_size"])) || null,
-    databaseSize: (effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].database_size || effectiveSysInfo["wp-paths-sizes"]["database_size"])) || null
+    uploadsSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].uploads_size || effectiveSysInfo["wp-paths-sizes"]["uploads_size"])) || null),
+    databaseSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].database_size || effectiveSysInfo["wp-paths-sizes"]["database_size"])) || null),
+    // v2.8.38 / v2.8.42 / v2.8.44: Extended telemetry for Server and Database cockpit cards (Multi-source detection, eliminates dummy 'Databas' and 'internal')
+    databaseName: (() => {
+      const db = effectiveSysInfo["wp-database"] || effectiveSysInfo["database"] || effectiveSysInfo["databas"] || effectiveSysInfo["wp_database"] || {};
+      const foundInDb = db.database_name || db.databasnamn || db["databasens namn"] || db["databas-namn"] || db.dbname || db.name || db.database || db.databas || db.database_user || db.databasanvändare || db["användarnamn för databas"] || db.database_username || db.username;
+      if (foundInDb && typeof foundInDb === "string" && isValidDbName(foundInDb)) {
+        return foundInDb.trim();
+      }
+      const consts = effectiveSysInfo["wp-constants"] || {};
+      if (consts.DB_NAME && typeof consts.DB_NAME === "string" && isValidDbName(consts.DB_NAME.replace(/['"]/g, ""))) {
+        return consts.DB_NAME.replace(/['"]/g, "").trim();
+      }
+      if (wooInfo && (wooInfo.database_name || wooInfo.db_name)) {
+        const val = (wooInfo.database_name || wooInfo.db_name).trim();
+        if (isValidDbName(val)) return val;
+      }
+      if (wfInfo && (wfInfo.database_name || wfInfo.db_name)) {
+        const val = (wfInfo.database_name || wfInfo.db_name).trim();
+        if (isValidDbName(val)) return val;
+      }
+      const allRaw = [
+        effectiveSysInfo.rawText || "",
+        (typeof state !== "undefined" && state && state.rawUploadTexts && state.rawUploadTexts.sysinfo) || "",
+        (typeof state !== "undefined" && state && state.rawUploadTexts && state.rawUploadTexts.wordfence) || "",
+        (typeof state !== "undefined" && state && state.rawUploadTexts && state.rawUploadTexts.woocommerce) || "",
+        (typeof state !== "undefined" && state && state.rawUploadTexts && state.rawUploadTexts.customcode) || "",
+        (typeof state !== "undefined" && state && state.rawUploadTexts && state.rawUploadTexts.htaccess) || ""
+      ].join("\n");
+      if (allRaw) {
+        const m = allRaw.match(/define\s*\(\s*['"]DB_NAME['"]\s*,\s*['"]([^'"]+)['"]\s*\)/i) ||
+                  allRaw.match(/(?:användarnamn\s+för\s+databas|databasanvändare|database_user|database\s+username)(?:\s*[:|=|\t]\s*|\s{2,})['"]?([a-zA-Z0-9_\-]+)['"]?/i) ||
+                  allRaw.match(/(?:database_name|databasnamn|databasens\s+namn|database\s+name|DB_NAME)(?:\s*[:|=|\t]\s*|\s{2,})['"]?([a-zA-Z0-9_\-]+)['"]?/i) ||
+                  allRaw.match(/\|\s*DB_NAME\s*\|\s*[^|]*\|\s*([a-zA-Z0-9_\-]+)\s*\|/i) ||
+                  allRaw.match(/\|\s*(?:användarnamn\s+för\s+databas|databasanvändare|database_user|database\s+username)\s*\|\s*(?:[^|]*\|)?\s*([a-zA-Z0-9_\-]+)\s*\|/i) ||
+                  allRaw.match(/\|\s*DB_NAME\s*\|\s*([a-zA-Z0-9_\-]+)\s*\|/i) ||
+                  allRaw.match(/\|\s*Database\s*\|\s*([a-zA-Z0-9_\-]+)\s*\|/i) ||
+                  allRaw.match(/\b([a-zA-Z0-9]+_wp\d+)\b/i);
+        if (m && m[1] && isValidDbName(m[1])) {
+          return m[1].trim();
+        }
+      }
+      return null;
+    })(),
+    dbServerVersion: (() => {
+      const db = effectiveSysInfo["wp-database"] || effectiveSysInfo["database"] || effectiveSysInfo["databas"] || effectiveSysInfo["wp_database"];
+      if (!db) return null;
+      return db.server_version || db.version || db["server_version"] || null;
+    })(),
+    tablePrefix: (() => {
+      const db = effectiveSysInfo["wp-database"] || effectiveSysInfo["database"] || effectiveSysInfo["databas"] || effectiveSysInfo["wp_database"];
+      if (!db) return null;
+      return db.table_prefix || db.prefix || db["table_prefix"] || null;
+    })(),
+    dbCharset: (() => {
+      const db = effectiveSysInfo["wp-database"] || effectiveSysInfo["database"] || effectiveSysInfo["databas"] || effectiveSysInfo["wp_database"];
+      if (!db) return null;
+      return db.database_charset || db.charset || db["database_charset"] || null;
+    })(),
+    maxAllowedPacket: (() => {
+      const db = effectiveSysInfo["wp-database"] || effectiveSysInfo["database"] || effectiveSysInfo["databas"] || effectiveSysInfo["wp_database"];
+      if (!db) return null;
+      return db.max_allowed_packet || db["max_allowed_packet"] || null;
+    })(),
+    pluginsSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].plugins_size || effectiveSysInfo["wp-paths-sizes"]["plugins_size"])) || null),
+    themesSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].themes_size || effectiveSysInfo["wp-paths-sizes"]["themes_size"])) || null),
+    totalSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].total_size || effectiveSysInfo["wp-paths-sizes"]["total_size"])) || null),
+    wordpressSize: sanitizeDiskSizeString((effectiveSysInfo["wp-paths-sizes"] && (effectiveSysInfo["wp-paths-sizes"].wordpress_size || effectiveSysInfo["wp-paths-sizes"]["wordpress_size"])) || null),
+    inactivePluginsCount: (() => {
+      if (effectiveSysInfo["wp-plugins-inactive-count"] !== undefined) return effectiveSysInfo["wp-plugins-inactive-count"];
+      if (effectiveSysInfo["wp-plugins-inactive"] && typeof effectiveSysInfo["wp-plugins-inactive"] === "object") return Object.keys(effectiveSysInfo["wp-plugins-inactive"]).length;
+      return 0;
+    })(),
+    inactiveThemesCount: (() => {
+      if (effectiveSysInfo["wp-themes-inactive-count"] !== undefined) return effectiveSysInfo["wp-themes-inactive-count"];
+      if (effectiveSysInfo["wp-themes-inactive"] && typeof effectiveSysInfo["wp-themes-inactive"] === "object") return Object.keys(effectiveSysInfo["wp-themes-inactive"]).length;
+      return null;
+    })()
   };
 
   // v2.7.3: site URL + optional QUIC live headers (from app probe / sync plugin)
@@ -2659,6 +2826,64 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
       criticalLevel: "standard",
       scoreImpact: 0
     });
+  }
+
+  // --- Inactive Plugins & Themes Hygiene (0p Informational / Policy) ---
+  if (environment.hasSysInfo && environment.inactivePluginsCount > 0) {
+    alerts.push({
+      id: "alert_inactive_plugins",
+      type: "warning",
+      icon: "🔌",
+      component: "plugins",
+      components: ["plugins"],
+      title: `${environment.inactivePluginsCount} inaktiva tillägg detekterade`,
+      desc: `Webbplatsen har ${environment.inactivePluginsCount} inaktiverade tillägg på servern. Enligt säkerhets- och prestandapraxis (OWASP & Wordfence) bör oanvända tillägg raderas helt då inaktiva PHP-filer fortfarande kan anropas direkt vid eventuella sårbarheter och tar upp onödigt diskutrymme.`,
+      source: "WordPress Säkerhets- och Hygienpraxis",
+      compatibility: "Rensa bort inaktiva tillägg under Tillägg ➔ Inaktiva i WordPress admin.",
+      targetTabId: "general",
+      impactCategory: "policy",
+      criticalLevel: "standard",
+      scoreImpact: 0,
+      isPolicyContext: true
+    });
+  }
+
+  if (environment.hasSysInfo && environment.inactiveThemesCount !== null && environment.inactiveThemesCount !== undefined) {
+    if (environment.inactiveThemesCount > 1) {
+      alerts.push({
+        id: "alert_excessive_inactive_themes",
+        type: "warning",
+        icon: "🎭",
+        component: "theme",
+        components: ["theme"],
+        title: `${environment.inactiveThemesCount} inaktiva teman installerade`,
+        desc: `Webbplatsen har ${environment.inactiveThemesCount} inaktiva teman. Det rekommenderas att endast behålla exakt ett officiellt standardtema (t.ex. Twenty Twenty-Four) som säkerhetsfallback för felsökning, och radera övriga äldre teman för att minimera attackyta och underhåll.`,
+        source: "WordPress Core Temastandard",
+        compatibility: "Ta bort överflödiga teman under Utseende ➔ Teman i WordPress admin.",
+        targetTabId: "general",
+        impactCategory: "policy",
+        criticalLevel: "standard",
+        scoreImpact: 0,
+        isPolicyContext: true
+      });
+    } else if (environment.inactiveThemesCount === 0) {
+      alerts.push({
+        id: "alert_no_fallback_theme",
+        type: "warning",
+        icon: "🎭",
+        component: "theme",
+        components: ["theme"],
+        title: "Inget inaktivt fallback-tema detekterat",
+        desc: `Webbplatsen har inga inaktiva teman installerade. WordPress Core rekommenderar att ha exakt ett officiellt standardtema (t.ex. Twenty Twenty-Four) tillgängligt som automatisk säkerhetsfallback ifall ditt aktiva tema skulle råka ut för ett fatalt fel.`,
+        source: "WordPress Core Felsökningspraxis",
+        compatibility: "Installera gärna ett standardtema (t.ex. Twenty Twenty-Four) som inaktiv reserv.",
+        targetTabId: "general",
+        impactCategory: "policy",
+        criticalLevel: "standard",
+        scoreImpact: 0,
+        isPolicyContext: true
+      });
+    }
   }
 
   // --- A. Server & Memory Alerts ---
@@ -3991,11 +4216,39 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
     }
   }
 
-  // 5. Brandvägg
+  // 5. Brandvägg (v2.8.42 / v2.8.43: Rena lägen PÅ / Learning / AV)
   const isWfActive = Boolean(environment.hasWordfence || wfInfo);
   const isLsWafActive = Boolean(environment.isLiteSpeedServer);
-  let wafStatus = isWfActive || isLsWafActive ? "optimal" : "warning";
-  let wafStatusText = isWfActive || isLsWafActive ? "Optimal" : "Inaktiv";
+  const rawWfMode = String((wfInfo && (wfInfo.firewall_mode || wfInfo.firewallMode)) || environment.wfFirewallMode || "").trim().toLowerCase();
+
+  let wfToolState = "AV";
+  let wafStatus = "warning";
+  let wafStatusText = "AV";
+
+  if (isWfActive) {
+    if (rawWfMode.includes("disabled") || rawWfMode.includes("inaktiverad") || rawWfMode.includes("avstängd")) {
+      wfToolState = "AV";
+      wafStatus = "danger";
+      wafStatusText = "AV";
+    } else if (rawWfMode.includes("learning") || rawWfMode.includes("inlärning")) {
+      wfToolState = "Learning";
+      wafStatus = "warning";
+      wafStatusText = "Learning";
+    } else {
+      wfToolState = "PÅ";
+      wafStatus = "optimal";
+      wafStatusText = "PÅ";
+    }
+  } else {
+    wfToolState = "AV";
+    if (isLsWafActive) {
+      wafStatus = "optimal";
+      wafStatusText = "PÅ";
+    } else {
+      wafStatus = "warning";
+      wafStatusText = "AV";
+    }
+  }
 
   const cockpitFunctions = [
     {
@@ -4009,6 +4262,68 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         { name: "WordPress", state: isWpLazy ? "PÅ" : "AV" }
       ]
     },
+    // v2.8.39 / v2.8.41 / v2.8.42 / v2.8.43: 2nd Function Card: 🖼️ Hero image
+    (function() {
+      let heroStatus = "optimal";
+      let heroStatusText = "Optimal";
+
+      // 1. fetchpriority snippet detection (.class / PÅ / AV)
+      let fetchPriorityState = "AV";
+      const scmString = scmInfo ? JSON.stringify(scmInfo) : "";
+      const hasScmFetchpriority = !!(scmInfo && (
+        scmString.toLowerCase().includes("fetchpriority") ||
+        scmString.toLowerCase().includes("wp_get_attachment_image_attributes")
+      ));
+
+      if (hasScmFetchpriority) {
+        const classMatch = scmString.match(/(?:class|strpos|preg_match|has_class|contains)[^;{\n]*['"](?:\.)?([a-zA-Z0-9_\-]+(?:hero|custom-logo|featured|banner|lcp|header|main-img)[a-zA-Z0-9_\-]*)['"]/i) ||
+                           scmString.match(/['"]\.?([a-zA-Z0-9_\-]+(?:hero|custom-logo|featured|banner|lcp|header)[a-zA-Z0-9_\-]*)['"]/i);
+        if (classMatch && classMatch[1]) {
+          fetchPriorityState = `.${classMatch[1].replace(/^\./, "")}`;
+        } else {
+          fetchPriorityState = "PÅ";
+        }
+      }
+
+      // 2. Separate LiteSpeed and Elementor lazyload status
+      const lazyExc = uploadedSettings ? (uploadedSettings.media_lazy_exc || uploadedSettings["media-lazy_exc"] || uploadedSettings["media-lazy-exc"] || "") : "";
+      const hasHeroExc = /hero|featured|attachment-post-thumbnail|custom-logo|header|banner|first/i.test(lazyExc);
+
+      let lsLazyState = "AV";
+      if (hasLscwpLazy) {
+        if (hasHeroExc) {
+          lsLazyState = "Undantagen";
+        } else {
+          lsLazyState = "LCP-risk";
+          heroStatus = "warning";
+          heroStatusText = "LCP-risk";
+        }
+      }
+
+      let elemLazyState = hasElemLazy ? "CLS-risk" : "AV";
+
+      // 3. LCP Preload check (PÅ / AV)
+      const hasPreload = !!(
+        scmInfo && (
+          (/rel\s*=\s*\\?['"]preload\\?['"]/i.test(scmString) || (scmString.toLowerCase().includes("rel") && scmString.toLowerCase().includes("preload"))) &&
+          (/as\s*=\s*\\?['"]image\\?['"]/i.test(scmString) || scmString.toLowerCase().includes("image"))
+        )
+      );
+      const preloadState = hasPreload ? "PÅ" : "AV";
+
+      return {
+        id: "hero_lcp",
+        name: "🖼️ Hero image",
+        status: heroStatus,
+        statusText: heroStatusText,
+        tools: [
+          { name: "Fetchpriority", state: fetchPriorityState },
+          { name: "LS Lazyload", state: lsLazyState },
+          { name: "Elementor Lazyload", state: elemLazyState },
+          { name: "LCP Preload", state: preloadState }
+        ]
+      };
+    })(),
     {
       id: "js_opt",
       name: "JS-optimering",
@@ -4029,36 +4344,96 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         { name: "Elementor", state: isElemCss ? "PÅ" : "AV" }
       ]
     },
-    {
-      id: "google_fonts",
-      name: "Google Fonts",
-      status: ggStatus,
-      statusText: ggStatusText,
-      tools: [
-        { name: "LiteSpeed", state: lsGgState },
-        { name: "Elementor", state: isElemGgFonts ? "PÅ" : "AV" },
-        { name: "Tema", state: isThemeGgFonts ? "PÅ" : "AV" }
-      ]
-    },
+    // v2.8.39 / v2.8.43: 5th Function Card: 🔤 Typsnitt & Fonts
+    (function() {
+      const primaryFont = detectPrimaryFont(environment, elemInfo, themeInfo, customCss);
+      const isFontDisplaySwap = uploadedSettings ? (uploadedSettings.optm_font_display === "1" || uploadedSettings["optm-font_display"] === "1") : false;
+      const fontDisplayState = isFontDisplaySwap ? "Swap" : "AV";
+
+      let fontHostState = "Lokalt";
+      if (isLscwpGgFontsRm) {
+        fontHostState = "Lokalt";
+      } else if (isElemGgFonts || isThemeGgFonts) {
+        fontHostState = "Extern";
+      }
+
+      let ggState = "AV";
+      if (isLscwpGgFontsRm) {
+        ggState = "Blockerad";
+      } else if (isElemGgFonts || isThemeGgFonts) {
+        ggState = "Extern";
+      } else if (isLscwpGgAsync) {
+        ggState = "PÅ";
+      }
+
+      return {
+        id: "google_fonts",
+        name: "🔤 Typsnitt & Fonts",
+        status: ggStatus,
+        statusText: ggStatusText,
+        tools: [
+          { name: "Aktivt typsnitt", state: primaryFont },
+          { name: "Lagring", state: fontHostState },
+          { name: "Font Display", state: fontDisplayState },
+          { name: "Google Fonts", state: ggState }
+        ]
+      };
+    })(),
     {
       id: "firewall",
       name: "Brandvägg",
       status: wafStatus,
       statusText: wafStatusText,
       tools: [
-        { name: "Wordfence", state: isWfActive ? "PÅ" : "AV" },
-        { name: "LiteSpeed", state: isLsWafActive ? "PÅ" : "AV" }
+        { name: "Wordfence", state: wfToolState },
+        { name: "LiteSpeed WAF", state: isLsWafActive ? "PÅ" : "AV" }
       ]
     },
-    // v2.8.0: 6th Function Card: Serverresurser & PHP-motor
-    // v2.8.0 / v2.8.6: 6th Function Card: Serverresurser & PHP-motor
+    // v2.8.39 / v2.8.43: 7th Function Card: Checkout (Performance & Stability - SSOT)
+    (function() {
+      if (!environment.hasWooCommerce) return null;
+
+      const hasCronWarn = alerts.some(a => a.id === "alert_wc_cron_visitor");
+      const hasHposWarn = alerts.some(a => a.id === "alert_wc_hpos_dual_write");
+      const hasTtfbWarn = alerts.some(a => a.id === "alert_wc_checkout_ttfb");
+      const hasRedis = !!(environment.hasObjectCache || environment.hasRedis);
+
+      let kassaStatus = "optimal";
+      let kassaText = "Optimal";
+      if (hasCronWarn || hasHposWarn) {
+        kassaStatus = "warning";
+        kassaText = "Bromsrisk";
+      } else if (!hasRedis) {
+        kassaStatus = "warning";
+        kassaText = "Saknar Redis";
+      } else if (hasTtfbWarn) {
+        kassaStatus = "chronic";
+        kassaText = "Ojämn TTFB";
+      }
+
+      const isDualWrite = environment.hposSyncEnabled === true || (environment.wooInfo && environment.wooInfo.hpos_sync_enabled === true);
+      const hposState = environment.hpos_enabled ? (isDualWrite ? "Synk-risk" : "Ren") : "AV";
+      const cronState = environment.disableWpCron ? "Server" : "Besökare";
+      const redisState = hasRedis ? "PÅ" : "AV";
+
+      return {
+        id: "kassa_perf",
+        name: "🛒 Checkout",
+        status: kassaStatus,
+        statusText: kassaText,
+        tools: [
+          { name: "Redis Cache", state: redisState },
+          { name: "Server-Cron", state: cronState },
+          { name: "HPOS Drift", state: hposState }
+        ]
+      };
+    })(),
+    // v2.8.38 / v2.8.39 / v2.8.43: 8th Function Card: 🖥️ Server (Span 2)
     (function() {
       // Determine overall status for server resources
       let sResStatus = "optimal";
       let sResText = "Optimal";
 
-      const hasAutoloadCrit = alerts.some(a => a.id === "alert_autoload_critical");
-      const hasAutoloadWarn = alerts.some(a => a.id === "alert_autoload_warning");
       const hasMaxMemWarn = alerts.some(a => a.id === "alert_wp_max_memory_low");
       const hasExecWarn = alerts.some(a => a.id === "alert_max_execution_time_low");
 
@@ -4073,15 +4448,12 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
 
       const hasOpcacheChronic = alerts.some(a => a.id === "alert_opcache_critical");
 
-      if (hasAutoloadCrit) {
-        sResStatus = "danger";
-        sResText = "Autoload Kritisk 🚨";
-      } else if (hasAutoloadWarn || hasMaxMemWarn || hasExecWarn) {
+      if (hasMaxMemWarn || hasExecWarn) {
         sResStatus = "warning";
-        sResText = "Varning 🟡";
+        sResText = "Varning";
       } else if (hasOpcacheChronic) {
         sResStatus = "chronic";
-        sResText = (opHitNum !== null && opHitNum < 80) ? "Låg hitrate 🔵" : "Delad pool 🔵";
+        sResText = (opHitNum !== null && opHitNum < 80) ? "Låg hitrate" : "Delad pool";
       }
 
       // OPcache tool state: ren träffprocent
@@ -4094,61 +4466,72 @@ function analyzeSystem(sysInfo, wooInfo, wfInfo, elemInfo, uploadedSettings, scm
         opcacheState = "Aktiv";
       }
 
-      // WP/PHP Memory tool state
-      const wpMem = environment.wpMemoryLimit || "40M";
-      let memState = wpMem;
-
-      // Autoload tool state
-      let autoState = environment.autoloadOptionsSize || "Ej inläst";
+      const phpMem = environment.phpMemoryLimit || (environment.hasSysInfo ? "512M" : "Ej inläst");
+      const wpMem = environment.wpMemoryLimit || environment.wpMaxMemoryLimit || (environment.hasSysInfo ? "256M" : "Ej inläst");
+      const upMax = environment.phpUploadMaxFilesize || (environment.hasSysInfo ? "128M" : "Ej inläst");
+      const postMax = environment.phpPostMaxSize || upMax;
+      const timeLim = environment.phpMaxExecutionTime ? `${environment.phpMaxExecutionTime}s` : (environment.hasSysInfo ? "300s" : "Ej inläst");
+      const inputVars = environment.phpMaxInputVars ? String(environment.phpMaxInputVars) : (environment.hasSysInfo ? "10000" : "Ej inläst");
 
       return {
         id: "server_res",
-        name: "🖥️ Serverresurser",
+        name: "🖥️ Server",
+        colSpan: 2,
         status: sResStatus,
         statusText: sResText,
         tools: [
-          { name: "opcache_hit_rate", state: opcacheState },
-          { name: "WP_MEMORY_LIMIT", state: memState },
-          { name: "autoload_options_size", state: autoState }
+          { name: "php_value memory_limit", state: phpMem },
+          { name: "WP_MEMORY_LIMIT", state: wpMem },
+          { name: "php_value upload_max_filesize", state: upMax },
+          { name: "php_value post_max_size", state: postMax },
+          { name: "php_value max_execution_time", state: timeLim },
+          { name: "php_value max_input_vars", state: inputVars },
+          { name: "OPcache Hit Rate", state: opcacheState }
         ]
       };
     })(),
-    // v2.8.3 / v2.8.6: 7th Function Card: Checkout (Performance & Stability - SSOT)
+    // v2.8.38 / v2.8.39 / v2.8.41 / v2.8.42 / v2.8.43: 9th Function Card: 🗄️ Databas / DB_NAME (Span 2)
     (function() {
-      if (!environment.hasWooCommerce) return null;
+      let dbStatus = "optimal";
+      let dbText = "Optimal";
 
-      const hasCronWarn = alerts.some(a => a.id === "alert_wc_cron_visitor");
-      const hasHposWarn = alerts.some(a => a.id === "alert_wc_hpos_dual_write");
-      const hasTtfbWarn = alerts.some(a => a.id === "alert_wc_checkout_ttfb");
-      const hasRedis = !!(environment.hasObjectCache || environment.hasRedis);
+      const hasAutoloadCrit = alerts.some(a => a.id === "alert_autoload_critical");
+      const hasAutoloadWarn = alerts.some(a => a.id === "alert_autoload_warning");
 
-      let kassaStatus = "optimal";
-      let kassaText = "Optimal 🟢";
-      if (hasCronWarn || hasHposWarn) {
-        kassaStatus = "warning";
-        kassaText = "Bromsrisk 🟡";
-      } else if (!hasRedis) {
-        kassaStatus = "warning";
-        kassaText = "Saknar Redis 🟡";
-      } else if (hasTtfbWarn) {
-        kassaStatus = "chronic";
-        kassaText = "Ojämn TTFB 🔵";
+      if (hasAutoloadCrit) {
+        dbStatus = "danger";
+        dbText = "Autoload Kritisk";
+      } else if (hasAutoloadWarn) {
+        dbStatus = "warning";
+        dbText = "Autoload Varning";
       }
 
-      const isDualWrite = environment.hposSyncEnabled === true || (environment.wooInfo && environment.wooInfo.hpos_sync_enabled === true);
-      const hposState = environment.hpos_enabled ? (isDualWrite ? "Synk på (Risk)" : "PÅ (Ren)") : "AV";
-      const cronState = environment.disableWpCron ? "PÅ (Server)" : "AV (Besökare)";
-      const redisState = hasRedis ? "PÅ (Aktiv)" : "AV (Saknas)";
+      const dbName = (environment.databaseName && isValidDbName(environment.databaseName))
+        ? environment.databaseName
+        : (environment.hasSysInfo ? "Ej detekterat" : "Ej inläst");
+      const dbVersion = environment.dbServerVersion ? environment.dbServerVersion.replace(/-MariaDB.*|-log.*/, "") : (environment.hasSysInfo ? "MariaDB/MySQL" : "Ej inläst");
+      const dbSize = environment.databaseSize || (environment.hasSysInfo ? "Mätt" : "Ej inläst");
+      const tblPrefix = environment.tablePrefix || "wp_";
+      const autoState = environment.autoloadOptionsSize || "Ej inläst";
+      const upSize = environment.uploadsSize || "-";
+      const plSize = environment.pluginsSize || "-";
+      const totSize = environment.totalSize || "-";
+
+      const dbCardTitle = (environment.databaseName && isValidDbName(environment.databaseName)) ? `🗄️ ${environment.databaseName}` : "🗄️ Databas";
 
       return {
-        id: "kassa_perf",
-        name: "🛒 Checkout",
-        status: kassaStatus,
-        statusText: kassaText,
+        id: "database_res",
+        name: dbCardTitle,
+        colSpan: 2,
+        status: dbStatus,
+        statusText: dbText,
         tools: [
-          { name: "Redis Cache", state: redisState },
-          { name: "Server-Cron", state: cronState },
-          { name: "HPOS Drift", state: hposState }
+          { name: "DB_NAME", state: dbName },
+          { name: "$table_prefix", state: tblPrefix },
+          { name: "Databasstorlek", state: `${dbSize}` },
+          { name: "Autoload-data", state: autoState },
+          { name: "Uploads / Tillägg", state: `${upSize} / ${plSize}` },
+          { name: "Total Webbplatsdisk", state: totSize !== "-" ? totSize : (dbSize !== "Ej inläst" && dbSize !== "-" ? "Mätt" : "Ej inläst") }
         ]
       };
     })()
@@ -5626,14 +6009,14 @@ function buildCompleteLscwpSettings(env, uploadedSettings, wooInfo, elemInfo, wf
         ),
         makeOpt(
           "wp_post_revisions",
-          "Begränsa inläggsreversioner (WP_POST_REVISIONS)",
+          "Begränsa inläggsrevisioner (WP_POST_REVISIONS)",
           "5",
-          "Begränsar sparade versioner per inlägg/produkt till 5 st för att förhindra databassvällning.",
+          "Begränsar sparade versioner per inlägg/produkt till 5 st för att förhindra databassvällning. Mätt via LiteSpeed Cache (db_optm-revisions_max) eller wp-config.php. Ändringen i wp-config.php måste konfigureras manuellt på servern: define('WP_POST_REVISIONS', 5);.",
           "standard",
           "config",
           {
-            litespeed: "Database Hygiene: Håller wp_posts- och wp_postmeta-tabellerna slimmade.",
-            consensus: "WordPress Core Best Practice: 5 versioner räcker för historik utan att skapa tusentals överflödiga rader."
+            litespeed: "Database Hygiene: Håller wp_posts- och wp_postmeta-tabellerna slimmade (db_optm-revisions_max). Förutsätter att wp-config.php har samma gräns (5).",
+            consensus: "WordPress Core Best Practice: 5 versioner räcker för historik utan att skapa tusentals överflödiga rader. Sätts manuellt i wp-config.php."
           },
           null,
           "server"
@@ -5885,9 +6268,14 @@ if (typeof window !== "undefined") {
   window.BENCHMARK_VERSIONS = BENCHMARK_VERSIONS;
 }
 
+if (typeof window !== "undefined") {
+  window.isValidDbName = isValidDbName;
+}
+
 // Node.js export for test runner
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    isValidDbName,
     analyzeSystem,
     BENCHMARK_VERSIONS,
     maskSecretKey,

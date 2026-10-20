@@ -111,7 +111,7 @@ const compCartNoSignal = sandbox.getOptionComparison(
   { hasWooCommerce: true, elemInfo: { experiments: ["e_dom_optimization"] }, scmInfo: { cart_fragments_dequeued: true } }
 );
 assert.strictEqual(compCartNoSignal.isMeasured, false, "woo_cart_fragments without mini-cart signal stays UNMEASURED (never false green)");
-assert.strictEqual(compCartNoSignal.statusLabel, "⚪ Värde saknas (Slot 6 / 7 / 9)", "woo_cart_fragments statusLabel indicates Slot 6 / 7 / 9");
+assert.strictEqual(compCartNoSignal.statusLabel, "⚪ Värde saknas (6. Elementor / 7. SCM / 9. LiteSpeed)", "woo_cart_fragments statusLabel indicates 6. Elementor / 7. SCM / 9. LiteSpeed");
 
 // 5c. Cart fragments with Elementor Menu Cart manual toggle = true
 const compCartElemToggle = sandbox.getOptionComparison(

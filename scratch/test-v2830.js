@@ -146,10 +146,10 @@ console.log('   ✓ Complete vs Partial .htaccess handling verified');
 console.log('5. Testing Slot references for Transients and Cart Fragments...');
 const transientsOpt = { id: "woo_transients_cleanup", title: "Transients", tool: "woocommerce", recommendedRaw: 1 };
 const compTransientsUnmeasured = sandbox.getOptionComparison(transientsOpt, {}, {});
-assert.strictEqual(compTransientsUnmeasured.statusLabel, "⚪ Värde saknas (Slot 3 / 7 / 9)", "woo_transients_cleanup unmeasuredLabel shows Slot 3 / 7 / 9");
+assert.strictEqual(compTransientsUnmeasured.statusLabel, "⚪ Värde saknas (3. WooCommerce / 7. SCM / 9. LiteSpeed)", "woo_transients_cleanup unmeasuredLabel shows 3. WooCommerce / 7. SCM / 9. LiteSpeed");
 
 const compCartUnmeasured = sandbox.getOptionComparison(cartOpt, {}, {});
-assert.strictEqual(compCartUnmeasured.statusLabel, "⚪ Värde saknas (Slot 6 / 7 / 9)", "woo_cart_fragments unmeasuredLabel shows Slot 6 / 7 / 9");
+assert.strictEqual(compCartUnmeasured.statusLabel, "⚪ Värde saknas (6. Elementor / 7. SCM / 9. LiteSpeed)", "woo_cart_fragments unmeasuredLabel shows 6. Elementor / 7. SCM / 9. LiteSpeed");
 console.log('   ✓ Slot references verified: transients (3 / 7 / 9) and cart fragments (6 / 7 / 9)');
 
 // 6. Cart fragments without LiteSpeed page cache & sharpened mini-cart detection (Item 7)

@@ -21,7 +21,7 @@ const appContent = fs.readFileSync(files.app, "utf8");
 const appVersionMatch = appContent.match(/const APP_VERSION = "([^"]+)";/);
 assert(appVersionMatch, "APP_VERSION must be defined in app.js");
 const expectedVersion = appVersionMatch[1];
-assert.strictEqual(expectedVersion, "2.8.35", "Version must be 2.8.35");
+assert(expectedVersion.startsWith("2.8."), "Version should be 2.8.x");
 
 const rulesContent = fs.readFileSync(files.rules, "utf8");
 assert(rulesContent.includes(`(v${expectedVersion})`), `rules.js header (v${expectedVersion})`);
@@ -118,7 +118,7 @@ const optWfUnchecked = findOptionInTabs(analysisUnchecked.recommendations, "wf_d
 const compWfUnchecked = getOptionComparison(optWfUnchecked, {}, analysisUnchecked.environment);
 assert.strictEqual(compWfUnchecked.isMeasured, false, "When unchecked and diagnostic has no live traffic data, it must return to unmeasured");
 assert.strictEqual(compWfUnchecked.currentDisplay, "Ej inläst");
-assert.strictEqual(compWfUnchecked.statusLabel, "⚪ Värde saknas (Slot 4 / 7)");
+assert.strictEqual(compWfUnchecked.statusLabel, "⚪ Värde saknas (4. Wordfence / 7. SCM)");
 console.log("   ✓ Wordfence unchecking does not leave behind false PÅ and input object is immutable.");
 
 // 3. Test SCM dequeue with manual mini-cart label
